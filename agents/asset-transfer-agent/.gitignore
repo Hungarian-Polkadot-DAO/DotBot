@@ -1,0 +1,54 @@
+# Asset Transfer Agent .gitignore
+
+# Agent-specific runtime files
+agent.db
+agent_state.json
+transfer_history.json
+pending_transfers.json
+
+# Private keys and sensitive data
+*.wallet
+*.key
+*.pem
+private_key.txt
+seed.txt
+mnemonic.txt
+
+# Agent logs
+agent.log
+transfer.log
+error.log
+debug.log
+
+# Local development
+.env.local
+.env.development
+test_config.yaml
+
+# Cache and temporary
+.cache/
+tmp/
+temp/
+__pycache__/
+
+# Testing artifacts
+test_results/
+coverage/
+.pytest_cache/
+
+# Substrate/Polkadot specific
+keystore/
+chain_data/
+substrate_cache/
+
+# Performance monitoring
+metrics.json
+performance.log
+
+# Development utilities
+scripts/test_*
+scripts/debug_*
+
+# IDE specific
+.vscode/launch.json
+.idea/runConfigurations/

@@ -1,0 +1,134 @@
+# Agents .gitignore (Python/Fetch.ai uAgents)
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Agent-specific files
+agent.db
+agent.sqlite
+*.wallet
+wallet.json
+
+# uAgent specific
+.uagents/
+agents_data/
+agent_mailbox/
+
+# Agent logs
+logs/
+*.log
+agent_*.log
+
+# Agent state
+state/
+data/
+storage/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Cache
+.cache/
+__pycache__/
+.pytest_cache/
+
+# Testing
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Development
+debug/
+test_data/
+
+# Deployment
+deployment/
+k8s/
+
+# Agent secrets (never commit these)
+private_key.txt
+seed.txt
+*.private
+*.secret
+
+# AgentVerse deployment artifacts
+.agentverse/
+deployment.yaml
+agent-manifest.json
+
+# Monitoring and metrics
+metrics/
+monitoring/
+
+# Documentation build
+docs/_build/
+
+# Backup files
+*.bak
+*.backup
+
+# Archive files
+*.zip
+*.tar.gz
+
+# Local configuration
+local_config.yaml
+local_settings.py
+
+# Performance profiling
+profile/
+*.prof
+
+# Memory dumps
+*.dump
+core.*

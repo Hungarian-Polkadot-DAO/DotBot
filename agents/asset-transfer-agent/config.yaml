@@ -1,0 +1,128 @@
+# AgentVerse Configuration for Asset Transfer Agent
+# This file configures the agent for deployment to Fetch.ai AgentVerse
+
+agent:
+  name: "DotBot Asset Transfer Agent"
+  description: "Handles DOT and token transfers across Polkadot ecosystem"
+  version: "1.0.0"
+  author: "DotBot Team"
+  
+  # Agent capabilities
+  capabilities:
+    - "asset_transfer"
+    - "balance_checking"
+    - "transaction_preparation"
+    - "cross_chain_transfer"
+  
+  # Supported networks
+  networks:
+    - "polkadot"
+    - "kusama" 
+    - "westend"
+  
+  # Supported assets
+  assets:
+    - "DOT"
+    - "KSM"
+    - "WND"
+
+# AgentVerse deployment settings
+deployment:
+  # Agent endpoint configuration
+  endpoint:
+    port: 8001
+    path: "/asset-transfer"
+  
+  # Resource requirements
+  resources:
+    memory: "512MB"
+    cpu: "0.5"
+    timeout: 30
+  
+  # Environment variables
+  environment:
+    POLKADOT_RPC_URL: "wss://rpc.polkadot.io"
+    KUSAMA_RPC_URL: "wss://kusama-rpc.polkadot.io"
+    WESTEND_RPC_URL: "wss://westend-rpc.polkadot.io"
+    LOG_LEVEL: "INFO"
+  
+  # Health check configuration
+  health_check:
+    path: "/health"
+    interval: 30
+    timeout: 10
+
+# Message models for AgentVerse
+models:
+  request:
+    TransferRequest:
+      amount: "string"
+      recipient: "string"
+      asset: "string"
+      network: "string"
+      sender_address: "string?"
+      message_id: "string?"
+  
+  response:
+    TransferResponse:
+      success: "boolean"
+      message: "string"
+      transaction_data: "object?"
+      error: "string?"
+      requires_signature: "boolean"
+
+# Communication protocols
+protocols:
+  - name: "transfer_protocol"
+    version: "1.0"
+    description: "Protocol for handling asset transfers"
+    
+  - name: "balance_protocol" 
+    version: "1.0"
+    description: "Protocol for checking account balances"
+
+# Integration with other agents
+integrations:
+  # Can work with these agents
+  compatible_agents:
+    - "asset-swap-agent"
+    - "governance-agent"
+    - "multisig-agent"
+  
+  # External services
+  external_services:
+    - name: "Polkadot RPC"
+      type: "blockchain"
+      required: true
+    
+    - name: "SubScan API"
+      type: "explorer"
+      required: false
+
+# Security settings
+security:
+  # Never store private keys
+  private_key_handling: false
+  
+  # Only prepare transactions, never sign
+  transaction_signing: false
+  
+  # Validation requirements
+  validation:
+    address_format: true
+    amount_limits: true
+    network_support: true
+
+# Usage examples for AgentVerse documentation
+examples:
+  - description: "Send DOT to address"
+    input: "Send 5 DOT to 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+    output: "Transfer prepared: 5 DOT to 5GrwvaEF..."
+  
+  - description: "Send using alias"
+    input: "Send 2 DOT to Alice"
+    output: "Transfer prepared: 2 DOT to Alice"
+  
+  - description: "Cross-chain transfer"
+    input: "Transfer 10 KSM to Bob"
+    output: "Kusama transfer prepared: 10 KSM to Bob"
