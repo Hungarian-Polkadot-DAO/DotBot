@@ -16,10 +16,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Setup Node.js
-      uses: actions/setup-node@v3
+      uses: actions/setup-node@v4
       with:
         node-version: '18'
         cache: 'npm'
@@ -38,7 +38,7 @@ jobs:
       run: npm run type-check
       
     - name: Setup Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v4
       with:
         python-version: '3.11'
         
@@ -66,17 +66,17 @@ jobs:
       backend-image: ${{ env.REGISTRY }}/${{ steps.repo-name.outputs.lowercase }}/backend:staging      
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Convert repository name to lowercase
       id: repo-name
       run: echo "lowercase=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
       
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+      uses: docker/setup-buildx-action@v3
       
     - name: Log in to Container Registry
-      uses: docker/login-action@v2
+      uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -92,7 +92,7 @@ jobs:
           type=sha,prefix=staging-
           
     - name: Build and push frontend image
-      uses: docker/build-push-action@v4
+      uses: docker/build-push-action@v5
       with:
         context: ./frontend
         push: true
@@ -111,7 +111,7 @@ jobs:
           type=sha,prefix=staging-
           
     - name: Build and push backend image
-      uses: docker/build-push-action@v4
+      uses: docker/build-push-action@v5
       with:
         context: ./backend
         push: true
@@ -128,7 +128,7 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       
     - name: Setup deployment files
       run: |
@@ -163,7 +163,7 @@ jobs:
         cp config/staging.env deploy/.env
         
     - name: Copy deployment files to server
-      uses: appleboy/scp-action@v0.1.4
+      uses: appleboy/scp-action@v0.1.5
       with:
         host: ${{ secrets.STAGING_HOST }}
         username: ${{ secrets.STAGING_USER }}
@@ -174,7 +174,7 @@ jobs:
         strip_components: 1
         
     - name: Deploy to staging server
-      uses: appleboy/ssh-action@v0.1.11
+      uses: appleboy/ssh-action@v1.0.0
       with:
         host: ${{ secrets.STAGING_HOST }}
         username: ${{ secrets.STAGING_USER }}
@@ -222,11 +222,6 @@ jobs:
           # Start services with pre-built images
           docker-compose up -d --force-recreate
           
-          # VERIFY DEPLOYED CONTAINER HAS CORRECT CODE
-          echo "=== VERIFYING DEPLOYED CONTAINER CODE ==="
-          sleep 10  # Wait for containers to start
-          docker-compose exec -T backend sed -n '17,19p' /app/main.py || echo "Could not verify backend code"
-          
           # Show container status for debugging
           echo "=== Container Status ==="
           docker ps -a
@@ -251,13 +246,13 @@ jobs:
           echo "=== Frontend Logs ==="
           docker logs dotbot_frontend_1 || true
           echo "=== Backend Logs ==="
-          docker logs dotbot_backend_1 || true
+          docker logs dotbot-backend-1 2>/dev/null || docker logs dotbot_backend_1 2>/dev/null || echo "Backend container not found"
           
           # Wait a bit more for backend to potentially crash and show error logs
           echo "=== Waiting for backend to stabilize or show crash logs ==="
           sleep 30
           echo "=== Backend Logs After Wait ==="
-          docker logs dotbot_backend_1 || true
+          docker logs dotbot-backend-1 2>/dev/null || docker logs dotbot_backend_1 2>/dev/null || echo "Backend container not found"
           
           # Wait for services to be ready
           sleep 60
