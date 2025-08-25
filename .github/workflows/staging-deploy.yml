@@ -146,6 +146,17 @@ jobs:
             image: ${{ needs.build.outputs.backend-image }}
         EOF
         
+    - name: Copy deployment files to server
+      uses: appleboy/scp-action@v0.1.5
+      with:
+        host: ${{ secrets.STAGING_HOST }}
+        username: ${{ secrets.STAGING_USER }}
+        key: ${{ secrets.STAGING_SSH_KEY }}
+        port: ${{ secrets.STAGING_PORT || 22 }}
+        source: "deploy/*"
+        target: "/opt/dotbot"
+        strip_components: 1
+        
     - name: Deploy to staging server
       uses: appleboy/ssh-action@v1.0.0
       with:
@@ -182,22 +193,11 @@ jobs:
           
           # Check health
           curl -f http://localhost:3010/health || exit 1
-          curl -f http://localhost:3010/api/health || exit 1
+          curl -f http://localhost:3011/api/health || exit 1
           
           # Cleanup old images
           docker image prune -af
           
-    - name: Copy deployment files to server
-      uses: appleboy/scp-action@v0.1.5
-      with:
-        host: ${{ secrets.STAGING_HOST }}
-        username: ${{ secrets.STAGING_USER }}
-        key: ${{ secrets.STAGING_SSH_KEY }}
-        port: ${{ secrets.STAGING_PORT || 22 }}
-        source: "deploy/*"
-        target: "/opt/dotbot"
-        strip_components: 1
-        
   notify:
     name: Send Notifications
     runs-on: ubuntu-latest
