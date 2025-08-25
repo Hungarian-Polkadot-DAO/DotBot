@@ -280,7 +280,6 @@ jobs:
           
           :link: Frontend - http://${{ secrets.STAGING_HOST }}:3010
           :gear: Backend API - http://${{ secrets.STAGING_HOST }}:3011
-
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         
@@ -326,7 +325,6 @@ jobs:
       run: |
         # Test API endpoints (direct port access)
         response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.STAGING_HOST }}:3011/api/status)
-
         if [ "$response" != "200" ]; then
           echo "API status check failed with response code: $response"
           exit 1
