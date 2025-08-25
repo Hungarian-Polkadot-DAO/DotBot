@@ -1,0 +1,51 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [ staging ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Staging Server
+    runs-on: ubuntu-latest
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to staging server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.STAGING_HOST }}
+        username: ${{ secrets.STAGING_USER }}
+        key: ${{ secrets.STAGING_SSH_KEY }}
+        port: 22
+        script: |
+          # Navigate to the app directory
+          cd /opt/dotbot
+          
+          # Pull latest changes
+          git fetch origin
+          git checkout staging
+          git pull origin staging
+          
+          # Stop existing containers
+          docker-compose -f docker-compose.simple.yml down || true
+          
+          # Build and start containers
+          docker-compose -f docker-compose.simple.yml up -d --build
+          
+          # Wait for services to be ready
+          sleep 10
+          
+          # Check if containers are running
+          docker-compose -f docker-compose.simple.yml ps
+          
+          # Test health endpoints
+          curl -f http://localhost:3010/health || echo "Frontend health check failed"
+          curl -f http://localhost:3011/api/health || echo "Backend health check failed"
+          
+          # Clean up old images
+          docker image prune -af
