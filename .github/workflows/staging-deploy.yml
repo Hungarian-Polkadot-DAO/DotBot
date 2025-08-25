@@ -169,7 +169,7 @@ jobs:
         key: ${{ secrets.STAGING_SSH_KEY }}
         port: ${{ secrets.STAGING_PORT || 22 }}
         script_stop: true
-        timeout: 20m
+        timeout: 30m
         script: |
           # Set deployment directory
           DEPLOY_DIR="/opt/dotbot"
@@ -196,8 +196,12 @@ jobs:
           # Pull latest images
           docker-compose pull
           
-          # Start services (rebuild with timestamp to force code refresh)
-          BUILD_DATE=$(date +%s) docker-compose build --pull --build-arg BUILD_DATE=$(date +%s)
+          # NUCLEAR OPTION: Force complete rebuild by removing all images first
+          docker-compose down --rmi all --volumes --remove-orphans || true
+          docker system prune -af || true
+          
+          # Start services (complete rebuild from scratch)
+          BUILD_DATE=$(date +%s) docker-compose build --no-cache --pull --build-arg BUILD_DATE=$(date +%s)
           docker-compose up -d --force-recreate
           
           # Show container status for debugging

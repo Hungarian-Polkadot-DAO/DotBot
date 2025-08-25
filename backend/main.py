@@ -14,7 +14,7 @@ import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
-# Fixed absolute imports for Docker compatibility - v2.0 
+# ABSOLUTE IMPORTS ONLY - NO RELATIVE IMPORTS - FORCED REBUILD v3.0
 from services.memory_service import MemoryService
 from services.payment_service import PaymentService
 
