@@ -198,8 +198,26 @@ jobs:
           # Start services (rebuild to ensure latest code)
           docker-compose up -d --build
           
+          # Show container status for debugging
+          echo "=== Container Status ==="
+          docker ps -a
+          
+          # Show logs if containers are failing
+          echo "=== Frontend Logs ==="
+          docker logs dotbot_frontend_1 || true
+          echo "=== Backend Logs ==="
+          docker logs dotbot_backend_1 || true
+          
           # Wait for services to be ready
           sleep 60
+          
+          # Check container health before curl tests
+          echo "=== Final Container Status ==="
+          docker ps -a
+          
+          # Test backend internal port first
+          echo "=== Testing Backend Internal ==="
+          docker exec dotbot_backend_1 curl -f http://localhost:8000/api/health || echo "Backend internal health check failed"
           
           # Check health
           curl -f http://localhost:3010/health || exit 1
