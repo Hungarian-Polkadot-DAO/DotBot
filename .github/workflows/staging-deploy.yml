@@ -199,19 +199,17 @@ jobs:
           docker rmi $(docker images -q ghcr.io/zelmacorp/dotbot/frontend 2>/dev/null) 2>/dev/null || true
           docker rmi $(docker images -q ghcr.io/zelmacorp/dotbot/backend 2>/dev/null) 2>/dev/null || true
           
-          # VERIFY SOURCE CODE VERSION BEFORE BUILD
-          echo "=== VERIFYING LOCAL SOURCE CODE ==="
-          echo "Line 17-19 of main.py should have ABSOLUTE imports:"
-          sed -n '17,19p' main.py
+          # Pull the latest pre-built images
+          echo "=== PULLING LATEST IMAGES ==="
+          docker-compose pull
           
-          # Force build from source ONLY - NO PULLING FROM REGISTRY
-          BUILD_DATE=$(date +%s) docker-compose build --no-cache --build-arg BUILD_DATE=$(date +%s)
-          
-          # VERIFY BUILT CONTAINER HAS CORRECT CODE
-          echo "=== VERIFYING BUILT CONTAINER CODE ==="
-          docker run --rm ghcr.io/zelmacorp/dotbot/backend:staging sed -n '17,19p' /app/main.py || echo "Container not found"
-          
+          # Start services with pre-built images
           docker-compose up -d --force-recreate
+          
+          # VERIFY DEPLOYED CONTAINER HAS CORRECT CODE
+          echo "=== VERIFYING DEPLOYED CONTAINER CODE ==="
+          sleep 10  # Wait for containers to start
+          docker-compose exec -T backend sed -n '17,19p' /app/main.py || echo "Could not verify backend code"
           
           # Show container status for debugging
           echo "=== Container Status ==="
