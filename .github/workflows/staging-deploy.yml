@@ -136,8 +136,8 @@ jobs:
         # Create deployment directory structure
         mkdir -p deploy
         
-        # Copy necessary files for deployment
-        cp docker-compose.yml deploy/
+        # Copy simple docker-compose (no Traefik) and environment file
+        cp docker-compose.simple.yml deploy/docker-compose.yml
         cp config/staging.env deploy/.env
         
         # Create docker-compose override for staging with proper image references
@@ -221,8 +221,8 @@ jobs:
         text: |
           Staging deployment ${{ job.status == 'success' && 'succeeded' || 'failed' }}!
           
-          :link: https://sandbox.dotbot.zelmacorp.io
-          :chart_with_upwards_trend: https://traefik.sandbox.dotbot.zelmacorp.io
+          :link: Frontend - http://${{ secrets.STAGING_HOST }}:3010
+          :gear: Backend API - http://${{ secrets.STAGING_HOST }}:3011
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         
@@ -236,7 +236,7 @@ jobs:
             repo: context.repo.repo,
             deployment_id: context.payload.deployment?.id || 0,
             state: '${{ needs.deploy.result }}',
-            environment_url: 'https://sandbox.dotbot.zelmacorp.io',
+            environment_url: 'http://${{ secrets.STAGING_HOST }}:3010',
             description: 'Staging deployment ${{ needs.deploy.result }}'
           });
 
@@ -251,19 +251,19 @@ jobs:
       
     - name: Check application health
       run: |
-        # Check frontend
-        curl -f https://sandbox.dotbot.zelmacorp.io/health
+        # Check frontend (direct port access)
+        curl -f http://${{ secrets.STAGING_HOST }}:3010/health
         
-        # Check backend API
-        curl -f https://sandbox.dotbot.zelmacorp.io/api/health
+        # Check backend API (direct port access)
+        curl -f http://${{ secrets.STAGING_HOST }}:3011/api/health
         
-        # Check that the site loads
-        curl -f https://sandbox.dotbot.zelmacorp.io/ | grep -q "DotBot"
+        # Check that the frontend loads
+        curl -f http://${{ secrets.STAGING_HOST }}:3010/ | grep -q "DotBot"
         
     - name: Run basic smoke tests
       run: |
-        # Test API endpoints
-        response=$(curl -s -o /dev/null -w "%{http_code}" https://sandbox.dotbot.zelmacorp.io/api/status)
+        # Test API endpoints (direct port access)
+        response=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.STAGING_HOST }}:3011/api/status)
         if [ "$response" != "200" ]; then
           echo "API status check failed with response code: $response"
           exit 1
