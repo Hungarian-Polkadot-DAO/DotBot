@@ -9,12 +9,17 @@ jobs:
   deploy:
     name: Deploy to Staging Server
     runs-on: ubuntu-latest
-    environment: staging
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Run frontend tests
+      working-directory: ./frontend
+      run: |
+        npm ci
+        npm test -- --coverage --watchAll=false
+        
     - name: Deploy to staging server
       uses: appleboy/ssh-action@v1.0.0
       with:
