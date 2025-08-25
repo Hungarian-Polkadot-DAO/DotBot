@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3010:80"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3011:8000"
+    environment:
+      - NODE_ENV=production
+      - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
+      - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
+    restart: unless-stopped

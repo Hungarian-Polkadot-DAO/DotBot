@@ -196,9 +196,9 @@ const App: React.FC = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className=\"flex h-screen bg-gray-950 text-white\">
+      <div className="flex h-screen bg-gray-950 text-white">
         {/* Sidebar */}
-        <div className=\"w-80 flex-shrink-0\">
+        <div className="w-80 flex-shrink-0">
           <Sidebar
             sessions={sessions}
             currentSessionId={currentSession?.id || null}

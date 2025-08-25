@@ -199,7 +199,7 @@ export class AgentCommunicationService {
   async checkAgentAvailability(): Promise<Record<string, boolean>> {
     const availability: Record<string, boolean> = {};
     
-    for (const [agentId] of this.agents) {
+    for (const agentId of this.agents.keys()) {
       try {
         // Ping agent endpoint
         const response = await fetch(`${this.asiOneEndpoint}/agents/${agentId}/health`, {

@@ -26,20 +26,20 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <div className={`flex flex-col h-full bg-gray-900 border-r border-gray-700 ${className}`}>
       {/* Header with New Chat button */}
-      <div className=\"p-4 border-b border-gray-700\">
+      <div className="p-4 border-b border-gray-700">
         <NewChatButton onClick={onNewChat} />
       </div>
 
       {/* Search functionality (placeholder for future) */}
-      <div className=\"p-4 border-b border-gray-700\">
-        <div className=\"flex items-center space-x-3 text-gray-400 cursor-pointer hover:text-gray-300 transition-colors\">
-          <div className=\"w-4 h-4\">🔍</div>
-          <span className=\"text-sm\">Search Chat</span>
+      <div className="p-4 border-b border-gray-700">
+        <div className="flex items-center space-x-3 text-gray-400 cursor-pointer hover:text-gray-300 transition-colors">
+          <div className="w-4 h-4">🔍</div>
+          <span className="text-sm">Search Chat</span>
         </div>
       </div>
 
       {/* Chat History */}
-      <div className=\"flex-1 overflow-y-auto\">
+      <div className="flex-1 overflow-y-auto">
         <ChatHistory
           sessions={sessions}
           currentSessionId={currentSessionId}
@@ -49,29 +49,29 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Transaction History Link */}
-      <div className=\"border-t border-gray-700 p-4\">
-        <div className=\"flex items-center space-x-3 text-gray-400 cursor-pointer hover:text-gray-300 transition-colors\">
-          <div className=\"w-4 h-4\">📊</div>
-          <span className=\"text-sm\">Transactions</span>
+      <div className="border-t border-gray-700 p-4">
+        <div className="flex items-center space-x-3 text-gray-400 cursor-pointer hover:text-gray-300 transition-colors">
+          <div className="w-4 h-4">📊</div>
+          <span className="text-sm">Transactions</span>
         </div>
       </div>
 
       {/* Footer with settings and user info */}
-      <div className=\"border-t border-gray-700 p-4\">
-        <div className=\"flex items-center justify-between\">
-          <div className=\"flex items-center space-x-2\">
-            <div className=\"w-8 h-8 bg-gradient-to-r from-pink-500 to-violet-500 rounded-full flex items-center justify-center text-white text-sm font-semibold\">
+      <div className="border-t border-gray-700 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 bg-gradient-to-r from-pink-500 to-violet-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
               D
             </div>
-            <span className=\"text-sm text-gray-300\">DotBot User</span>
+            <span className="text-sm text-gray-300">DotBot User</span>
           </div>
-          <button className=\"text-gray-400 hover:text-gray-300 transition-colors\">
+          <button className="text-gray-400 hover:text-gray-300 transition-colors">
             ⚙️
           </button>
         </div>
         
         {/* Powered by ASI.One */}
-        <div className=\"mt-2 text-xs text-gray-500\">
+        <div className="mt-2 text-xs text-gray-500">
           Powered by ASI.One
         </div>
       </div>

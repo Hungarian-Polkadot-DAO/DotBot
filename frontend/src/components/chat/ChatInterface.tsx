@@ -52,40 +52,40 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   // Welcome message when no session
   const renderWelcomeMessage = () => (
-    <div className=\"flex flex-col items-center justify-center h-full text-center p-8\">
-      <div className=\"mb-8\">
-        <h1 className=\"text-4xl font-bold mb-4 bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent\">
+    <div className="flex flex-col items-center justify-center h-full text-center p-8">
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
           DotBot
         </h1>
-        <p className=\"text-lg text-gray-400 mb-8\">
+        <p className="text-lg text-gray-400 mb-8">
           What's the dot you need help with?
         </p>
       </div>
       
       {/* Quick action buttons matching the design */}
-      <div className=\"flex gap-4 mb-8\">
+      <div className="flex gap-4 mb-8">
         <button
           onClick={() => onSendMessage('Check my balance')}
-          className=\"flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors\"
+          className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
         >
-          <div className=\"w-8 h-8 mb-2\">📊</div>
-          <span className=\"text-sm text-gray-300\">Check Balance</span>
+          <div className="w-8 h-8 mb-2">📊</div>
+          <span className="text-sm text-gray-300">Check Balance</span>
         </button>
         
         <button
           onClick={() => onSendMessage('Transfer DOT')}
-          className=\"flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors\"
+          className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
         >
-          <div className=\"w-8 h-8 mb-2\">⇄</div>
-          <span className=\"text-sm text-gray-300\">Transfer</span>
+          <div className="w-8 h-8 mb-2">⇄</div>
+          <span className="text-sm text-gray-300">Transfer</span>
         </button>
         
         <button
           onClick={() => onSendMessage('Check network status')}
-          className=\"flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors\"
+          className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
         >
-          <div className=\"w-8 h-8 mb-2\">📈</div>
-          <span className=\"text-sm text-gray-300\">Status</span>
+          <div className="w-8 h-8 mb-2">📈</div>
+          <span className="text-sm text-gray-300">Status</span>
         </button>
       </div>
     </div>
@@ -94,7 +94,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   return (
     <div className={`flex flex-col h-full ${className}`}>
       {/* Messages area */}
-      <div className=\"flex-1 overflow-y-auto p-4 space-y-4\">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {!session || session.messages.length === 0 ? (
           renderWelcomeMessage()
         ) : (
@@ -113,14 +113,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </div>
 
       {/* Input area */}
-      <div className=\"border-t border-gray-700 p-4\">
+      <div className="border-t border-gray-700 p-4">
         <InputField
           value={inputValue}
           onChange={setInputValue}
           onSend={handleSendMessage}
           onKeyPress={handleKeyPress}
           onVoiceInput={onVoiceInput}
-          placeholder=\"Type your message...\"
+          placeholder="Type your message..."
           disabled={isTyping}
         />
       </div>
