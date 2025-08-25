@@ -266,7 +266,7 @@ jobs:
     steps:
     - name: Notify deployment status
       uses: 8398a7/action-slack@v3
-      if: always()
+      if: always() && secrets.SLACK_WEBHOOK_URL != ''
       with:
         status: ${{ job.status }}
         channel: '#deployments'
@@ -283,17 +283,21 @@ jobs:
         
     - name: Create deployment status
       uses: actions/github-script@v7
-      if: always()
+      if: always() && github.event_name == 'deployment'
       with:
         script: |
-          github.rest.repos.createDeploymentStatus({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            deployment_id: context.payload.deployment?.id || 0,
-            state: '${{ needs.deploy.result }}',
-            environment_url: 'http://${{ secrets.STAGING_HOST }}:3010',
-            description: 'Staging deployment ${{ needs.deploy.result }}'
-          });
+          if (context.payload.deployment?.id) {
+            github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: context.payload.deployment.id,
+              state: '${{ needs.deploy.result }}',
+              environment_url: 'http://${{ secrets.STAGING_HOST }}:3010',
+              description: 'Staging deployment ${{ needs.deploy.result }}'
+            });
+          } else {
+            console.log('No deployment context available, skipping deployment status update');
+          }
 
   health-check:
     name: Post-Deployment Health Check
