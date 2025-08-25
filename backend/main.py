@@ -12,10 +12,10 @@ from fastapi.responses import JSONResponse
 import uvicorn
 import logging
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
-from .services.memory_service import MemoryService
-from .services.payment_service import PaymentService
+from services.memory_service import MemoryService
+from services.payment_service import PaymentService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -75,7 +75,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "services": {
             "memory": memory_service is not None,
             "payment": payment_service is not None
@@ -200,7 +200,7 @@ async def proxy_agent_message(agent_id: str, message_data: Dict[str, Any]):
     enhanced_message = {
         **message_data,
         "backend_enhanced": True,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
     
     # TODO: Forward to actual agent
