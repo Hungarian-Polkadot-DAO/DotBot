@@ -12,7 +12,7 @@ services:
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN_NAME}`) || Host(`localhost`)"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
 
@@ -24,12 +24,14 @@ services:
       - NODE_ENV=${NODE_ENV:-production}
       - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
       - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
+    ports:
+      - "3011:8000"
     networks:
       - dotbot-network
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`${DOMAIN_NAME}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.rule=(Host(`${DOMAIN_NAME}`) || Host(`localhost`)) && PathPrefix(`/api`)"
       - "traefik.http.routers.backend.tls=true"
       - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
 
