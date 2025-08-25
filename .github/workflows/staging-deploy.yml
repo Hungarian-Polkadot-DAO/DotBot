@@ -62,8 +62,8 @@ jobs:
       packages: write
       
     outputs:
-      frontend-image: ${{ steps.meta-frontend.outputs.tags }}
-      backend-image: ${{ steps.meta-backend.outputs.tags }}
+      frontend-image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend:staging
+      backend-image: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend:staging
       
     steps:
     - name: Checkout code
@@ -136,14 +136,14 @@ jobs:
         cp docker-compose.yml deploy/
         cp config/staging.env deploy/.env
         
-        # Create docker-compose override for staging with proper YAML formatting
+        # Create docker-compose override for staging with proper image references
         cat > deploy/docker-compose.override.yml << 'EOF'
         version: '3.8'
         services:
           frontend:
-            image: "${{ needs.build.outputs.frontend-image }}"
+            image: ${{ needs.build.outputs.frontend-image }}
           backend:
-            image: "${{ needs.build.outputs.backend-image }}"
+            image: ${{ needs.build.outputs.backend-image }}
         EOF
         
     - name: Copy deployment files to server
