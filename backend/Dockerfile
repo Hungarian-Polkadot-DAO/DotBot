@@ -16,6 +16,10 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Add build argument to bust cache for code changes
+ARG BUILD_DATE
+ENV BUILD_DATE=${BUILD_DATE}
+
 # Copy source code
 COPY . .
 

@@ -196,8 +196,8 @@ jobs:
           # Pull latest images
           docker-compose pull
           
-          # Start services (rebuild to ensure latest code)
-          docker-compose build --pull
+          # Start services (rebuild with timestamp to force code refresh)
+          BUILD_DATE=$(date +%s) docker-compose build --pull --build-arg BUILD_DATE=$(date +%s)
           docker-compose up -d --force-recreate
           
           # Show container status for debugging
