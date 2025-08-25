@@ -249,6 +249,12 @@ jobs:
           echo "=== Backend Logs ==="
           docker logs dotbot_backend_1 || true
           
+          # Wait a bit more for backend to potentially crash and show error logs
+          echo "=== Waiting for backend to stabilize or show crash logs ==="
+          sleep 30
+          echo "=== Backend Logs After Wait ==="
+          docker logs dotbot_backend_1 || true
+          
           # Wait for services to be ready
           sleep 60
           
