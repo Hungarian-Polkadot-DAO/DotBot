@@ -181,8 +181,8 @@ jobs:
           sleep 30
           
           # Check health
-          curl -f http://localhost/health || exit 1
-          curl -f http://localhost:8000/api/health || exit 1
+          curl -f http://localhost:3010/health || exit 1
+          curl -f http://localhost:3010/api/health || exit 1
           
           # Cleanup old images
           docker image prune -af
