@@ -2,7 +2,7 @@ name: Deploy to Production
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   release:
     types: [ published ]
   workflow_dispatch:  # Allow manual triggering
@@ -91,12 +91,16 @@ jobs:
       packages: write
       
     outputs:
-      frontend-image: ${{ steps.meta-frontend.outputs.tags }}
-      backend-image: ${{ steps.meta-backend.outputs.tags }}
+      frontend-image: ${{ env.REGISTRY }}/${{ steps.repo-name.outputs.lowercase }}/frontend:latest
+      backend-image: ${{ env.REGISTRY }}/${{ steps.repo-name.outputs.lowercase }}/backend:latest
       
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      
+    - name: Convert repository name to lowercase
+      id: repo-name
+      run: echo "lowercase=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
       
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -112,12 +116,13 @@ jobs:
       id: meta-frontend
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/frontend
+        images: ${{ env.REGISTRY }}/${{ steps.repo-name.outputs.lowercase }}/frontend
         tags: |
           type=ref,event=branch
           type=sha,prefix=prod-
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest
           
     - name: Build and push frontend image
       uses: docker/build-push-action@v5
@@ -133,12 +138,13 @@ jobs:
       id: meta-backend
       uses: docker/metadata-action@v5
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/backend
+        images: ${{ env.REGISTRY }}/${{ steps.repo-name.outputs.lowercase }}/backend
         tags: |
           type=ref,event=branch
           type=sha,prefix=prod-
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
+          type=raw,value=latest
           
     - name: Build and push backend image
       uses: docker/build-push-action@v5
@@ -165,19 +171,43 @@ jobs:
         # Create deployment directory structure
         mkdir -p deploy
         
-        # Copy necessary files for deployment
-        cp docker-compose.yml deploy/
+        # Copy environment file
         cp config/production.env deploy/.env
         
-        # Create docker-compose override for production
-        cat > deploy/docker-compose.override.yml << EOF
+        # Create docker-compose for deployment (images only, no build contexts)
+        cat > deploy/docker-compose.yml << 'EOF'
         version: '3.8'
+        
         services:
           frontend:
             image: ${{ needs.build.outputs.frontend-image }}
+            ports:
+              - "3020:80"
+            environment:
+              - NODE_ENV=production
+            restart: unless-stopped
+        
           backend:
             image: ${{ needs.build.outputs.backend-image }}
+            ports:
+              - "3021:8000"
+            environment:
+              - NODE_ENV=production
+              - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
+              - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
+            restart: unless-stopped
         EOF
+        
+    - name: Copy deployment files to server
+      uses: appleboy/scp-action@v0.1.5
+      with:
+        host: ${{ secrets.PRODUCTION_HOST }}
+        username: ${{ secrets.PRODUCTION_USER }}
+        key: ${{ secrets.PRODUCTION_SSH_KEY }}
+        port: ${{ secrets.PRODUCTION_PORT || 22 }}
+        source: "deploy/*"
+        target: "/opt/dotbot"
+        strip_components: 1
         
     - name: Deploy to production server
       uses: appleboy/ssh-action@v1.0.0
@@ -187,6 +217,7 @@ jobs:
         key: ${{ secrets.PRODUCTION_SSH_KEY }}
         port: ${{ secrets.PRODUCTION_PORT || 22 }}
         script_stop: true
+        timeout: 30m
         script: |
           # Set deployment directory
           DEPLOY_DIR="/opt/dotbot"
@@ -201,40 +232,41 @@ jobs:
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # Create backup of current deployment
-          if [ -f docker-compose.yml ]; then
-            cp docker-compose.yml docker-compose.yml.backup.$(date +%Y%m%d_%H%M%S)
-          fi
+          # CLEANUP: Stop existing services
+          docker-compose down --remove-orphans || true
           
-          # Stop existing services gracefully
-          docker-compose down --timeout 30 || true
+          # Free up any processes using our target ports
+          sudo lsof -ti:3020 | xargs sudo kill -9 2>/dev/null || true
+          sudo lsof -ti:3021 | xargs sudo kill -9 2>/dev/null || true
           
-          # Pull latest images
+          # Clean up old containers and images to ensure fresh deployment
+          docker container prune -f || true
+          docker image prune -f || true
+          
+          # Pull the pre-built images from registry
+          echo "=== PULLING PRE-BUILT IMAGES ==="
           docker-compose pull
           
-          # Start services
-          docker-compose up -d
+          # Start services with pre-built images
+          docker-compose up -d --force-recreate
+          
+          # Show container status for debugging
+          echo "=== Container Status ==="
+          docker ps -a
           
           # Wait for services to be ready
           sleep 60
           
+          # Check container health before curl tests
+          echo "=== Final Container Status ==="
+          docker ps -a
+          
           # Check health
-          curl -f http://localhost/health || exit 1
-          curl -f http://localhost:8000/api/health || exit 1
+          curl -f http://localhost:3020/health || exit 1
+          curl -f http://localhost:3021/api/health || exit 1
           
           # Cleanup old images
           docker image prune -af
-          
-    - name: Copy deployment files to server
-      uses: appleboy/scp-action@v0.1.5
-      with:
-        host: ${{ secrets.PRODUCTION_HOST }}
-        username: ${{ secrets.PRODUCTION_USER }}
-        key: ${{ secrets.PRODUCTION_SSH_KEY }}
-        port: ${{ secrets.PRODUCTION_PORT || 22 }}
-        source: "deploy/*"
-        target: "/opt/dotbot"
-        strip_components: 1
 
   health-check:
     name: Post-Deployment Health Check
@@ -247,10 +279,10 @@ jobs:
       
     - name: Comprehensive health checks
       run: |
-        # Check frontend
+        # Check frontend (through Nginx)
         curl -f https://live.dotbot.zelmacorp.io/health
         
-        # Check backend API
+        # Check backend API (through Nginx)
         curl -f https://live.dotbot.zelmacorp.io/api/health
         
         # Check that the site loads
@@ -262,6 +294,10 @@ jobs:
           echo "API status check failed with response code: $response"
           exit 1
         fi
+        
+        # Direct port checks (internal)
+        curl -f http://${{ secrets.PRODUCTION_HOST }}:3020/health || echo "Direct frontend check failed"
+        curl -f http://${{ secrets.PRODUCTION_HOST }}:3021/api/health || echo "Direct backend check failed"
         
         echo "✅ All health checks passed!"
         
