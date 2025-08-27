@@ -180,21 +180,25 @@ jobs:
         # Copy environment file
         cp config/production.env deploy/.env
         
-        # Create docker-compose for deployment (images only, no build contexts)
-        cat > deploy/docker-compose.yml << 'EOF'
+        # Create docker-compose for production deployment with unique container names
+        cat > deploy/docker-compose.production.yml << 'EOF'
         version: '3.8'
         
         services:
-          frontend:
+          frontend-prod:
             image: ${{ needs.build.outputs.frontend-image }}
+            container_name: dotbot-production-frontend
             ports:
               - "3020:80"
             environment:
               - NODE_ENV=production
             restart: unless-stopped
+            networks:
+              - dotbot-production
         
-          backend:
+          backend-prod:
             image: ${{ needs.build.outputs.backend-image }}
+            container_name: dotbot-production-backend
             ports:
               - "3021:8000"
             environment:
@@ -202,6 +206,15 @@ jobs:
               - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
               - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
             restart: unless-stopped
+            networks:
+              - dotbot-production
+            depends_on:
+              - frontend-prod
+        
+        networks:
+          dotbot-production:
+            name: dotbot-production
+            driver: bridge
         EOF
         
     - name: Copy deployment files to server
@@ -238,8 +251,8 @@ jobs:
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # CLEANUP: Stop existing services
-          docker-compose down --remove-orphans || true
+          # CLEANUP: Stop existing production services only
+          docker-compose -f docker-compose.production.yml down --remove-orphans || true
           
           # Free up any processes using our target ports
           sudo lsof -ti:3020 | xargs sudo kill -9 2>/dev/null || true
@@ -251,10 +264,10 @@ jobs:
           
           # Pull the pre-built images from registry
           echo "=== PULLING PRE-BUILT IMAGES ==="
-          docker-compose pull
+          docker-compose -f docker-compose.production.yml pull
           
-          # Start services with pre-built images
-          docker-compose up -d --force-recreate
+          # Start production services with pre-built images
+          docker-compose -f docker-compose.production.yml up -d --force-recreate
           
           # Show container status for debugging
           echo "=== Container Status ==="

@@ -59,6 +59,10 @@ chmod +x setup-server.sh
 ./setup-server.sh
 ```
 
+**Deployment Isolation:** Both environments use `/opt/dotbot` but run as separate containers:
+- **Staging:** Uses `docker-compose.yml` with default container names (ports 3010/3011)
+- **Production:** Uses `docker-compose.production.yml` with unique container names (ports 3020/3021)
+
 ### 2. Nginx Setup (Manual Configuration)
 The project uses an external Nginx reverse proxy that you configure manually:
 
@@ -125,6 +129,27 @@ This separation prevents port conflicts when running both environments on the sa
 
 ### Container Health Checks
 Both Docker containers include built-in health checks that automatically restart unhealthy containers.
+
+### Container Management
+```bash
+# View all containers
+docker ps -a
+
+# Staging containers (default names)
+docker logs dotbot_frontend_1
+docker logs dotbot_backend_1
+
+# Production containers (explicit names)
+docker logs dotbot-production-frontend
+docker logs dotbot-production-backend
+
+# Stop/start specific environment
+docker-compose down                                    # Staging
+docker-compose -f docker-compose.production.yml down  # Production
+
+docker-compose up -d                                          # Staging
+docker-compose -f docker-compose.production.yml up -d        # Production
+```
 
 ## 🔧 Troubleshooting
 
