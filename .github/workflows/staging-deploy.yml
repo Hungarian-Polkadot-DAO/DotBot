@@ -214,9 +214,13 @@ jobs:
           docker rm dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
           docker network rm dotbot-staging 2>/dev/null || true
           
-          # Deploy staging services
+          # Force remove any corrupted containers/images
+          docker container prune -f || true
+          docker image prune -f || true
+          
+          # Deploy staging services (without --force-recreate to avoid ContainerConfig bug)
           docker-compose pull
-          docker-compose up -d --force-recreate
+          docker-compose up -d
           
           # Wait for services to start
           sleep 30
