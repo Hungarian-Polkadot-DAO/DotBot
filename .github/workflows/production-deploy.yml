@@ -251,16 +251,16 @@ jobs:
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # CLEANUP: Stop existing production services only
-          docker-compose -f docker-compose.production.yml down --remove-orphans || true
+          # CLEANUP: Stop existing production services only (specific containers)
+          docker stop dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
+          docker rm dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
           
-          # Free up any processes using our target ports
+          # Free up production ports only
           sudo lsof -ti:3020 | xargs sudo kill -9 2>/dev/null || true
           sudo lsof -ti:3021 | xargs sudo kill -9 2>/dev/null || true
           
-          # Clean up old containers and images to ensure fresh deployment
-          docker container prune -f || true
-          docker image prune -f || true
+          # Clean up only production-related containers and images (not staging)
+          docker network rm dotbot-production 2>/dev/null || true
           
           # Pull the pre-built images from registry
           echo "=== PULLING PRE-BUILT IMAGES ==="
@@ -284,8 +284,8 @@ jobs:
           curl -f http://localhost:3020/health || exit 1
           curl -f http://localhost:3021/api/health || exit 1
           
-          # Cleanup old images
-          docker image prune -af
+          # Cleanup old production images only (preserve staging)
+          docker image prune -f --filter "until=24h" --filter "label=stage=production" || true
 
   health-check:
     name: Post-Deployment Health Check

@@ -135,7 +135,7 @@ jobs:
         # Create deployment directory structure
         mkdir -p deploy
         
-        # Create docker-compose for deployment (images only, no build contexts)
+        # Create docker-compose for staging deployment
         cat > deploy/docker-compose.yml << 'EOF'
         version: '3.8'
         
@@ -145,18 +145,29 @@ jobs:
             ports:
               - "3010:80"
             environment:
-              - NODE_ENV=production
+              - NODE_ENV=staging
             restart: unless-stopped
+            networks:
+              - dotbot-staging
         
           backend:
             image: ${{ needs.build.outputs.backend-image }}
             ports:
               - "3011:8000"
             environment:
-              - NODE_ENV=production
+              - NODE_ENV=staging
               - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
               - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
             restart: unless-stopped
+            networks:
+              - dotbot-staging
+            depends_on:
+              - frontend
+        
+        networks:
+          dotbot-staging:
+            name: dotbot-staging
+            driver: bridge
         EOF
         
         # Copy environment file
@@ -196,16 +207,15 @@ jobs:
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # CLEANUP: Stop existing services
+          # CLEANUP: Stop existing staging services only
           docker-compose down --remove-orphans || true
           
-          # Free up any processes using our target ports
+          # Free up staging ports only
           sudo lsof -ti:3010 | xargs sudo kill -9 2>/dev/null || true
           sudo lsof -ti:3011 | xargs sudo kill -9 2>/dev/null || true
           
-          # Clean up old containers and images to ensure fresh deployment
-          docker container prune -f || true
-          docker image prune -f || true
+          # Clean up only old staging images (not production containers)
+          docker image prune -f --filter "until=24h" || true
           
           # VERIFY PRE-BUILT IMAGES
           echo "=== USING PRE-BUILT IMAGES FROM REGISTRY ==="
