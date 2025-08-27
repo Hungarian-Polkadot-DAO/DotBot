@@ -8,7 +8,12 @@ import { storageService } from './services/storageService';
 import { AgentCommunicationService } from './services/agentCommunication';
 import Sidebar from './components/sidebar/Sidebar';
 import ChatInterface from './components/chat/ChatInterface';
+import { createSubsystemLogger } from './config/logger';
+import { Subsystem } from './types/logging';
 import './styles/globals.css';
+
+// Initialize logger for the main App
+const logger = createSubsystemLogger(Subsystem.APP);
 
 // React Query client
 const queryClient = new QueryClient({
@@ -34,9 +39,13 @@ const App: React.FC = () => {
   }, []);
 
   const initializeApp = async () => {
+    logger.info("DotBot Frontend starting up - Hello World from logging system!");
+    
     // Load saved sessions
+    logger.debug("Loading saved chat sessions");
     const savedSessions = storageService.loadChatSessions();
     setSessions(savedSessions);
+    logger.info({ sessionCount: savedSessions.length }, "Loaded chat sessions");
 
     // Load current session
     const currentSessionId = storageService.loadCurrentSession();
