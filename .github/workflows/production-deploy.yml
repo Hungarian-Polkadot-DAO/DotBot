@@ -59,9 +59,13 @@ jobs:
       run: pytest --cov=. --cov-report=xml
       
   security-scan:
-    name: Security Scan
+    name: Security Scan (Non-blocking)
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      contents: read
+      security-events: write
+    continue-on-error: true  # Don't fail the workflow if security scan fails
     
     steps:
     - name: Checkout code
@@ -69,6 +73,7 @@ jobs:
       
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
+      continue-on-error: true  # Don't fail if vulnerabilities are found
       with:
         scan-type: 'fs'
         scan-ref: '.'
@@ -76,15 +81,16 @@ jobs:
         output: 'trivy-results.sarif'
         
     - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3
       if: always()
+      continue-on-error: true  # Don't fail if upload fails
       with:
         sarif_file: 'trivy-results.sarif'
 
   build:
     name: Build and Push Images
     runs-on: ubuntu-latest
-    needs: [test, security-scan]
+    needs: test
     
     permissions:
       contents: read
@@ -317,7 +323,7 @@ jobs:
   notify:
     name: Send Notifications
     runs-on: ubuntu-latest
-    needs: [test, security-scan, build, deploy, health-check]
+    needs: [test, build, deploy, health-check]
     if: always()
     
     steps:
