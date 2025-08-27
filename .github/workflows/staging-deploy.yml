@@ -142,6 +142,7 @@ jobs:
         services:
           frontend:
             image: ${{ needs.build.outputs.frontend-image }}
+            container_name: dotbot-staging-frontend
             ports:
               - "3010:80"
             environment:
@@ -152,6 +153,7 @@ jobs:
         
           backend:
             image: ${{ needs.build.outputs.backend-image }}
+            container_name: dotbot-staging-backend
             ports:
               - "3011:8000"
             environment:
@@ -207,80 +209,22 @@ jobs:
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # CLEANUP: Stop existing staging services only
-          docker-compose down --remove-orphans || true
+          # CLEANUP: Stop existing staging containers only
+          docker stop dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
+          docker rm dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
+          docker network rm dotbot-staging 2>/dev/null || true
           
-          # Free up staging ports only
-          sudo lsof -ti:3010 | xargs sudo kill -9 2>/dev/null || true
-          sudo lsof -ti:3011 | xargs sudo kill -9 2>/dev/null || true
-          
-          # Clean up only old staging images (not production containers)
-          docker image prune -f --filter "until=24h" || true
-          
-          # VERIFY PRE-BUILT IMAGES
-          echo "=== USING PRE-BUILT IMAGES FROM REGISTRY ==="
-          echo "Images built in previous job with correct ABSOLUTE imports"
-          
-          # Pull the pre-built images from registry (they were built in the 'build' job)
-          echo "=== PULLING PRE-BUILT IMAGES ==="
+          # Deploy staging services
           docker-compose pull
-          
-          # VERIFY PULLED CONTAINER HAS CORRECT CODE
-          echo "=== VERIFYING PULLED CONTAINER CODE ==="
-          docker run --rm ${{ needs.build.outputs.backend-image }} sed -n '17,19p' /app/main.py || echo "Container verification failed"
-          
-          # Start services with pre-built images
           docker-compose up -d --force-recreate
           
-          # Show container status for debugging
-          echo "=== Container Status ==="
-          docker ps -a
-          
-          # Show logs if containers are failing
-          echo "=== Frontend Logs ==="
-          docker logs dotbot-frontend-1 2>/dev/null || docker logs dotbot_frontend_1 2>/dev/null || echo "Frontend container not found"
-          echo "=== Backend Logs ==="
-          docker logs dotbot-backend-1 2>/dev/null || docker logs dotbot_backend_1 2>/dev/null || echo "Backend container not found"
-          
-          # Wait a bit more for backend to potentially crash and show error logs
-          echo "=== Waiting for backend to stabilize or show crash logs ==="
+          # Wait for services to start
           sleep 30
-          echo "=== Backend Logs After Wait ==="
-          docker logs dotbot-backend-1 2>/dev/null || docker logs dotbot_backend_1 2>/dev/null || echo "Backend container not found"
           
-          # Show container status for debugging
-          echo "=== Container Status ==="
-          docker ps -a
-          
-          # Show logs if containers are failing
-          echo "=== Frontend Logs ==="
-          docker logs dotbot_frontend_1 || true
-          echo "=== Backend Logs ==="
-          docker logs dotbot-backend-1 2>/dev/null || docker logs dotbot_backend_1 2>/dev/null || echo "Backend container not found"
-          
-          # Wait a bit more for backend to potentially crash and show error logs
-          echo "=== Waiting for backend to stabilize or show crash logs ==="
-          sleep 30
-          echo "=== Backend Logs After Wait ==="
-          docker logs dotbot-backend-1 2>/dev/null || docker logs dotbot_backend_1 2>/dev/null || echo "Backend container not found"
-          
-          # Wait for services to be ready
-          sleep 60
-          
-          # Check container health before curl tests
-          echo "=== Final Container Status ==="
-          docker ps -a
-          
-          # Test backend internal port first
-          echo "=== Testing Backend Internal ==="
-          docker exec dotbot-backend-1 curl -f http://localhost:8000/api/health 2>/dev/null || docker exec dotbot_backend_1 curl -f http://localhost:8000/api/health 2>/dev/null || echo "Backend internal health check failed"
-          
-          # Check health
+          # Verify deployment
+          docker ps | grep dotbot-staging
           curl -f http://localhost:3010/health || exit 1
           curl -f http://localhost:3011/api/health || exit 1
-          
-          # Cleanup old images
-          docker image prune -af
           
   notify:
     name: Send Notifications

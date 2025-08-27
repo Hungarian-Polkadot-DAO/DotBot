@@ -185,7 +185,7 @@ jobs:
         version: '3.8'
         
         services:
-          frontend-prod:
+          frontend:
             image: ${{ needs.build.outputs.frontend-image }}
             container_name: dotbot-production-frontend
             ports:
@@ -196,7 +196,7 @@ jobs:
             networks:
               - dotbot-production
         
-          backend-prod:
+          backend:
             image: ${{ needs.build.outputs.backend-image }}
             container_name: dotbot-production-backend
             ports:
@@ -209,7 +209,7 @@ jobs:
             networks:
               - dotbot-production
             depends_on:
-              - frontend-prod
+              - frontend
         
         networks:
           dotbot-production:
@@ -251,41 +251,22 @@ jobs:
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # CLEANUP: Stop existing production services only (specific containers)
+          # CLEANUP: Stop existing production containers
           docker stop dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
           docker rm dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
-          
-          # Free up production ports only
-          sudo lsof -ti:3020 | xargs sudo kill -9 2>/dev/null || true
-          sudo lsof -ti:3021 | xargs sudo kill -9 2>/dev/null || true
-          
-          # Clean up only production-related containers and images (not staging)
           docker network rm dotbot-production 2>/dev/null || true
           
-          # Pull the pre-built images from registry
-          echo "=== PULLING PRE-BUILT IMAGES ==="
+          # Deploy production services
           docker-compose -f docker-compose.production.yml pull
-          
-          # Start production services with pre-built images
           docker-compose -f docker-compose.production.yml up -d --force-recreate
           
-          # Show container status for debugging
-          echo "=== Container Status ==="
-          docker ps -a
+          # Wait for services to start
+          sleep 30
           
-          # Wait for services to be ready
-          sleep 60
-          
-          # Check container health before curl tests
-          echo "=== Final Container Status ==="
-          docker ps -a
-          
-          # Check health
+          # Verify deployment
+          docker ps | grep dotbot-production
           curl -f http://localhost:3020/health || exit 1
           curl -f http://localhost:3021/api/health || exit 1
-          
-          # Cleanup old production images only (preserve staging)
-          docker image prune -f --filter "until=24h" --filter "label=stage=production" || true
 
   health-check:
     name: Post-Deployment Health Check
