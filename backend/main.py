@@ -10,17 +10,17 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
-import logging
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 # ABSOLUTE IMPORTS ONLY - NO RELATIVE IMPORTS - FORCED REBUILD v3.1 - Testing clean deployment
 from services.memory_service import MemoryService
 from services.payment_service import PaymentService
+from config.logger import create_subsystem_logger
+from models.logging import Subsystem
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Initialize logger for the main app
+logger = create_subsystem_logger(Subsystem.APP)
 
 # Create FastAPI app
 app = FastAPI(
@@ -49,15 +49,17 @@ async def startup_event():
     """Initialize optional services"""
     global memory_service, payment_service
     
+    logger.info("DotBot Backend starting up - Hello World from logging system!")
     logger.info("Starting DotBot Backend (Optional Services)")
     
     try:
         # Initialize memory service (optional)
+        logger.debug("Initializing memory service")
         memory_service = MemoryService()
         await memory_service.initialize()
-        logger.info("Memory service initialized")
+        logger.info("Memory service initialized", service="memory", status="active")
     except Exception as e:
-        logger.warning(f"Memory service not available: {e}")
+        logger.warning("Memory service not available", service="memory", status="disabled", error=str(e))
         memory_service = None
     
     try:
