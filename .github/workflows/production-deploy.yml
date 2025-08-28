@@ -270,7 +270,7 @@ jobs:
           
           # Pull latest images and deploy with fallback strategy
           docker-compose -f docker-compose.production.yml pull
-          docker-compose -f docker-compose.production.yml down --remove-orphans --volumes || true
+          docker-compose -f docker-compose.production.yml down --volumes || true
           
           # Try Docker Compose first, fallback to docker run if needed
           if ! docker-compose -f docker-compose.production.yml up -d; then

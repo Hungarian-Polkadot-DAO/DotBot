@@ -229,7 +229,7 @@ jobs:
           
           # Pull latest images and deploy with fallback strategy
           docker-compose pull
-          docker-compose down --remove-orphans --volumes || true
+          docker-compose down --volumes || true
           
           # Try Docker Compose first, fallback to docker run if needed
           if ! docker-compose up -d; then
