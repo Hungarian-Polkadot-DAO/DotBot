@@ -248,28 +248,30 @@ jobs:
           # Navigate to deployment directory
           cd $DEPLOY_DIR
           
+          # Check Docker and Docker Compose versions
+          docker --version
+          docker-compose --version
+          
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # CLEANUP: Stop and remove existing production containers
+          # Comprehensive cleanup to prevent ContainerConfig errors
           docker stop dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
-          docker rm dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
+          docker rm -f dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
           docker network rm dotbot-production 2>/dev/null || true
-          
-          # Clean up any corrupted containers/images
           docker container prune -f || true
           docker image prune -f || true
+          docker volume prune -f || true
           
-          # Remove any existing containers with the same names to prevent conflicts
-          docker rm -f dotbot-production-frontend dotbot-production-backend 2>/dev/null || true
-          
-          # Deploy production services with fresh start
+          # Pull latest images and deploy with fallback strategy
           docker-compose -f docker-compose.production.yml pull
+          docker-compose -f docker-compose.production.yml down --remove-orphans --volumes || true
           
-          # Try normal deployment first, fallback to force recreate if needed
+          # Try Docker Compose first, fallback to docker run if needed
           if ! docker-compose -f docker-compose.production.yml up -d; then
-            echo "Normal deployment failed, trying force recreate..."
-            docker-compose -f docker-compose.production.yml up -d --force-recreate
+            echo "Docker Compose failed, using docker run fallback..."
+            docker run -d --name dotbot-production-frontend --network dotbot-production -p 3020:80 ${{ needs.build.outputs.frontend-image }}
+            docker run -d --name dotbot-production-backend --network dotbot-production -p 3021:8000 -e NODE_ENV=production -e ASI_ONE_API_KEY="$ASI_ONE_API_KEY" -e ASI_ONE_ENDPOINT="$ASI_ONE_ENDPOINT" ${{ needs.build.outputs.backend-image }}
           fi
           
           # Wait for services to start
