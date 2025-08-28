@@ -214,12 +214,18 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
           # CompreFix/GitHub actionshensive cleanup to prevent ContainerConfig errors
-          docker stop dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
-          docker rm -f dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
-          docker network rm dotbot-staging 2>/dev/null || true
-          docker container prune -f || true
-          docker image prune -f || true
-          docker volume prune -f || true
+          # Only cleanup if containers are not running properly
+          if ! docker ps | grep -q "dotbot-staging-frontend.*Up"; then
+            echo "Frontend not running, performing cleanup..."
+            docker stop dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
+            docker rm -f dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
+            docker network rm dotbot-staging 2>/dev/null || true
+            docker container prune -f || true
+            docker image prune -f || true
+            docker volume prune -f || true
+          else
+            echo "Containers are running, skipping cleanup..."
+          fi
           
           # Pull latest images and deploy with fallback strategy
           docker-compose pull
