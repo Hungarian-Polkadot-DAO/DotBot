@@ -55,7 +55,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     <div className="flex flex-col items-center justify-center h-full text-center p-8">
       <div className="mb-8">
         <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
-          {"DotBot Hello World :)"}
+          {"DotBot - Hello World :)"}
         </h1>
         <p className="text-lg text-gray-400 mb-8">
           What's the dot you need help with?
