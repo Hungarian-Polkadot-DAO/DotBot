@@ -192,7 +192,7 @@ jobs:
               - "3020:80"
             environment:
               - NODE_ENV=production
-            restart: unless-stopped
+            restart: always
             networks:
               - dotbot-production
         
@@ -205,7 +205,7 @@ jobs:
               - NODE_ENV=production
               - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
               - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
-            restart: unless-stopped
+            restart: always
             networks:
               - dotbot-production
             depends_on:
