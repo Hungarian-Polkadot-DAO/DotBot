@@ -230,7 +230,6 @@ jobs:
             echo "Docker Compose failed, using docker run fallback..."
             docker run -d --name dotbot-staging-frontend --network dotbot-staging -p 3010:80 ${{ needs.build.outputs.frontend-image }}
             docker run -d --name dotbot-staging-backend --network dotbot-staging -p 3011:8000 -e NODE_ENV=staging -e ASI_ONE_API_KEY="$ASI_ONE_API_KEY" -e ASI_ONE_ENDPOINT="$ASI_ONE_ENDPOINT" ${{ needs.build.outputs.backend-image }}
-
           fi
           
           # Wait for services to start
