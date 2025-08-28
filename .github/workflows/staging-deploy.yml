@@ -213,7 +213,7 @@ jobs:
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
-          # Comprehensive cleanup to prevent ContainerConfig errors
+          # CompreFix/GitHub actionshensive cleanup to prevent ContainerConfig errors
           docker stop dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
           docker rm -f dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
           docker network rm dotbot-staging 2>/dev/null || true
@@ -230,6 +230,7 @@ jobs:
             echo "Docker Compose failed, using docker run fallback..."
             docker run -d --name dotbot-staging-frontend --network dotbot-staging -p 3010:80 ${{ needs.build.outputs.frontend-image }}
             docker run -d --name dotbot-staging-backend --network dotbot-staging -p 3011:8000 -e NODE_ENV=staging -e ASI_ONE_API_KEY="$ASI_ONE_API_KEY" -e ASI_ONE_ENDPOINT="$ASI_ONE_ENDPOINT" ${{ needs.build.outputs.backend-image }}
+
           fi
           
           # Wait for services to start
