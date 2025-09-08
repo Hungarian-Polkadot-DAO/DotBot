@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
 
   // Initialize app
   useEffect(() => {
@@ -131,12 +132,14 @@ const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <div className="app-container">
+        <div className={`app-container ${isSidebarExpanded ? '' : 'sidebar-collapsed'}`}>
           {/* Collapsible Sidebar */}
           <CollapsibleSidebar
             onNewChat={handleNewChat}
             onSearchChat={handleSearchChat}
             onTransactions={handleTransactions}
+            isExpanded={isSidebarExpanded}
+            onToggle={setIsSidebarExpanded}
           />
 
           {/* Main Content Area */}

@@ -10,17 +10,19 @@ interface SidebarProps {
   onNewChat: () => void;
   onSearchChat: () => void;
   onTransactions: () => void;
+  isExpanded: boolean;
+  onToggle: (expanded: boolean) => void;
 }
 
 const CollapsibleSidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onSearchChat,
-  onTransactions
+  onTransactions,
+  isExpanded,
+  onToggle
 }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-
   const toggleSidebar = () => {
-    setIsExpanded(!isExpanded);
+    onToggle(!isExpanded);
   };
 
   const menuItems = [
