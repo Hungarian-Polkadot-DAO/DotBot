@@ -33,25 +33,17 @@ const WalletButton: React.FC = () => {
     <>
       <button
         onClick={handleOpenModal}
-        className={`
-          flex items-center space-x-2 px-4 py-2 rounded-lg transition-all duration-200
-          ${isConnected 
-            ? 'bg-green-600 hover:bg-green-700 text-white' 
-            : 'bg-blue-600 hover:bg-blue-700 text-white'
-          }
-          border border-transparent hover:border-opacity-20 hover:border-white
-          shadow-lg hover:shadow-xl
-        `}
+        className={`wallet-btn ${isConnected ? 'connected' : 'disconnected'}`}
       >
-        <Wallet className="w-4 h-4" />
-        <span className="font-medium">
+        <Wallet className="wallet-icon" />
+        <span>
           {isConnected && selectedAccount 
             ? formatAddress(selectedAccount.address)
             : 'Connect Wallet'
           }
         </span>
         {isConnected && (
-          <ChevronDown className="w-3 h-3 opacity-70" />
+          <ChevronDown style={{ width: '12px', height: '12px', opacity: 0.7 }} />
         )}
       </button>
 

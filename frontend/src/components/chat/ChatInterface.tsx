@@ -1,128 +1,133 @@
-// Main chat interface component - ready for ChatGPT-like design
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Mic } from 'lucide-react';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Message, ChatSession } from '../../types/chat';
-import { AgentInfo } from '../../types/agents';
-import MessageBubble from './MessageBubble';
-import InputField from './InputField';
-import TypingIndicator from './TypingIndicator';
+interface Message {
+  id: string;
+  type: 'user' | 'bot';
+  content: string;
+  timestamp: number;
+}
 
 interface ChatInterfaceProps {
-  session: ChatSession | null;
-  agents: AgentInfo[];
   onSendMessage: (message: string) => void;
-  onVoiceInput?: () => void;
+  messages: Message[];
   isTyping?: boolean;
-  className?: string;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
-  session,
-  agents,
   onSendMessage,
-  onVoiceInput,
-  isTyping = false,
-  className = ''
+  messages,
+  isTyping = false
 }) => {
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    scrollToBottom();
-  }, [session?.messages]);
-
-  const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, [messages, isTyping]);
 
-  const handleSendMessage = () => {
-    if (inputValue.trim()) {
-      onSendMessage(inputValue.trim());
+  // Auto-resize textarea
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
+    }
+  }, [inputValue]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedValue = inputValue.trim();
+    if (trimmedValue) {
+      onSendMessage(trimmedValue);
       setInputValue('');
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      handleSubmit(e);
     }
   };
 
-  // Welcome message when no session
-  const renderWelcomeMessage = () => (
-    <div className="flex flex-col items-center justify-center h-full text-center p-8">
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold mb-4 bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
-          {"DotBot - Hello World :)"}
-        </h1>
-        <p className="text-lg text-gray-400 mb-8">
-          What's the dot you need help with?
-        </p>
-      </div>
-      
-      {/* Quick action buttons matching the design */}
-      <div className="flex gap-4 mb-8">
-        <button
-          onClick={() => onSendMessage('Check my balance')}
-          className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
-        >
-          <div className="w-8 h-8 mb-2">📊</div>
-          <span className="text-sm text-gray-300">Check Balance</span>
-        </button>
-        
-        <button
-          onClick={() => onSendMessage('Transfer DOT')}
-          className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
-        >
-          <div className="w-8 h-8 mb-2">⇄</div>
-          <span className="text-sm text-gray-300">Transfer</span>
-        </button>
-        
-        <button
-          onClick={() => onSendMessage('Check network status')}
-          className="flex flex-col items-center p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
-        >
-          <div className="w-8 h-8 mb-2">📈</div>
-          <span className="text-sm text-gray-300">Status</span>
-        </button>
-      </div>
-    </div>
-  );
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   return (
-    <div className={`flex flex-col h-full ${className}`}>
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {!session || session.messages.length === 0 ? (
-          renderWelcomeMessage()
-        ) : (
-          <>
-            {session.messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                agents={agents}
-              />
-            ))}
-            {isTyping && <TypingIndicator />}
-            <div ref={messagesEndRef} />
-          </>
+    <div className="chat-container">
+      {/* Messages */}
+      <div className="chat-messages">
+        {messages.map((message) => (
+          <div key={message.id} className={`message ${message.type}`}>
+            <div className={`message-avatar ${message.type}`}>
+              {message.type === 'user' ? 'U' : 'D'}
+            </div>
+            <div className="message-content">
+              <div className="message-bubble">
+                {message.content}
+              </div>
+              <div className="message-time">
+                {formatTime(message.timestamp)}
+              </div>
+            </div>
+          </div>
+        ))}
+        
+        {/* Typing indicator */}
+        {isTyping && (
+          <div className="message bot">
+            <div className="message-avatar bot">D</div>
+            <div className="message-content">
+              <div className="typing-indicator">
+                <div className="typing-dot"></div>
+                <div className="typing-dot"></div>
+                <div className="typing-dot"></div>
+              </div>
+            </div>
+          </div>
         )}
+        
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input area */}
-      <div className="border-t border-gray-700 p-4">
-        <InputField
-          value={inputValue}
-          onChange={setInputValue}
-          onSend={handleSendMessage}
-          onKeyPress={handleKeyPress}
-          onVoiceInput={onVoiceInput}
-          placeholder="Type your message..."
-          disabled={isTyping}
-        />
+      <div className="input-area">
+        <div className="input-container">
+          <form onSubmit={handleSubmit} className="input-form">
+            <textarea
+              ref={inputRef}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message..."
+              className="input-field"
+              rows={1}
+            />
+            <div className="input-actions">
+              <button
+                type="button"
+                className="input-action-btn mic"
+                title="Voice input"
+              >
+                <Mic className="w-4 h-4" />
+              </button>
+              <button
+                type="submit"
+                disabled={!inputValue.trim()}
+                className="input-action-btn send-btn"
+                title="Send message"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
