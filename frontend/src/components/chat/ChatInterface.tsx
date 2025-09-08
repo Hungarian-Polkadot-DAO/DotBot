@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic } from 'lucide-react';
+import { Send } from 'lucide-react';
+import voiceIcon from '../../assets/mingcute_voice-line.svg';
 
 interface Message {
   id: string;
@@ -99,33 +100,41 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       {/* Input area */}
       <div className="input-area">
         <div className="input-container">
-          <form onSubmit={handleSubmit} className="input-form">
-            <textarea
-              ref={inputRef}
+          <form onSubmit={handleSubmit} className="action-badge">
+            <input
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Type your message..."
-              className="input-field"
-              rows={1}
             />
-            <div className="input-actions">
-              <button
-                type="button"
-                className="input-action-btn mic"
-                title="Voice input"
-              >
-                <Mic className="w-4 h-4" />
-              </button>
-              <button
-                type="submit"
-                disabled={!inputValue.trim()}
-                className="input-action-btn send-btn"
-                title="Send message"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              type="button"
+              className="input-action-btn mic"
+              title="Voice input"
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                padding: '4px',
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <img 
+                src={voiceIcon} 
+                alt="Voice input"
+                style={{ width: '16px', height: '16px' }}
+              />
+            </button>
+            <button
+              type="submit"
+              disabled={!inputValue.trim()}
+              className="action-button"
+              title="Send message"
+            >
+              <Send style={{ width: '16px', height: '16px' }} />
+            </button>
           </form>
         </div>
       </div>

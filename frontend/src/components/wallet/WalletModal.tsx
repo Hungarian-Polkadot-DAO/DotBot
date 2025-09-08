@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
-import { X, Wallet, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, AlertCircle, RefreshCw } from 'lucide-react';
 import { useWalletStore } from '../../stores/walletStore';
 import { WalletAccount } from '../../types/wallet';
+import walletIcon from '../../assets/wallet.svg';
 
 interface WalletModalProps {
   isOpen: boolean;
@@ -72,40 +73,40 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto">
+    <div className="wallet-modal-overlay">
+      <div className="wallet-modal-container">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-700">
-          <div className="flex items-center space-x-2">
-            <Wallet className="w-5 h-5 text-blue-400" />
-            <h2 className="text-xl font-semibold text-white">
+        <div className="wallet-modal-header">
+          <div className="wallet-modal-title">
+            <img src={walletIcon} alt="Wallet" className="wallet-modal-icon" />
+            <h2 className="wallet-modal-heading">
               {isConnected ? 'Wallet Connected' : 'Connect Wallet'}
             </h2>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="wallet-modal-close"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="wallet-modal-content">
           {isConnected && selectedAccount ? (
             // Connected state
-            <div className="space-y-4">
-              <div className="bg-green-900 bg-opacity-30 border border-green-700 rounded-lg p-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                  <span className="text-green-400 font-medium">Connected</span>
+            <div className="wallet-connected-state">
+              <div className="wallet-account-card">
+                <div className="wallet-status">
+                  <div className="wallet-status-indicator"></div>
+                  <span className="wallet-status-text">Connected</span>
                 </div>
-                <div className="text-white">
-                  <div className="font-medium">{selectedAccount.name}</div>
-                  <div className="text-sm text-gray-300 font-mono">
+                <div className="wallet-account-info">
+                  <div className="wallet-account-name">{selectedAccount.name}</div>
+                  <div className="wallet-account-address">
                     {formatAddress(selectedAccount.address)}
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">
+                  <div className="wallet-account-source">
                     via {selectedAccount.source}
                   </div>
                 </div>
@@ -113,23 +114,23 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
               
               <button
                 onClick={handleDisconnect}
-                className="w-full bg-red-600 hover:bg-red-700 text-white py-2 px-4 rounded-lg transition-colors"
+                className="wallet-disconnect-btn"
               >
                 Disconnect Wallet
               </button>
             </div>
           ) : (
             // Not connected state
-            <div className="space-y-4">
-              <p className="text-gray-300 text-sm">
+            <div className="wallet-disconnected-state">
+              <p className="wallet-description">
                 Connect with Talisman, Subwallet, or another Polkadot wallet extension to access DotBot.
               </p>
 
               {error && (
-                <div className="bg-red-900 bg-opacity-30 border border-red-700 rounded-lg p-4">
-                  <div className="flex items-start space-x-2">
-                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                    <div className="text-red-300 text-sm whitespace-pre-line">
+                <div className="wallet-error-card">
+                  <div className="wallet-error-content">
+                    <AlertCircle className="wallet-error-icon" />
+                    <div className="wallet-error-text">
                       {error}
                     </div>
                   </div>
@@ -138,60 +139,58 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
 
               {getAllAccounts().length > 0 ? (
                 // Show available accounts
-                <div className="space-y-3">
-                  <h3 className="text-white font-medium">Available Accounts:</h3>
+                <div className="wallet-accounts-section">
+                  <h3 className="wallet-accounts-title">Available Accounts:</h3>
                   {getAllAccounts().map((account, index) => (
                     <div
                       key={`${account.address}-${index}`}
-                      className="border border-gray-700 rounded-lg p-4 hover:border-gray-600 transition-colors"
+                      className="wallet-account-item"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="text-white font-medium">
-                            {account.name || 'Unnamed Account'}
-                          </div>
-                          <div className="text-sm text-gray-300 font-mono">
-                            {formatAddress(account.address)}
-                          </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            via {account.source}
-                          </div>
+                      <div className="wallet-account-details">
+                        <div className="wallet-account-name">
+                          {account.name || 'Unnamed Account'}
                         </div>
-                        <button
-                          onClick={() => handleConnectAccount(account)}
-                          disabled={isConnecting}
-                          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 px-4 rounded-lg transition-colors disabled:cursor-not-allowed"
-                        >
-                          {isConnecting ? 'Connecting...' : 'Connect'}
-                        </button>
+                        <div className="wallet-account-address">
+                          {formatAddress(account.address)}
+                        </div>
+                        <div className="wallet-account-source">
+                          via {account.source}
+                        </div>
                       </div>
+                      <button
+                        onClick={() => handleConnectAccount(account)}
+                        disabled={isConnecting}
+                        className="wallet-connect-btn"
+                      >
+                        {isConnecting ? 'Connecting...' : 'Connect'}
+                      </button>
                     </div>
                   ))}
                 </div>
               ) : (
                 // No accounts found - show enable/refresh options
-                <div className="space-y-3">
-                  <div className="text-center py-4">
-                    <Wallet className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-                    <p className="text-gray-400 text-sm">
+                <div className="wallet-empty-state">
+                  <div className="wallet-empty-content">
+                    <img src={walletIcon} alt="Wallet" className="wallet-empty-icon" />
+                    <p className="wallet-empty-text">
                       No wallet accounts detected
                     </p>
                   </div>
                   
-                  <div className="space-y-2">
+                  <div className="wallet-actions">
                     <button
                       onClick={enableWallet}
                       disabled={isConnecting}
-                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-3 px-4 rounded-lg transition-colors disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                      className="wallet-enable-btn"
                     >
                       {isConnecting ? (
                         <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          <RefreshCw className="wallet-btn-icon animate-spin" />
                           <span>Enabling...</span>
                         </>
                       ) : (
                         <>
-                          <Wallet className="w-4 h-4" />
+                          <img src={walletIcon} alt="Wallet" className="wallet-btn-icon" />
                           <span>Enable Wallet Extensions</span>
                         </>
                       )}
@@ -200,14 +199,14 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
                     <button
                       onClick={refreshAccounts}
                       disabled={isConnecting}
-                      className="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 text-white py-2 px-4 rounded-lg transition-colors disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                      className="wallet-refresh-btn"
                     >
-                      <RefreshCw className={`w-4 h-4 ${isConnecting ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`wallet-btn-icon ${isConnecting ? 'animate-spin' : ''}`} />
                       <span>Refresh Connection</span>
                     </button>
                   </div>
                   
-                  <div className="text-xs text-gray-400 text-center mt-4">
+                  <div className="wallet-help-text">
                     Make sure you have a Polkadot wallet extension installed and unlocked
                   </div>
                 </div>

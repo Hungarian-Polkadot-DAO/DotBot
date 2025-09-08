@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
-import { MessageSquarePlus, Search, Receipt, ChevronLeft, ChevronRight } from 'lucide-react';
+import dotbotLogo from '../../assets/dotbot-logo.svg';
+import dotbotLogoLight from '../../assets/dotbot-logo_light.svg';
+import iconWrite from '../../assets/icon-write.svg';
+import iconSearch from '../../assets/icon-search.svg';
+import iconTransactions from '../../assets/icon-transactions.svg';
+import sidebarCollapseIcon from '../../assets/cuida_sidebar-collapse-outline.svg';
 
 interface SidebarProps {
   onNewChat: () => void;
@@ -12,7 +17,7 @@ const CollapsibleSidebar: React.FC<SidebarProps> = ({
   onSearchChat,
   onTransactions
 }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const toggleSidebar = () => {
     setIsExpanded(!isExpanded);
@@ -20,17 +25,17 @@ const CollapsibleSidebar: React.FC<SidebarProps> = ({
 
   const menuItems = [
     {
-      icon: MessageSquarePlus,
+      icon: iconWrite,
       label: 'New Chat',
       onClick: onNewChat
     },
     {
-      icon: Search,
+      icon: iconSearch,
       label: 'Search Chat',
       onClick: onSearchChat
     },
     {
-      icon: Receipt,
+      icon: iconTransactions,
       label: 'Transactions',
       onClick: onTransactions
     }
@@ -38,26 +43,18 @@ const CollapsibleSidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className={`sidebar ${isExpanded ? 'expanded' : 'collapsed'}`}>
-      {/* Logo and Toggle */}
+      {/* Logo Toggle Button */}
       <div className="sidebar-header">
-        {isExpanded && (
-          <div className="sidebar-logo">
-            <div className="sidebar-logo-icon">
-              <span>D</span>
-            </div>
-            <span className="sidebar-logo-text">DotBot</span>
-          </div>
-        )}
-        
         <button
           onClick={toggleSidebar}
-          className="sidebar-toggle"
+          className="sidebar-logo-button"
         >
-          {isExpanded ? (
-            <ChevronLeft className="sidebar-nav-icon" />
-          ) : (
-            <ChevronRight className="sidebar-nav-icon" />
-          )}
+          <img 
+            src={dotbotLogo} 
+            alt="DotBot" 
+            style={{ height: '32px', width: '32px', flexShrink: 0 }}
+          />
+          {isExpanded && <span className="sidebar-logo-text">DotBot</span>}
         </button>
       </div>
 
@@ -68,10 +65,15 @@ const CollapsibleSidebar: React.FC<SidebarProps> = ({
             <li key={index}>
               <button
                 onClick={item.onClick}
-                className={`sidebar-nav-item ${isExpanded ? 'expanded' : 'collapsed'}`}
+                className="sidebar-nav-item"
                 title={!isExpanded ? item.label : undefined}
               >
-                <item.icon className="sidebar-nav-icon" />
+                <img 
+                  src={item.icon} 
+                  alt={item.label}
+                  className="sidebar-nav-icon"
+                  style={{ flexShrink: 0 }}
+                />
                 {isExpanded && (
                   <span>{item.label}</span>
                 )}

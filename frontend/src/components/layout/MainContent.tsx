@@ -1,7 +1,11 @@
 import React from 'react';
-import { Receipt, ArrowRightLeft, BarChart3 } from 'lucide-react';
 import WalletButton from '../wallet/WalletButton';
+import ThemeToggle from '../ui/ThemeToggle';
 import ChatInterface from '../chat/ChatInterface';
+import dotbotLogo from '../../assets/DotBotLogo.svg';
+import coinStackIcon from '../../assets/coin-stack.svg';
+import iconTransactions from '../../assets/icon-transactions.svg';
+import iconCog from '../../assets/icon-cog.svg';
 
 interface Message {
   id: string;
@@ -31,17 +35,17 @@ const MainContent: React.FC<MainContentProps> = ({
 }) => {
   const quickActions = [
     {
-      icon: Receipt,
+      icon: coinStackIcon,
       label: 'Check Balance',
       onClick: onCheckBalance
     },
     {
-      icon: ArrowRightLeft,
+      icon: iconTransactions,
       label: 'Transfer',
       onClick: onTransfer
     },
     {
-      icon: BarChart3,
+      icon: iconCog,
       label: 'Status',
       onClick: onStatus
     }
@@ -49,8 +53,9 @@ const MainContent: React.FC<MainContentProps> = ({
 
   return (
     <div className="main-content">
-      {/* Header with Wallet */}
+      {/* Header with Theme Toggle and Wallet */}
       <div className="main-header">
+        <ThemeToggle />
         <WalletButton />
       </div>
 
@@ -60,10 +65,12 @@ const MainContent: React.FC<MainContentProps> = ({
           /* Welcome Screen */
           <div className="welcome-screen">
             {/* DotBot Logo/Title */}
-            <div style={{ textAlign: 'center', marginBottom: '48px' }}>
-              <h1 className="welcome-title">
-                DotBot
-              </h1>
+            <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+              <img 
+                src={dotbotLogo} 
+                alt="DotBot" 
+                style={{ height: '80px', width: 'auto', marginBottom: '16px' }}
+              />
               <p className="welcome-subtitle">
                 What's the dot you need help with?
               </p>
@@ -77,7 +84,11 @@ const MainContent: React.FC<MainContentProps> = ({
                   onClick={action.onClick}
                   className="quick-action-btn"
                 >
-                  <action.icon className="quick-action-icon" />
+                  <img 
+                    src={action.icon} 
+                    alt={action.label}
+                    className="quick-action-icon"
+                  />
                   <span className="quick-action-label">
                     {action.label}
                   </span>
@@ -86,23 +97,38 @@ const MainContent: React.FC<MainContentProps> = ({
             </div>
 
             {/* Welcome Input */}
-            <div style={{ width: '100%', maxWidth: '768px' }}>
-              <div className="input-container">
-                <form onSubmit={(e) => e.preventDefault()} className="input-form">
-                  <input
-                    type="text"
-                    placeholder="Type your message..."
-                    className="input-field"
-                    style={{ paddingRight: '48px' }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                        onSendMessage(e.currentTarget.value.trim());
-                        e.currentTarget.value = '';
-                      }
-                    }}
-                  />
-                </form>
-              </div>
+            <div style={{ width: '100%', maxWidth: '720px' }}>
+              <form 
+                onSubmit={(e) => e.preventDefault()} 
+                className="action-badge"
+              >
+                <input
+                  type="text"
+                  placeholder="Type your message..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                      onSendMessage(e.currentTarget.value.trim());
+                      e.currentTarget.value = '';
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="action-button"
+                  onClick={() => {
+                    const input = document.querySelector('.action-badge input') as HTMLInputElement;
+                    if (input?.value.trim()) {
+                      onSendMessage(input.value.trim());
+                      input.value = '';
+                    }
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22,2 15,22 11,13 2,9 22,2"></polygon>
+                  </svg>
+                </button>
+              </form>
             </div>
           </div>
         ) : (

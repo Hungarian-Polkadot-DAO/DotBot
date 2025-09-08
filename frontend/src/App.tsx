@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
+import { ThemeProvider } from './contexts/ThemeContext';
 import CollapsibleSidebar from './components/layout/CollapsibleSidebar';
 import MainContent from './components/layout/MainContent';
 import { createSubsystemLogger } from './config/logger';
@@ -129,25 +130,27 @@ const App: React.FC = () => {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="app-container">
-        {/* Collapsible Sidebar */}
-        <CollapsibleSidebar
-          onNewChat={handleNewChat}
-          onSearchChat={handleSearchChat}
-          onTransactions={handleTransactions}
-        />
+      <ThemeProvider>
+        <div className="app-container">
+          {/* Collapsible Sidebar */}
+          <CollapsibleSidebar
+            onNewChat={handleNewChat}
+            onSearchChat={handleSearchChat}
+            onTransactions={handleTransactions}
+          />
 
-        {/* Main Content Area */}
-        <MainContent
-          onCheckBalance={handleCheckBalance}
-          onTransfer={handleTransfer}
-          onStatus={handleStatus}
-          onSendMessage={handleSendMessage}
-          messages={messages}
-          isTyping={isTyping}
-          showWelcomeScreen={showWelcomeScreen}
-        />
-      </div>
+          {/* Main Content Area */}
+          <MainContent
+            onCheckBalance={handleCheckBalance}
+            onTransfer={handleTransfer}
+            onStatus={handleStatus}
+            onSendMessage={handleSendMessage}
+            messages={messages}
+            isTyping={isTyping}
+            showWelcomeScreen={showWelcomeScreen}
+          />
+        </div>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 };

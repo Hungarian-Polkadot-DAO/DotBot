@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useWalletStore } from '../../stores/walletStore';
 import WalletModal from './WalletModal';
+import walletIcon from '../../assets/wallet.svg';
 
 const WalletButton: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,7 +36,7 @@ const WalletButton: React.FC = () => {
         onClick={handleOpenModal}
         className={`wallet-btn ${isConnected ? 'connected' : 'disconnected'}`}
       >
-        <Wallet className="wallet-icon" />
+        <img src={walletIcon} alt="Wallet" className="wallet-icon" />
         <span>
           {isConnected && selectedAccount 
             ? formatAddress(selectedAccount.address)
