@@ -1,5 +1,3 @@
-// Main App component - layout structure ready for ChatGPT-like design
-
 import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ChatSession, Message } from './types/chat';
@@ -8,6 +6,7 @@ import { storageService } from './services/storageService';
 import { AgentCommunicationService } from './services/agentCommunication';
 import Sidebar from './components/sidebar/Sidebar';
 import ChatInterface from './components/chat/ChatInterface';
+import WalletButton from './components/wallet/WalletButton';
 import { createSubsystemLogger } from './config/logger';
 import { Subsystem } from './types/logging';
 import './styles/globals.css';
@@ -36,7 +35,7 @@ const App: React.FC = () => {
   // Initialize app
   useEffect(() => {
     initializeApp();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const initializeApp = async () => {
     logger.info("DotBot Frontend starting up - Hello World from logging system!");
@@ -219,6 +218,11 @@ const App: React.FC = () => {
 
         {/* Main chat area */}
         <div className="flex-1 flex flex-col">
+          {/* Header with wallet button */}
+          <div className="flex justify-end p-4 border-b border-gray-800">
+            <WalletButton />
+          </div>
+          
           <ChatInterface
             session={currentSession}
             agents={agents}

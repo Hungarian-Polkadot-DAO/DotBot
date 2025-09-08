@@ -5,7 +5,7 @@ export interface WalletAccount {
   name?: string;
   source: string;
   type?: string;
-  genesisHash?: string;
+  genesisHash?: string | null;
 }
 
 export interface WalletInfo {
