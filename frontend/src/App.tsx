@@ -5,6 +5,8 @@ import CollapsibleSidebar from './components/layout/CollapsibleSidebar';
 import MainContent from './components/layout/MainContent';
 import { createSubsystemLogger } from './config/logger';
 import { Subsystem } from './types/logging';
+import { AgentCommunicationService } from './services/agentCommunication';
+import { AgentRequest } from './types/agents';
 import './styles/globals.css';
 
 // Initialize logger for the main App
@@ -32,6 +34,7 @@ const App: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
+  const [agentService] = useState(() => new AgentCommunicationService());
 
   // Initialize app
   useEffect(() => {
@@ -40,6 +43,17 @@ const App: React.FC = () => {
 
   const initializeApp = async () => {
     logger.info("DotBot Frontend starting up - Hello World from logging system!");
+    
+    // Load test functionality in development
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        const { runASIOneTests } = await import('./services/testASIOneIntegration');
+        (window as any).runASIOneTests = runASIOneTests;
+        console.log('🧪 ASI-One Integration Tester loaded. Run runASIOneTests() in console to test.');
+      } catch (error) {
+        console.warn('Failed to load ASI-One test functionality:', error);
+      }
+    }
   };
 
   // Handler functions
@@ -47,6 +61,7 @@ const App: React.FC = () => {
     console.log('New Chat clicked');
     setMessages([]);
     setShowWelcomeScreen(true);
+    agentService.startNewConversation();
   };
 
   const handleSearchChat = () => {
@@ -93,8 +108,39 @@ const App: React.FC = () => {
     setMessages(prev => [...prev, userMessage]);
     setIsTyping(true);
 
-    // Simulate bot response
-    setTimeout(() => {
+    try {
+      // Route message to appropriate agent
+      const agentId = agentService.routeMessage(message);
+      
+      // Create agent request
+      const agentRequest: AgentRequest = {
+        agentId,
+        message,
+        context: {
+          conversationId: agentService.getASIOneService().getConversationId(),
+          previousMessages: messages.slice(-5).map(m => m.content), // Last 5 messages for context
+          userWallet: undefined, // TODO: Get from wallet service
+          network: 'Polkadot'
+        }
+      };
+
+      // Send to agent via ASI-One
+      const agentResponse = await agentService.sendToAgent(agentRequest);
+      
+      // Add bot response
+      const botMessage: Message = {
+        id: agentResponse.messageId,
+        type: 'bot',
+        content: agentResponse.content,
+        timestamp: agentResponse.timestamp
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
+      
+    } catch (error) {
+      console.error('Error sending message to agent:', error);
+      
+      // Fallback to simple response
       const botMessage: Message = {
         id: Date.now().toString() + '_bot',
         type: 'bot',
@@ -103,8 +149,9 @@ const App: React.FC = () => {
       };
       
       setMessages(prev => [...prev, botMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   const getBotResponse = (userMessage: string): string => {
