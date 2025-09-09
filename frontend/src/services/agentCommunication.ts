@@ -1,15 +1,26 @@
 // Agent communication service - works independently of backend
 
 import { AgentRequest, AgentResponse, AgentInfo, AgentStatus } from '../types/agents';
+import { getASIOneService, ASIOneService } from './asiOneService';
+import { createSubsystemLogger } from '../config/logger';
+import { Subsystem } from '../types/logging';
 
 export class AgentCommunicationService {
   private agents: Map<string, AgentInfo> = new Map();
   private asiOneEndpoint: string;
   private apiKey: string;
+  private asiOneService: ASIOneService;
+  private logger = createSubsystemLogger(Subsystem.AGENT_COMM);
 
   constructor(asiOneEndpoint?: string, apiKey?: string) {
-    this.asiOneEndpoint = asiOneEndpoint || process.env.REACT_APP_ASI_ONE_ENDPOINT || '';
-    this.apiKey = apiKey || process.env.REACT_APP_ASI_ONE_API_KEY || '';
+    this.asiOneEndpoint = asiOneEndpoint || process.env.REACT_APP_ASI_ONE_ENDPOINT || 'https://api.asi1.ai/v1';
+    this.apiKey = apiKey || process.env.REACT_APP_ASI_ONE_API_KEY || 'sk_55aa3a95dcd341c6a2e13a4244e612f550f0520ca67342d88e0ad81812909ad5';
+    
+    // Initialize ASI-One service
+    this.asiOneService = getASIOneService({
+      apiKey: this.apiKey,
+      baseUrl: this.asiOneEndpoint
+    });
     
     // Initialize available agents
     this.initializeAgents();
@@ -112,13 +123,49 @@ export class AgentCommunicationService {
   // Send message to agent via ASI-One (AgentVerse compatible)
   async sendToAgent(request: AgentRequest): Promise<AgentResponse> {
     try {
-      // Direct agent communication via AgentVerse
-      const response = await this.callAgentVerse(request);
+      this.logger.info({
+        agentId: request.agentId,
+        messageLength: request.message.length,
+        hasContext: !!request.context
+      }, 'Sending message to agent via ASI-One');
+
+      // Use ASI-One service for AI-powered responses
+      const aiResponse = await this.asiOneService.sendMessage(request.message, {
+        agentId: request.agentId,
+        walletAddress: request.context?.userWallet,
+        network: request.context?.network || 'Polkadot',
+        conversationId: request.context?.conversationId
+      });
+
+      // Create agent response
+      const response: AgentResponse = {
+        agentId: request.agentId,
+        messageId: Date.now().toString(),
+        content: aiResponse,
+        type: 'text',
+        timestamp: Date.now(),
+        metadata: {
+          confidence: 0.9,
+          requiresAction: this.requiresUserAction(request.message),
+          suggestions: this.generateSuggestions(request.agentId, request.message)
+        }
+      };
+
+      this.logger.info({
+        agentId: request.agentId,
+        responseLength: aiResponse.length,
+        messageId: response.messageId
+      }, 'Received response from ASI-One');
+
       return response;
+
     } catch (error) {
-      console.error('Agent communication error:', error);
+      this.logger.error({
+        agentId: request.agentId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, 'Agent communication error');
       
-      // Fallback to local processing if AgentVerse is unavailable
+      // Fallback to local processing if ASI-One is unavailable
       return this.fallbackProcessing(request);
     }
   }
@@ -186,6 +233,49 @@ export class AgentCommunicationService {
     };
   }
 
+  // Check if user message requires action
+  private requiresUserAction(message: string): boolean {
+    const actionKeywords = ['transfer', 'send', 'swap', 'vote', 'create', 'sign', 'approve'];
+    const lowerMessage = message.toLowerCase();
+    return actionKeywords.some(keyword => lowerMessage.includes(keyword));
+  }
+
+  // Generate contextual suggestions based on agent and message
+  private generateSuggestions(agentId: string, message: string): string[] {
+    const suggestions: string[] = [];
+    const lowerMessage = message.toLowerCase();
+
+    switch (agentId) {
+      case 'asset-transfer':
+        if (lowerMessage.includes('balance')) {
+          suggestions.push('Check my DOT balance', 'Show all token balances', 'Check balance on different networks');
+        } else if (lowerMessage.includes('transfer')) {
+          suggestions.push('Transfer 1 DOT to Alice', 'Send 5 DOT to AssetHub', 'Batch transfer to multiple addresses');
+        }
+        break;
+      
+      case 'asset-swap':
+        if (lowerMessage.includes('swap')) {
+          suggestions.push('Swap DOT for USDC', 'Find best price for DOT/USDT', 'Show available DEXs');
+        }
+        break;
+      
+      case 'governance':
+        if (lowerMessage.includes('vote')) {
+          suggestions.push('Show active referendums', 'Vote on referendum #123', 'Check my voting power');
+        }
+        break;
+      
+      case 'multisig':
+        if (lowerMessage.includes('multisig')) {
+          suggestions.push('Create 2-of-3 multisig', 'Show pending multisig transactions', 'Add signer to multisig');
+        }
+        break;
+    }
+
+    return suggestions.slice(0, 3); // Limit to 3 suggestions
+  }
+
   // Update agent status
   updateAgentStatus(agentId: string, status: AgentStatus) {
     const agent = this.agents.get(agentId);
@@ -199,24 +289,36 @@ export class AgentCommunicationService {
   async checkAgentAvailability(): Promise<Record<string, boolean>> {
     const availability: Record<string, boolean> = {};
     
+    // Test ASI-One connectivity
+    const asiOneAvailable = await this.asiOneService.testConnection();
+    
     for (const agentId of this.agents.keys()) {
-      try {
-        // Ping agent endpoint
-        const response = await fetch(`${this.asiOneEndpoint}/agents/${agentId}/health`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${this.apiKey}`,
-          },
-        });
-        
-        availability[agentId] = response.ok;
-        this.updateAgentStatus(agentId, response.ok ? 'online' : 'offline');
-      } catch (error) {
-        availability[agentId] = false;
-        this.updateAgentStatus(agentId, 'offline');
-      }
+      availability[agentId] = asiOneAvailable;
+      this.updateAgentStatus(agentId, asiOneAvailable ? 'online' : 'offline');
     }
     
     return availability;
+  }
+
+  // Start a new conversation
+  startNewConversation(): void {
+    this.asiOneService.startNewConversation();
+    this.logger.info({}, 'Started new conversation');
+  }
+
+  // Get conversation history
+  getConversationHistory() {
+    return this.asiOneService.getConversationHistory();
+  }
+
+  // Clear conversation history
+  clearConversationHistory(): void {
+    this.asiOneService.clearConversationHistory();
+    this.logger.info({}, 'Cleared conversation history');
+  }
+
+  // Get ASI-One service instance (for direct access if needed)
+  getASIOneService(): ASIOneService {
+    return this.asiOneService;
   }
 }
