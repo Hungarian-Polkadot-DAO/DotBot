@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import WalletButton from '../wallet/WalletButton';
 import ThemeToggle from '../ui/ThemeToggle';
 import ChatInterface from '../chat/ChatInterface';
@@ -36,6 +36,15 @@ const MainContent: React.FC<MainContentProps> = ({
   showWelcomeScreen
 }) => {
   const [welcomeInputValue, setWelcomeInputValue] = useState('');
+  const welcomeInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize welcome textarea
+  useEffect(() => {
+    if (welcomeInputRef.current) {
+      welcomeInputRef.current.style.height = 'auto';
+      welcomeInputRef.current.style.height = welcomeInputRef.current.scrollHeight + 'px';
+    }
+  }, [welcomeInputValue]);
 
   const quickActions = [
     {
@@ -76,7 +85,7 @@ const MainContent: React.FC<MainContentProps> = ({
                 style={{ height: '60px', width: 'auto', marginBottom: '12px' }}
               />
               <p className="welcome-subtitle">
-                What's the dot you need help with?
+              Let's connect the dots! How can I help you today?
               </p>
             </div>
 
@@ -106,17 +115,19 @@ const MainContent: React.FC<MainContentProps> = ({
                 onSubmit={(e) => e.preventDefault()} 
                 className="action-badge"
               >
-                <input
-                  type="text"
+                <textarea
+                  ref={welcomeInputRef}
                   placeholder="Type your message..."
                   value={welcomeInputValue}
                   onChange={(e) => setWelcomeInputValue(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && welcomeInputValue.trim()) {
+                    if (e.key === 'Enter' && !e.shiftKey && welcomeInputValue.trim()) {
+                      e.preventDefault();
                       onSendMessage(welcomeInputValue.trim());
                       setWelcomeInputValue('');
                     }
                   }}
+                  rows={1}
                 />
                 {!welcomeInputValue.trim() ? (
                   <button

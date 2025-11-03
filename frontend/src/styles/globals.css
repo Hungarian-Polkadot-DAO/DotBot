@@ -423,7 +423,7 @@ body {
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 /* Welcome screen styles - Context padding: 32px 32px 84px 32px, gap: 0px */
@@ -605,7 +605,7 @@ body {
   align-items: center;
   width: 100%;
   max-width: 720px;
-  height: 56px;
+  min-height: 56px;
   border-radius: 40px;
   padding: 12px 16px;
   gap: 10px;
@@ -620,7 +620,8 @@ body {
   transition: all 0.2s ease;
 }
 
-.action-badge input {
+.action-badge input,
+.action-badge textarea {
   flex: 1;
   background: transparent;
   border: none;
@@ -629,9 +630,13 @@ body {
   font-family: inherit;
   font-size: inherit;
   font-weight: inherit;
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.5;
 }
 
-.action-badge input::placeholder {
+.action-badge input::placeholder,
+.action-badge textarea::placeholder {
   color: rgba(61, 57, 85, 0.6);
 }
 
@@ -641,11 +646,13 @@ body {
   color: var(--text-muted);
 }
 
-[data-theme="dark"] .action-badge input {
+[data-theme="dark"] .action-badge input,
+[data-theme="dark"] .action-badge textarea {
   color: #FFFFFF;
 }
 
-[data-theme="dark"] .action-badge input::placeholder {
+[data-theme="dark"] .action-badge input::placeholder,
+[data-theme="dark"] .action-badge textarea::placeholder {
   color: rgba(255, 255, 255, 0.7);
 }
 

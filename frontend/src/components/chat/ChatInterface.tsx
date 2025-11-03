@@ -101,11 +101,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       <div className="input-area">
         <div className="input-container">
           <form onSubmit={handleSubmit} className="action-badge">
-            <input
+            <textarea
+              ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Type your message..."
+              rows={1}
             />
             {!inputValue.trim() ? (
               <button
