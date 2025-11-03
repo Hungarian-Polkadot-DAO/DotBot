@@ -136,7 +136,7 @@ jobs:
         mkdir -p deploy
         
         # Create docker-compose for staging deployment
-        cat > deploy/docker-compose.yml << 'EOF'
+        cat > deploy/docker-compose.yml << EOF
         version: '3.8'
         
         services:
@@ -158,8 +158,8 @@ jobs:
               - "3011:8000"
             environment:
               - NODE_ENV=staging
-              - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
-              - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
+              - ASI_ONE_API_KEY=\${ASI_ONE_API_KEY}
+              - ASI_ONE_ENDPOINT=\${ASI_ONE_ENDPOINT}
             restart: always
             networks:
               - dotbot-staging
@@ -210,22 +210,27 @@ jobs:
           docker --version
           docker-compose --version
           
-          # Login to GitHub Container Registry
+          # Logout and cleanup old credentials (in case of org change)
+          docker logout ghcr.io 2>/dev/null || true
+          
+          # Login to GitHub Container Registry with fresh credentials
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           
+          # Cleanup old images from previous organization (ZelmaCorp)
+          echo "Removing old organization images..."
+          docker images | grep "ghcr.io/zelmacorp" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+          
           # CompreFix/GitHub actionshensive cleanup to prevent ContainerConfig errors
-          # Only cleanup if containers are not running properly
-          if ! docker ps | grep -q "dotbot-staging-frontend.*Up"; then
-            echo "Frontend not running, performing cleanup..."
-            docker stop dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
-            docker rm -f dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
-            docker network rm dotbot-staging 2>/dev/null || true
-            docker container prune -f || true
-            docker image prune -f || true
-            docker volume prune -f || true
-          else
-            echo "Containers are running, skipping cleanup..."
-          fi
+          # Stop and remove existing containers
+          echo "Stopping and removing existing containers..."
+          docker stop dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
+          docker rm -f dotbot-staging-frontend dotbot-staging-backend 2>/dev/null || true
+          docker network rm dotbot-staging 2>/dev/null || true
+          
+          # Prune unused resources
+          docker container prune -f || true
+          docker image prune -f || true
+          docker volume prune -f || true
           
           # Pull latest images and deploy with fallback strategy
           docker-compose pull
