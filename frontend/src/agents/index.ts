@@ -7,7 +7,7 @@
  */
 
 // Import agents as they are created
-// import { AssetTransferAgent } from './asset-transfer';
+import { AssetTransferAgent } from './asset-transfer';
 // import { StakingAgent } from './staking';
 // import { GovernanceAgent } from './governance';
 
@@ -34,12 +34,11 @@ export interface AgentRegistryEntry {
  * All registered agents
  */
 export const AGENT_REGISTRY: AgentRegistryEntry[] = [
-  // Add agents here as they are implemented
-  // {
-  //   agentClass: AssetTransferAgent,
-  //   className: 'AssetTransferAgent',
-  //   displayName: 'Asset Transfer Agent',
-  // },
+  {
+    agentClass: AssetTransferAgent,
+    className: 'AssetTransferAgent',
+    displayName: 'Asset Transfer Agent',
+  },
 ];
 
 /**

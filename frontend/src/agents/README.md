@@ -12,22 +12,62 @@ because:
 ## Structure
 
 Each agent is a TypeScript class that:
+- Extends `BaseAgent` for common functionality
 - Builds Polkadot extrinsics for specific operations
-- Validates parameters
-- Returns extrinsic objects ready for signing
+- Validates parameters and handles errors
+- Returns standardized `AgentResult` objects
 - Can be called by the LLM through the Execution Array system
+
+## Standardized Agent Interface
+
+All agents follow a standardized structure:
+
+1. **BaseAgent**: Provides common utilities:
+   - Address validation
+   - Balance checking
+   - Fee estimation
+   - Amount formatting/parsing
+   - Standardized result creation
+
+2. **AgentResult**: Standardized return type:
+   - `extrinsic`: The Polkadot extrinsic (if applicable)
+   - `description`: Human-readable description
+   - `estimatedFee`: Transaction fee estimate
+   - `warnings`: Important warnings
+   - `metadata`: Additional data
+   - `resultType`: 'extrinsic' | 'data' | 'mixed' | 'confirmation'
+   - `requiresConfirmation`: Whether user approval is needed
+   - `executionType`: For Execution Array system
+
+3. **Error Handling**: All agents use `AgentError` for consistent error reporting
 
 ## Agent Registry
 
-All agents are registered in `index.ts` and exposed to the system prompt
-generator, which makes them available to the LLM.
+All agents are registered in two places:
+- `frontend/src/agents/index.ts`: Runtime registry for creating agent instances
+- `frontend/src/prompts/system/agents/index.ts`: System prompt registry for LLM
 
 ## Adding a New Agent
 
-1. Create a new directory under `frontend/src/agents/`
-2. Implement the agent class extending `BaseAgent` (optional)
-3. Create extrinsic builder functions in `extrinsics/`
-4. Export the agent in the directory's `index.ts`
-5. Register it in `frontend/src/agents/index.ts`
-6. Add agent definition to `frontend/src/prompts/system/agents/`
+1. Create a new directory under `frontend/src/agents/` (e.g., `staking/`)
+2. Create `types.ts` with parameter interfaces extending `BaseAgentParams`
+3. Create `extrinsics/` directory with extrinsic builder functions
+4. Implement the agent class extending `BaseAgent`:
+   - Implement `getAgentName()` method
+   - Implement agent-specific methods (e.g., `transfer()`, `stake()`, etc.)
+   - Use `this.createResult()` for standardized return values
+   - Use `this.validateAddress()`, `this.getBalance()`, etc. from BaseAgent
+5. Export the agent in the directory's `index.ts`
+6. Register it in `frontend/src/agents/index.ts`
+7. Create agent definition in `frontend/src/prompts/system/agents/[agent-name].ts`
+8. Add the definition to `frontend/src/prompts/system/agents/index.ts`
+
+## Example: Asset Transfer Agent
+
+See `asset-transfer/` for a complete example:
+- `agent.ts`: Main agent class with `transfer()` and `batchTransfer()` methods
+- `types.ts`: Parameter types
+- `extrinsics/`: Extrinsic builders for different transfer types
+- Registered in both registries
+- Full agent definition for system prompt
 
