@@ -12,3 +12,5 @@
 //   return api.tx.staking.nominate(params.validators);
 // }
 
+export {};
+

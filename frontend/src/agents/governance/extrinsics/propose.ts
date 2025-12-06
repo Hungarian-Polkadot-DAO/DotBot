@@ -12,3 +12,5 @@
 //   return api.tx.democracy.propose(params.proposal, params.value || '0');
 // }
 
+export {};
+

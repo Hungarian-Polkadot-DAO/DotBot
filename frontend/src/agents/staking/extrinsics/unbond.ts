@@ -12,3 +12,5 @@
 //   return api.tx.staking.unbond(params.amount);
 // }
 
+export {};
+

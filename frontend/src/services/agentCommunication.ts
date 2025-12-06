@@ -120,7 +120,7 @@ export class AgentCommunicationService {
     return 'asset-transfer';
   }
 
-  // Send message to agent via ASI-One (AgentVerse compatible)
+  // Send message to agent via ASI-One
   async sendToAgent(request: AgentRequest): Promise<AgentResponse> {
     try {
       this.logger.info({
@@ -170,7 +170,7 @@ export class AgentCommunicationService {
     }
   }
 
-  // Call agent via AgentVerse/ASI-One
+  // Call agent via ASI-One (legacy method - not currently used)
   private async callAgentVerse(request: AgentRequest): Promise<AgentResponse> {
     const agentEndpoint = `${this.asiOneEndpoint}/agents/${request.agentId}`;
     

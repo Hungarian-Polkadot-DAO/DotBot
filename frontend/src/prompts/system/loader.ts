@@ -10,6 +10,7 @@ import { buildAgentRegistry } from './agents';
 import { EXECUTION_ARRAY_INSTRUCTIONS } from './execution/instructions';
 import { SystemContext } from './context/types';
 import { createVersionedPrompt } from './version';
+import { formatPolkadotKnowledgeBase } from './knowledge/dot-knowledge';
 
 /**
  * Format agent definitions for inclusion in system prompt
@@ -162,6 +163,9 @@ export function buildSystemPrompt(context?: SystemContext): string {
   
   // Add context information
   prompt += formatContext(context);
+  
+  // Add Polkadot Knowledge Base
+  prompt += formatPolkadotKnowledgeBase();
   
   // Add agent definitions
   prompt += formatAgentDefinitions();

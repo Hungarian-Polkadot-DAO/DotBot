@@ -8,6 +8,7 @@ import { Subsystem } from './types/logging';
 import { AgentCommunicationService } from './services/agentCommunication';
 import { AgentRequest } from './types/agents';
 import './styles/globals.css';
+import { logSystemPrompt } from './prompts/system/utils';
 
 // Initialize logger for the main App
 const logger = createSubsystemLogger(Subsystem.APP);
@@ -175,6 +176,8 @@ const App: React.FC = () => {
     
     return `Thanks for your message: "${userMessage}". I'm DotBot, and I'm here to help you with Polkadot-related tasks like checking balances, making transfers, and tracking transactions. \n\nTo get started, try connecting your wallet or ask me about specific DOT operations you'd like to perform!`;
   };
+
+  logSystemPrompt();
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -21,3 +21,5 @@
 //   return api.tx.balances.transfer(params.recipient, params.amount);
 // }
 
+export {};
+

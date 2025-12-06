@@ -12,3 +12,5 @@
 //   return api.tx.staking.bond(params.amount, params.payee || 'Staked');
 // }
 
+export {};
+

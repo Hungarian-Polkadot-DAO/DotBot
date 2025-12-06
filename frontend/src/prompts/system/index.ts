@@ -6,8 +6,31 @@
  */
 
 export { buildSystemPrompt, getDefaultSystemPrompt, buildVersionedSystemPrompt } from './loader';
+export { logSystemPrompt, getSystemPromptString, logSystemPromptWithMockContext } from './utils';
 export { BASE_SYSTEM_PROMPT } from './base';
 export { EXECUTION_ARRAY_INSTRUCTIONS } from './execution/instructions';
+export {
+  formatPolkadotKnowledgeBase,
+  buildKnowledgeBase,
+  fetchLiveParachainData,
+  STATIC_KNOWLEDGE_BASE,
+  XCM_TRANSFER_PATTERNS,
+  COMMON_PATTERNS,
+  ECOSYSTEM_CHANGES,
+  SAFETY_GUIDELINES,
+} from './knowledge/dot-knowledge';
+export type {
+  ParachainInfo,
+  TokenInfo,
+  DEXInfo,
+  FeeStructure,
+  AssetClassification,
+  EcosystemChange,
+  SafetyGuidelines,
+  PolkadotKnowledge,
+  XCMPattern,
+  OperationPattern,
+} from './knowledge/types';
 
 // Version control exports
 export {
