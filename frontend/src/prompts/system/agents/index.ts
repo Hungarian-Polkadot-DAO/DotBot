@@ -13,7 +13,7 @@
 
 import { AgentDefinition, AgentRegistry } from './types';
 // Import agent definitions as they are created
-// import { ASSET_TRANSFER_AGENT } from './asset-transfer';
+import { ASSET_TRANSFER_AGENT } from './asset-transfer';
 // import { ASSET_SWAP_AGENT } from './asset-swap';
 // import { GOVERNANCE_AGENT } from './governance';
 // import { MULTISIG_AGENT } from './multisig';
@@ -26,8 +26,7 @@ import { AgentDefinition, AgentRegistry } from './types';
  * The order here determines the order in the system prompt.
  */
 export const AGENTS: AgentDefinition[] = [
-  // Add agent definitions here as they are created
-  // ASSET_TRANSFER_AGENT,
+  ASSET_TRANSFER_AGENT,
   // ASSET_SWAP_AGENT,
   // GOVERNANCE_AGENT,
   // MULTISIG_AGENT,
