@@ -3,6 +3,8 @@
  * 
  * Executes operations from the ExecutionArray.
  * Handles signing, broadcasting, and monitoring of transactions.
+ * 
+ * **Pluggable Signing**: Works in any environment (browser, terminal, backend, tests)
  */
 
 import { ApiPromise } from '@polkadot/api';
@@ -17,38 +19,75 @@ import {
   BatchSigningRequest,
 } from './types';
 import { WalletAccount } from '../../types/wallet';
+import { Signer } from './signers/types';
+import { BrowserWalletSigner } from './signers/browser-signer';
 
 /**
  * Executioner class
  * 
  * Handles execution of operations from ExecutionArray.
+ * Now supports pluggable signing for any environment!
  */
 export class Executioner {
   private api: ApiPromise | null = null;
   private account: WalletAccount | null = null;
+  private signer: Signer | null = null;
+  
+  // Backwards compatibility: old browser-specific handlers
   private signingRequestHandler?: (request: SigningRequest) => void;
   private batchSigningRequestHandler?: (request: BatchSigningRequest) => void;
   
   /**
    * Initialize with Polkadot API and account
+   * 
+   * @param api Polkadot API instance
+   * @param account Account info (address, name, etc.)
+   * @param signer Optional: Pluggable signer (BrowserWalletSigner, KeyringSigner, custom)
+   *               If not provided, uses legacy browser wallet signing
    */
-  initialize(api: ApiPromise, account: WalletAccount): void {
+  initialize(api: ApiPromise, account: WalletAccount, signer?: Signer): void {
     this.api = api;
     this.account = account;
+    this.signer = signer || null;
+    
+    // If signer is BrowserWalletSigner, set up handlers
+    if (signer && signer instanceof BrowserWalletSigner) {
+      const browserSigner = signer as BrowserWalletSigner;
+      if (this.signingRequestHandler) {
+        browserSigner.setSigningRequestHandler(this.signingRequestHandler);
+      }
+      if (this.batchSigningRequestHandler) {
+        browserSigner.setBatchSigningRequestHandler(this.batchSigningRequestHandler);
+      }
+    }
   }
   
   /**
-   * Set handler for signing requests
+   * Set handler for signing requests (legacy - for backwards compatibility)
+   * 
+   * @deprecated Use initialize() with a Signer instead
    */
   setSigningRequestHandler(handler: (request: SigningRequest) => void): void {
     this.signingRequestHandler = handler;
+    
+    // If signer is already set and is BrowserWalletSigner, update it
+    if (this.signer && this.signer instanceof BrowserWalletSigner) {
+      (this.signer as BrowserWalletSigner).setSigningRequestHandler(handler);
+    }
   }
   
   /**
-   * Set handler for batch signing requests
+   * Set handler for batch signing requests (legacy - for backwards compatibility)
+   * 
+   * @deprecated Use initialize() with a Signer instead
    */
   setBatchSigningRequestHandler(handler: (request: BatchSigningRequest) => void): void {
     this.batchSigningRequestHandler = handler;
+    
+    // If signer is already set and is BrowserWalletSigner, update it
+    if (this.signer && this.signer instanceof BrowserWalletSigner) {
+      (this.signer as BrowserWalletSigner).setBatchSigningRequestHandler(handler);
+    }
   }
   
   /**
@@ -279,11 +318,8 @@ export class Executioner {
     
     executionArray.updateStatus(item.id, 'signing');
     
-    // Sign the transaction
-    const injector = await web3FromAddress(this.account.address);
-    await extrinsic.signAsync(this.account.address, {
-      signer: injector.signer,
-    });
+    // Sign the transaction using pluggable signer
+    const signedExtrinsic = await this.signTransaction(extrinsic, this.account.address);
     
     executionArray.updateStatus(item.id, 'broadcasting');
     
@@ -340,11 +376,8 @@ export class Executioner {
       executionArray.updateStatus(item.id, 'signing');
     });
     
-    // Sign the batch
-    const injector = await web3FromAddress(this.account.address);
-    await batchExtrinsic.signAsync(this.account.address, {
-      signer: injector.signer,
-    });
+    // Sign the batch using pluggable signer
+    const signedBatchExtrinsic = await this.signTransaction(batchExtrinsic, this.account.address);
     
     // Update all items to broadcasting
     items.forEach(item => {
@@ -426,6 +459,22 @@ export class Executioner {
       throw new Error('No account set');
     }
     
+    // Use pluggable signer if available
+    if (this.signer && this.signer.requestApproval) {
+      const request: SigningRequest = {
+        itemId: item.id,
+        extrinsic,
+        description: item.description,
+        estimatedFee: item.estimatedFee,
+        warnings: item.warnings,
+        metadata: item.metadata,
+        accountAddress: this.account.address,
+        resolve: () => {}, // Not used with pluggable signer
+      };
+      return await this.signer.requestApproval(request);
+    }
+    
+    // Legacy: use signing request handler
     if (!this.signingRequestHandler) {
       throw new Error('No signing request handler set');
     }
@@ -509,53 +558,42 @@ export class Executioner {
         reject(new Error('Transaction timeout'));
       }, timeout);
       
-      web3FromAddress(this.account!.address)
-        .then(injector => {
-          extrinsic.signAndSend(
-            this.account!.address,
-            { signer: injector.signer },
-            (result) => {
-              if (result.status.isInBlock) {
-                // Transaction is in a block
-              }
-              
-              if (result.status.isFinalized) {
-                clearTimeout(timeoutHandle);
-                
-                // Check if transaction succeeded
-                const failedEvent = result.events.find(({ event }) => {
-                  return this.api!.events.system.ExtrinsicFailed.is(event);
-                });
-                
-                if (failedEvent) {
-                  const errorEvent = failedEvent.event.toHuman();
-                  resolve({
-                    success: false,
-                    error: JSON.stringify(errorEvent),
-                    errorCode: 'EXTRINSIC_FAILED',
-                  });
-                } else {
-                  // Extract block info
-                  const blockHash = result.status.asFinalized.toString();
-                  
-                  resolve({
-                    success: true,
-                    txHash: extrinsic.hash.toString(),
-                    blockHash,
-                    events: result.events.map(e => e.event.toHuman()),
-                  });
-                }
-              }
-            }
-          ).catch((error: Error) => {
-            clearTimeout(timeoutHandle);
-            reject(error);
-          });
-        })
-        .catch((error: Error) => {
+      this.signAndSendTransaction(extrinsic, this.account!.address, (result) => {
+        if (result.status.isInBlock) {
+          // Transaction is in a block
+        }
+        
+        if (result.status.isFinalized) {
           clearTimeout(timeoutHandle);
-          reject(error);
-        });
+          
+          // Check if transaction succeeded
+          const failedEvent = result.events.find(({ event }: any) => {
+            return this.api!.events.system.ExtrinsicFailed.is(event);
+          });
+          
+          if (failedEvent) {
+            const errorEvent = failedEvent.event.toHuman();
+            resolve({
+              success: false,
+              error: JSON.stringify(errorEvent),
+              errorCode: 'EXTRINSIC_FAILED',
+            });
+          } else {
+            // Extract block info
+            const blockHash = result.status.asFinalized.toString();
+            
+            resolve({
+              success: true,
+              txHash: extrinsic.hash.toString(),
+              blockHash,
+              events: result.events.map((e: any) => e.event.toHuman()),
+            });
+          }
+        }
+      }).catch((error: Error) => {
+        clearTimeout(timeoutHandle);
+        reject(error);
+      });
     });
   }
   
@@ -583,6 +621,74 @@ export class Executioner {
     if (!this.api || !this.account) {
       throw new Error('Executioner not initialized. Call initialize() first.');
     }
+  }
+  
+  /**
+   * Sign transaction using pluggable signer
+   */
+  private async signTransaction(
+    extrinsic: SubmittableExtrinsic<'promise'>,
+    address: string
+  ): Promise<SubmittableExtrinsic<'promise'>> {
+    // If custom signer is provided, use it
+    if (this.signer) {
+      return await this.signer.signExtrinsic(extrinsic, address);
+    }
+    
+    // Legacy: fall back to browser wallet
+    const injector = await web3FromAddress(address);
+    return await extrinsic.signAsync(address, {
+      signer: injector.signer,
+    });
+  }
+  
+  /**
+   * Sign and send transaction using pluggable signer
+   */
+  private async signAndSendTransaction(
+    extrinsic: SubmittableExtrinsic<'promise'>,
+    address: string,
+    callback: (result: any) => void
+  ): Promise<void> {
+    // If custom signer is provided, sign first then send
+    if (this.signer) {
+      const signedExtrinsic = await this.signer.signExtrinsic(extrinsic, address);
+      return new Promise((resolve, reject) => {
+        signedExtrinsic.send((result) => {
+          callback(result);
+          if (result.status.isFinalized || result.status.isInvalid) {
+            resolve();
+          }
+        }).catch(reject);
+      });
+    }
+    
+    // Legacy: fall back to browser wallet
+    const injector = await web3FromAddress(address);
+    return new Promise((resolve, reject) => {
+      extrinsic.signAndSend(
+        address,
+        { signer: injector.signer },
+        (result) => {
+          callback(result);
+          if (result.status.isFinalized || result.status.isInvalid) {
+            resolve();
+          }
+        }
+      ).catch(reject);
+    });
+  }
+  
+  /**
+   * Request approval using pluggable signer
+   */
+  private async requestApprovalViaSigner(request: SigningRequest): Promise<boolean> {
+    if (this.signer && this.signer.requestApproval) {
+      return await this.signer.requestApproval(request);
+    }
+    
+    // Legacy: use handler
+    return await this.requestSignature(null as any, request.extrinsic);
   }
 }
 

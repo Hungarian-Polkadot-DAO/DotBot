@@ -93,7 +93,14 @@ export { Subsystem, ErrorType } from './types/logging';
 export type { Subsystem as SubsystemType, ErrorType as ErrorTypeType } from './types/logging';
 
 // Export execution array (runtime execution system)
-export { ExecutionArray, Executioner } from './execution-array';
+export {
+  ExecutionArray,
+  Executioner,
+  ExecutionOrchestrator,
+  ExecutionSystem, // Recommended: Turnkey solution
+  BrowserWalletSigner, // For browser environments
+  KeyringSigner, // For terminal/backend/tests
+} from './execution-array';
 export {
   mapPromptStatusToRuntimeStatus,
   mapRuntimeStatusToPromptStatus,
@@ -112,7 +119,11 @@ export type {
   CompletionCallback,
   ExecutionStatus, // Runtime execution status (extends prompt status with granular transaction states)
   ExecutionType,   // Same as prompt ExecutionType, but exported from runtime for clarity
-} from './execution-array/types';
+  OrchestrationResult,
+  OrchestrationOptions,
+  Signer, // Pluggable signer interface
+  SignerOptions,
+} from './execution-array';
 
 // Export config
 export { createSubsystemLogger, logError, logger } from './config/logger';
