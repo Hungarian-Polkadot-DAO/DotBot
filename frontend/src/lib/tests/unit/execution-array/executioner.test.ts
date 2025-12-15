@@ -26,7 +26,7 @@ describe('Executioner', () => {
   let executioner: Executioner;
   let executionArray: ExecutionArray;
   let mockApi: Partial<ApiPromise>;
-  let mockAccount: { address: string; name?: string };
+  let mockAccount: { address: string; name?: string; source: string };
   let mockSigner: Signer;
   let mockExtrinsic: Partial<SubmittableExtrinsic<'promise'>>;
 
@@ -38,6 +38,7 @@ describe('Executioner', () => {
     mockAccount = {
       address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
       name: 'Test Account',
+      source: 'polkadot-js',
     };
 
     // Mock extrinsic
