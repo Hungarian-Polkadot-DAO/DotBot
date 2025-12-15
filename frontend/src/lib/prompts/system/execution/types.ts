@@ -78,11 +78,17 @@ export interface ExecutionStep {
   };
 }
 
-export interface ExecutionArray {
-  /** Unique identifier for this execution array */
+/**
+ * Execution Plan (LLM Output)
+ * 
+ * This is what the LLM outputs - a plan containing steps to execute.
+ * The Orchestrator converts this into the runtime ExecutionArray class.
+ */
+export interface ExecutionPlan {
+  /** Unique identifier for this execution plan */
   id: string;
   
-  /** User's original request that generated this execution array */
+  /** User's original request that generated this execution plan */
   originalRequest: string;
   
   /** All steps in the execution sequence */
@@ -94,13 +100,13 @@ export interface ExecutionArray {
   /** Current step being executed */
   currentStepIndex?: number;
   
-  /** Whether the entire array requires user approval */
+  /** Whether the entire plan requires user approval */
   requiresApproval: boolean;
   
-  /** Timestamp when array was created */
+  /** Timestamp when plan was created */
   createdAt: number;
   
-  /** Timestamp when array was completed */
+  /** Timestamp when plan was completed */
   completedAt?: number;
   
   /** Overall result/outcome */

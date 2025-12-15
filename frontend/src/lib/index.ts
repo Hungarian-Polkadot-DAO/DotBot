@@ -73,11 +73,12 @@ export type {
   FunctionParameter,
   AgentRegistry,
 } from './prompts/system/agents/types';
+// Export prompt system execution types (for LLM planning)
 export type {
-  ExecutionArray,
+  ExecutionPlan, // LLM's JSON plan (this is what LLM outputs)
   ExecutionStep,
-  ExecutionStatus,
-  ExecutionType,
+  ExecutionStatus as ExecutionStatusPlan, // Renamed to avoid conflict with runtime type
+  ExecutionType as ExecutionTypePlan, // Same values but different namespace
   ExecutionContext,
 } from './prompts/system/execution/types';
 export type {
@@ -90,6 +91,39 @@ export type {
 // Export types and enums (must export enums as values, not just types)
 export { Subsystem, ErrorType } from './types/logging';
 export type { Subsystem as SubsystemType, ErrorType as ErrorTypeType } from './types/logging';
+
+// Export execution array (runtime execution system)
+export {
+  ExecutionArray,
+  Executioner,
+  ExecutionOrchestrator,
+  ExecutionSystem, // Recommended: Turnkey solution
+  BrowserWalletSigner, // For browser environments
+  KeyringSigner, // For terminal/backend/tests
+} from './execution-array';
+export {
+  mapPromptStatusToRuntimeStatus,
+  mapRuntimeStatusToPromptStatus,
+  createExecutionItemFromAgentResult,
+} from './execution-array/utils';
+export type {
+  ExecutionItem,
+  ExecutionArrayState,
+  ExecutionOptions,
+  ExecutionResult,
+  SigningRequest,
+  BatchSigningRequest,
+  StatusCallback,
+  ProgressCallback,
+  ErrorCallback,
+  CompletionCallback,
+  ExecutionStatus, // Runtime execution status (extends prompt status with granular transaction states)
+  ExecutionType,   // Same as prompt ExecutionType, but exported from runtime for clarity
+  OrchestrationResult,
+  OrchestrationOptions,
+  Signer, // Pluggable signer interface
+  SignerOptions,
+} from './execution-array';
 
 // Export config
 export { createSubsystemLogger, logError, logger } from './config/logger';

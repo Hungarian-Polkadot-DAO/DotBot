@@ -59,7 +59,7 @@ export type {
 } from './agents/types';
 
 export type {
-  ExecutionArray,
+  ExecutionPlan,
   ExecutionStep,
   ExecutionStatus,
   ExecutionType,
