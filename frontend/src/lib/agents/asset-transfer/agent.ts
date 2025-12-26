@@ -20,8 +20,8 @@ import { BN } from '@polkadot/util';
  * const agent = new AssetTransferAgent();
  * agent.initialize(api);
  * const result = await agent.transfer({
- *   address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
- *   recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+ *   address: '1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1',
+ *   recipient: '1Z9B8C7D6E5F4G3H2I1J0K9L8M7N6O5P4Q3R2S1T0U9V8W7X6Y5Z4A3B2C1',
  *   amount: '1.5', // 1.5 DOT (will be converted to Planck)
  * });
  */
@@ -40,6 +40,12 @@ export class AssetTransferAgent extends BaseAgent {
     this.ensureInitialized();
     const api = this.getApi();
     const warnings: string[] = [];
+
+    console.log('💸 AssetTransferAgent.transfer() called with params:', {
+      sender: params.address,
+      recipient: params.recipient,
+      amount: params.amount
+    });
 
     try {
       // Validate sender address
