@@ -6,10 +6,10 @@
  */
 
 import { ApiPromise } from '@polkadot/api';
-import { decodeAddress, encodeAddress } from '@polkadot/keyring';
+import { decodeAddress } from '@polkadot/keyring';
 import { isAddress } from '@polkadot/util-crypto';
 import { BN } from '@polkadot/util';
-import { AgentResult, BaseAgentParams, AgentError, ValidationResult, BalanceInfo } from './types';
+import { AgentResult, AgentError, ValidationResult, BalanceInfo } from './types';
 
 export abstract class BaseAgent {
   protected api: ApiPromise | null = null;
@@ -54,7 +54,7 @@ export abstract class BaseAgent {
     }
 
     try {
-      // Check if address is valid SS58 format
+      // Check if address is valid Polkadot/Substrate address format
       if (!isAddress(address)) {
         errors.push(`Invalid address format: ${address}`);
         return { valid: false, errors, warnings };
