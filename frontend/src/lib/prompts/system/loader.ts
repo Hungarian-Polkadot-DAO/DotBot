@@ -128,8 +128,6 @@ function formatContext(context?: SystemContext): string {
   // Wallet context
   if (context.wallet.isConnected && context.wallet.address) {
     prompt += `**Wallet**: Connected (${context.wallet.address})\n`;
-    prompt += `⚠️ **IMPORTANT**: When creating ExecutionPlans, you MUST use this exact wallet address: \`${context.wallet.address}\`\n`;
-    prompt += `Do NOT use a different address format. Use the address exactly as shown above.\n`;
     if (context.wallet.provider) {
       prompt += `**Provider**: ${context.wallet.provider}\n`;
     }

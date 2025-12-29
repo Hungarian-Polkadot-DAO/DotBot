@@ -134,7 +134,6 @@ export abstract class BaseAgent {
     address: string
   ): Promise<string> {
     try {
-      const api = this.getApi();
       const { partialFee } = await extrinsic.paymentInfo(address);
       return partialFee.toString();
     } catch (error) {

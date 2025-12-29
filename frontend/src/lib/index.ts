@@ -98,10 +98,6 @@ export type {
   BalanceContext,
 } from './prompts/system/context/types';
 
-// Export types and enums (must export enums as values, not just types)
-export { Subsystem, ErrorType } from './types/logging';
-export type { Subsystem as SubsystemType, ErrorType as ErrorTypeType } from './types/logging';
-
 // Export execution array (runtime execution system)
 export {
   ExecutionArray,
@@ -134,7 +130,4 @@ export type {
   Signer, // Pluggable signer interface
   SignerOptions,
 } from './execution-array';
-
-// Export config
-export { createSubsystemLogger, logError, logger } from './config/logger';
 

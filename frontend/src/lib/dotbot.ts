@@ -17,7 +17,6 @@
  */
 
 import { ApiPromise, WsProvider } from '@polkadot/api';
-import { decodeAddress, encodeAddress } from '@polkadot/keyring';
 import { ExecutionSystem } from './execution-array/system';
 import { ExecutionArray } from './execution-array/executionArray';
 import { ExecutionArrayState, ExecutionItem } from './execution-array/types';
