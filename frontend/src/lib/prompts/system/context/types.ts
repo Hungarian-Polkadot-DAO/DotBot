@@ -6,16 +6,9 @@
  */
 
 export interface WalletContext {
-  /** Whether wallet is connected */
   isConnected: boolean;
-  
-  /** Connected wallet address */
   address?: string;
-  
-  /** Wallet provider name (Talisman, SubWallet, etc.) */
-  provider?: string;
-  
-  /** Available accounts */
+  provider?: string;    // Talisman, SubWallet, etc.
   accounts?: Array<{
     address: string;
     name?: string;
@@ -24,47 +17,24 @@ export interface WalletContext {
 }
 
 export interface NetworkContext {
-  /** Current network name */
   network: 'polkadot' | 'kusama' | string;
-  
-  /** Network RPC endpoint */
   rpcEndpoint?: string;
-  
-  /** Network chain ID */
   chainId?: string;
-  
-  /** Available networks */
   availableNetworks?: string[];
 }
 
 export interface BalanceContext {
-  /** Free balance */
   free: string;
-  
-  /** Reserved balance */
   reserved: string;
-  
-  /** Frozen balance */
   frozen: string;
-  
-  /** Total balance */
-  total: string;
-  
-  /** Token symbol */
+  total: string;  
   symbol: string;
 }
 
 export interface SystemContext {
-  /** Wallet context */
   wallet: WalletContext;
-  
-  /** Network context */
   network: NetworkContext;
-  
-  /** Balance context */
   balance?: BalanceContext;
-  
-  /** Additional metadata */
   metadata?: Record<string, any>;
 }
 
