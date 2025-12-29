@@ -17,13 +17,13 @@
  */
 
 import { ApiPromise, WsProvider } from '@polkadot/api';
-import { ExecutionSystem } from './execution-array/system';
-import { ExecutionArray } from './execution-array/executionArray';
-import { ExecutionArrayState, ExecutionItem } from './execution-array/types';
-import { BrowserWalletSigner } from './execution-array/signers/browserSigner';
+import { ExecutionSystem } from './executionEngine/system';
+import { ExecutionArray } from './executionEngine/executionArray';
+import { ExecutionArrayState, ExecutionItem } from './executionEngine/types';
+import { BrowserWalletSigner } from './executionEngine/signers/browserSigner';
 import { buildSystemPrompt } from './prompts/system/loader';
 import { ExecutionPlan } from './prompts/system/execution/types';
-import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './execution-array/types';
+import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executionEngine/types';
 import { WalletAccount } from '../types/wallet';
 
 export interface DotBotConfig {

@@ -269,9 +269,9 @@ system.initialize(api, account, signer);
 
 ## Need Help?
 
-- **Architecture:** See `/lib/execution-array/ARCHITECTURE.md`
-- **Usage Examples:** See `/lib/execution-array/USAGE.md`
-- **Integration Test:** See `/lib/execution-array/INTEGRATION_TEST.md`
+- **Architecture:** See `/lib/executionEngine/ARCHITECTURE.md`
+- **Usage Examples:** See `/lib/executionEngine/USAGE.md`
+- **Integration Test:** See `/lib/executionEngine/INTEGRATION_TEST.md`
 - **Full Verification:** See `/lib/FINAL_CONNECTION_SUMMARY.md`
 
 ---

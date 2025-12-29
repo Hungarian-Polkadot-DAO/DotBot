@@ -98,7 +98,7 @@ export type {
   BalanceContext,
 } from './prompts/system/context/types';
 
-// Export execution array (runtime execution system)
+// Export execution engine (runtime execution system)
 export {
   ExecutionArray,
   Executioner,
@@ -106,12 +106,12 @@ export {
   ExecutionSystem, // Recommended: Turnkey solution
   BrowserWalletSigner, // For browser environments
   KeyringSigner, // For terminal/backend/tests
-} from './execution-array';
+} from './executionEngine';
 export {
   mapPromptStatusToRuntimeStatus,
   mapRuntimeStatusToPromptStatus,
   createExecutionItemFromAgentResult,
-} from './execution-array/utils';
+} from './executionEngine/utils';
 export type {
   ExecutionItem,
   ExecutionArrayState,
@@ -129,5 +129,5 @@ export type {
   OrchestrationOptions,
   Signer, // Pluggable signer interface
   SignerOptions,
-} from './execution-array';
+} from './executionEngine';
 

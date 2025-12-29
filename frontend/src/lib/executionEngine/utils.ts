@@ -91,7 +91,7 @@ export function createExecutionItemFromAgentResult(
  *   - Contains: agentClassName, functionName, parameters
  *   - Represents "what to do"
  * 
- * - ExecutionItem (from execution-array/types.ts):
+ * - ExecutionItem (from executionEngine/types.ts):
  *   - Created from AgentResult after agent execution
  *   - Contains: agentResult (with extrinsic/data)
  *   - Represents "what to execute"
