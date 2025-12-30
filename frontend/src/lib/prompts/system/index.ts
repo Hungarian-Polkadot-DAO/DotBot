@@ -9,6 +9,13 @@ export { buildSystemPrompt, buildSystemPromptSync, getDefaultSystemPrompt, build
 export { logSystemPrompt, logSystemPromptAsync, getSystemPromptString, logSystemPromptWithMockContext } from './utils';
 export { BASE_SYSTEM_PROMPT } from './base';
 export { EXECUTION_ARRAY_INSTRUCTIONS } from './execution/instructions';
+export { 
+  detectSystemQueries, 
+  loadKnowledgeFile, 
+  processSystemQueries, 
+  areSystemQueriesEnabled 
+} from './systemQuery';
+export type { SystemQuery } from './systemQuery';
 export {
   formatPolkadotKnowledgeBase,
   buildKnowledgeBase,

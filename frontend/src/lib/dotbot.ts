@@ -25,6 +25,7 @@ import { buildSystemPrompt } from './prompts/system/loader';
 import { ExecutionPlan } from './prompts/system/execution/types';
 import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executionEngine/types';
 import { WalletAccount } from '../types/wallet';
+import { processSystemQueries, areSystemQueriesEnabled } from './prompts/system/systemQuery';
 
 export interface DotBotConfig {
   /** Wallet account */
@@ -171,11 +172,20 @@ export class DotBot {
    * 
    * This is the main method. Pass a message, get results.
    * 
+   * The LLM will intelligently decide whether to:
+   * 1. Respond with helpful text (for questions, clarifications, errors)
+   * 2. Generate an ExecutionPlan (for clear blockchain commands)
+   * 
    * @example
    * ```typescript
-   * const result = await dotbot.chat("Send 2 DOT to Bob");
-   * console.log(result.response);
-   * console.log(result.executed); // true if transaction was executed
+   * // Question - gets text response
+   * const result1 = await dotbot.chat("What is staking?");
+   * console.log(result1.response); // Explanation text
+   * 
+   * // Command - gets ExecutionPlan + execution
+   * const result2 = await dotbot.chat("Send 2 DOT to Bob");
+   * console.log(result2.executed); // true
+   * console.log(result2.plan); // ExecutionPlan object
    * ```
    */
   async chat(message: string, options?: ChatOptions): Promise<ChatResult> {
@@ -183,17 +193,35 @@ export class DotBot {
     const systemPrompt = options?.systemPrompt || await this.buildContextualSystemPrompt();
     
     // Send to LLM
-    const llmResponse = await this.callLLM(message, systemPrompt, options?.llm);
+    let llmResponse = await this.callLLM(message, systemPrompt, options?.llm);
     
-    // Extract execution plan
+    // Process system queries if enabled (future feature)
+    if (areSystemQueriesEnabled() && options?.llm) {
+      llmResponse = await processSystemQueries(
+        llmResponse,
+        systemPrompt,
+        message,
+        async (msg, prompt) => this.callLLM(msg, prompt, options.llm)
+      );
+    }
+    
+    // Try to extract execution plan
     const plan = this.extractExecutionPlan(llmResponse);
     
-    // If no plan, just return the response
+    // SCENARIO 1: No ExecutionPlan found - LLM responded with text
+    // This means the user asked a question, needs clarification, or made an error
     if (!plan || plan.steps.length === 0) {
-      console.log('ℹ️ No ExecutionPlan found - returning text response only');
+      console.log('💬 Text-only response (Question/Clarification/Error scenario)');
       this.currentExecutionArray = null;
+      
+      // Clean up the response - remove any code block markers that might remain
+      let cleanedResponse = llmResponse
+        .replace(/```json\s*/g, '')
+        .replace(/```\s*/g, '')
+        .trim();
+      
       return {
-        response: llmResponse,
+        response: cleanedResponse,
         executed: false,
         success: true,
         completed: 0,
@@ -201,7 +229,8 @@ export class DotBot {
       };
     }
     
-    console.log('✅ ExecutionPlan extracted:', {
+    // SCENARIO 2: ExecutionPlan found - LLM generated a command
+    console.log('🔧 ExecutionPlan detected (Command scenario):', {
       id: plan.id,
       steps: plan.steps.length,
       stepsDetails: plan.steps.map(s => ({
@@ -211,7 +240,7 @@ export class DotBot {
       }))
     });
     
-    // Execute the plan with array tracking
+    // Prepare the plan for execution with array tracking
     let completed = 0;
     let failed = 0;
     let success = true;
@@ -230,12 +259,12 @@ export class DotBot {
       );
     } catch (error) {
       success = false;
-      console.error('❌ Execution tracking failed:', error);
+      console.error('❌ Execution preparation failed:', error);
       
-      // Return the error message to be shown in chat
+      // Return a friendly error message
       const errorMsg = error instanceof Error ? error.message : String(error);
       return {
-        response: `❌ Unable to prepare your transaction:\n\n${errorMsg}`,
+        response: `❌ Unable to prepare your transaction:\n\n${errorMsg}\n\nPlease check the parameters and try again.`,
         plan,
         executed: false,
         success: false,
@@ -244,7 +273,7 @@ export class DotBot {
       };
     }
     
-    // Generate friendly message instead of showing raw JSON
+    // Generate friendly confirmation message
     const friendlyMessage = this.generateFriendlyMessage(plan, completed, failed);
     
     return {
@@ -437,20 +466,30 @@ export class DotBot {
 
   /**
    * Generate friendly message from execution plan
+   * 
+   * This creates a user-friendly message that explains what transaction(s)
+   * have been prepared, without being overly chatty or asking for confirmation
+   * (since the ExecutionPlan UI serves as the confirmation mechanism).
    */
   private generateFriendlyMessage(plan: ExecutionPlan, completed: number, failed: number): string {
     const totalSteps = plan.steps.length;
     
     if (totalSteps === 0) {
-      return "I've prepared your request, but there are no operations to execute.";
+      return "Transaction prepared, but no operations to execute.";
     }
     
     if (totalSteps === 1) {
       const step = plan.steps[0];
-      return `I've prepared your transaction:\n\n${step.description}\n\nPlease review and approve it in the execution panel below.`;
+      // Single transaction - keep it simple and direct
+      return `✅ Transaction ready:\n\n**${step.description}**\n\nReview the details below and approve when ready.`;
     }
     
-    return `I've prepared ${totalSteps} operations:\n\n${plan.steps.map((s, i) => `${i + 1}. ${s.description}`).join('\n')}\n\nPlease review and approve them in the execution panel below.`;
+    // Multiple transactions - show them as a list
+    const stepsList = plan.steps
+      .map((s, i) => `${i + 1}. ${s.description}`)
+      .join('\n');
+    
+    return `✅ ${totalSteps} transactions ready:\n\n${stepsList}\n\nReview the details below and approve when ready.`;
   }
 
   /**
