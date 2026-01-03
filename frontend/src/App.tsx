@@ -47,12 +47,13 @@ const App: React.FC = () => {
   // DotBot integration - just two lines!
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
   const [asiOne] = useState(() => new ASIOneService());
+  const [isInitializing, setIsInitializing] = useState(false);
   
   const { isConnected, selectedAccount } = useWalletStore();
 
   // Initialize DotBot when wallet connects
   useEffect(() => {
-    if (isConnected && selectedAccount) {
+    if (isConnected && selectedAccount && !dotbot && !isInitializing) {
       initializeDotBot();
     }
   }, [isConnected, selectedAccount]);
@@ -75,6 +76,7 @@ const App: React.FC = () => {
    * Initialize DotBot - Simple!
    */
   const initializeDotBot = async () => {
+    setIsInitializing(true);
     try {
       const dotbotInstance = await DotBot.create({
         wallet: selectedAccount!,
@@ -102,6 +104,8 @@ const App: React.FC = () => {
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -234,6 +238,14 @@ const App: React.FC = () => {
             messages={messages}
             isTyping={isTyping}
             showWelcomeScreen={showWelcomeScreen}
+            disabled={!dotbot}
+            placeholder={
+              !isConnected 
+                ? "Connect your wallet to start chatting..."
+                : isInitializing
+                ? "Initializing DotBot (connecting to Polkadot networks)..."
+                : "Type your message..."
+            }
           />
 
           {/* Execution Flow - Visual representation of operations */}

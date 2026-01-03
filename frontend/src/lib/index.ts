@@ -11,6 +11,14 @@
 export { DotBot } from './dotbot';
 export type { DotBotConfig, ChatResult, ChatOptions, ConversationMessage } from './dotbot';
 
+// RPC Manager - For advanced endpoint management
+export { 
+  RpcManager, 
+  createRelayChainManager, 
+  createAssetHubManager,
+  RpcEndpoints 
+} from './rpcManager';
+
 // ============================================================================
 // Advanced/Modular Exports (for custom implementations)
 // ============================================================================

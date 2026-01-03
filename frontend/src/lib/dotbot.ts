@@ -26,6 +26,7 @@ import { ExecutionPlan } from './prompts/system/execution/types';
 import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executionEngine/types';
 import { WalletAccount } from '../types/wallet';
 import { processSystemQueries, areSystemQueriesEnabled } from './prompts/system/systemQuery';
+import { createRelayChainManager, createAssetHubManager, RpcManager } from './rpcManager';
 
 export interface DotBotConfig {
   /** Wallet account */
@@ -118,17 +119,28 @@ export interface ChatOptions {
  */
 export class DotBot {
   private api: ApiPromise;
+  private assetHubApi: ApiPromise | null = null;
   private executionSystem: ExecutionSystem;
   private wallet: WalletAccount;
   private config: DotBotConfig;
   private currentExecutionArray: ExecutionArray | null = null;
   private executionArrayCallbacks: Set<(state: ExecutionArrayState) => void> = new Set();
+  private relayChainManager: RpcManager;
+  private assetHubManager: RpcManager;
   
-  private constructor(api: ApiPromise, executionSystem: ExecutionSystem, config: DotBotConfig) {
+  private constructor(
+    api: ApiPromise, 
+    executionSystem: ExecutionSystem, 
+    config: DotBotConfig,
+    relayChainManager: RpcManager,
+    assetHubManager: RpcManager
+  ) {
     this.api = api;
     this.executionSystem = executionSystem;
     this.wallet = config.wallet;
     this.config = config;
+    this.relayChainManager = relayChainManager;
+    this.assetHubManager = assetHubManager;
   }
   
   /**
@@ -166,16 +178,45 @@ export class DotBot {
   }
   
   /**
+   * Get RPC endpoint health status
+   */
+  getRpcHealth() {
+    return {
+      relayChain: {
+        current: this.relayChainManager.getCurrentEndpoint(),
+        endpoints: this.relayChainManager.getHealthStatus()
+      },
+      assetHub: {
+        current: this.assetHubManager.getCurrentEndpoint(),
+        endpoints: this.assetHubManager.getHealthStatus()
+      }
+    };
+  }
+  
+  /**
+   * Get current connected endpoints
+   */
+  getConnectedEndpoints() {
+    return {
+      relayChain: this.relayChainManager.getCurrentEndpoint(),
+      assetHub: this.assetHubManager.getCurrentEndpoint()
+    };
+  }
+  
+  /**
    * Create and initialize DotBot
    * 
    * This is the only setup you need!
    */
   static async create(config: DotBotConfig): Promise<DotBot> {
-    // Connect to Polkadot
-    const endpoint = config.endpoint || 'wss://rpc.polkadot.io';
-    const provider = new WsProvider(endpoint);
-    const api = await ApiPromise.create({ provider });
-    await api.isReady;
+    // Create RPC managers for automatic failover
+    const relayChainManager = createRelayChainManager();
+    const assetHubManager = createAssetHubManager();
+    
+    // Connect to Polkadot Relay Chain with automatic failover
+    console.log('🔗 Connecting to Polkadot Relay Chain...');
+    const api = await relayChainManager.connect();
+    console.log(`✅ Connected to Relay Chain via: ${relayChainManager.getCurrentEndpoint()}`);
     
     // Create signer
     const signer = new BrowserWalletSigner({ 
@@ -194,7 +235,33 @@ export class DotBot {
     const executionSystem = new ExecutionSystem();
     executionSystem.initialize(api, config.wallet, signer);
     
-    return new DotBot(api, executionSystem, config);
+    const dotbot = new DotBot(api, executionSystem, config, relayChainManager, assetHubManager);
+    
+    // Initialize Asset Hub connection (blocking - wait for it)
+    try {
+      await dotbot.initializeAssetHub();
+      console.log('✅ DotBot ready with Asset Hub connection');
+    } catch (err) {
+      console.warn('⚠️ Asset Hub connection failed, continuing without it:', err instanceof Error ? err.message : err);
+    }
+    
+    return dotbot;
+  }
+  
+  /**
+   * Initialize Asset Hub connection with automatic failover
+   */
+  private async initializeAssetHub(): Promise<void> {
+    console.log('🔗 Connecting to Asset Hub with automatic failover...');
+    
+    try {
+      this.assetHubApi = await this.assetHubManager.connect();
+      console.log(`✅ Asset Hub connected via: ${this.assetHubManager.getCurrentEndpoint()}`);
+    } catch (error) {
+      console.error('❌ Asset Hub connection failed on all endpoints:', error);
+      this.assetHubApi = null;
+      throw error; // Re-throw so caller knows it failed
+    }
   }
   
   /**
@@ -432,26 +499,66 @@ export class DotBot {
   }
   
   /**
-   * Get account balance
+   * Get account balance from both Relay Chain and Asset Hub
    */
   async getBalance(): Promise<{
-    free: string;
-    reserved: string;
-    frozen: string;
+    relayChain: {
+      free: string;
+      reserved: string;
+      frozen: string;
+    };
+    assetHub: {
+      free: string;
+      reserved: string;
+      frozen: string;
+    } | null;
+    total: string;
   }> {
     console.log('💰 DotBot.getBalance() - Querying address:', this.wallet.address);
-    const accountInfo = await this.api.query.system.account(this.wallet.address);
-    const data = accountInfo.toJSON() as any;
-    console.log('💰 DotBot.getBalance() - Raw account data:', JSON.stringify(data, null, 2));
     
-    const balance = {
-      free: data.data?.free || '0',
-      reserved: data.data?.reserved || '0',
-      frozen: data.data?.frozen || data.data?.miscFrozen || '0'
+    // Get Relay Chain balance
+    const relayAccountInfo = await this.api.query.system.account(this.wallet.address);
+    const relayData = relayAccountInfo.toJSON() as any;
+    
+    const relayBalance = {
+      free: relayData.data?.free || '0',
+      reserved: relayData.data?.reserved || '0',
+      frozen: relayData.data?.frozen || relayData.data?.miscFrozen || '0'
     };
     
-    console.log('💰 DotBot.getBalance() - Parsed balance:', balance);
-    return balance;
+    console.log('💰 Relay Chain balance:', relayBalance);
+    
+    // Get Asset Hub balance (if connected)
+    let assetHubBalance: { free: string; reserved: string; frozen: string } | null = null;
+    if (this.assetHubApi) {
+      try {
+        const assetHubAccountInfo = await this.assetHubApi.query.system.account(this.wallet.address);
+        const assetHubData = assetHubAccountInfo.toJSON() as any;
+        
+        assetHubBalance = {
+          free: assetHubData.data?.free || '0',
+          reserved: assetHubData.data?.reserved || '0',
+          frozen: assetHubData.data?.frozen || assetHubData.data?.miscFrozen || '0'
+        };
+        
+        console.log('💰 Asset Hub balance:', assetHubBalance);
+      } catch (error) {
+        console.warn('⚠️ Failed to fetch Asset Hub balance:', error);
+      }
+    } else {
+      console.log('ℹ️ Asset Hub not connected, skipping Asset Hub balance');
+    }
+    
+    // Calculate total free balance
+    const relayFree = BigInt(relayBalance.free);
+    const assetHubFree = assetHubBalance ? BigInt(assetHubBalance.free) : BigInt(0);
+    const totalFree = relayFree + assetHubFree;
+    
+    return {
+      relayChain: relayBalance,
+      assetHub: assetHubBalance,
+      total: totalFree.toString()
+    };
   }
   
   /**
@@ -491,6 +598,9 @@ export class DotBot {
    */
   async disconnect(): Promise<void> {
     await this.api.disconnect();
+    if (this.assetHubApi) {
+      await this.assetHubApi.disconnect();
+    }
   }
   
 
@@ -530,12 +640,6 @@ export class DotBot {
       const balance = await this.getBalance();
       const chainInfo = await this.getChainInfo();
       
-      // Calculate total balance
-      const freeBN = BigInt(balance.free || '0');
-      const reservedBN = BigInt(balance.reserved || '0');
-      const frozenBN = BigInt(balance.frozen || '0');
-      const totalBN = freeBN + reservedBN + frozenBN;
-      
       // Use original address - Polkadot API handles all SS58 formats automatically
       // Converting would point to a different account on different networks
       console.log('🔄 Using wallet address for system prompt:', {
@@ -555,10 +659,17 @@ export class DotBot {
           rpcEndpoint: this.config.endpoint || 'wss://rpc.polkadot.io'
         },
         balance: {
-          free: balance.free,
-          reserved: balance.reserved,
-          frozen: balance.frozen,
-          total: totalBN.toString(),
+          relayChain: {
+            free: balance.relayChain.free,
+            reserved: balance.relayChain.reserved,
+            frozen: balance.relayChain.frozen
+          },
+          assetHub: balance.assetHub ? {
+            free: balance.assetHub.free,
+            reserved: balance.assetHub.reserved,
+            frozen: balance.assetHub.frozen
+          } : null,
+          total: balance.total,
           symbol: 'DOT'
         }
       });

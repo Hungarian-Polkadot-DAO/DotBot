@@ -13,12 +13,16 @@ interface ChatInterfaceProps {
   onSendMessage: (message: string) => void;
   messages: Message[];
   isTyping?: boolean;
+  disabled?: boolean;
+  placeholder?: string;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onSendMessage,
   messages,
-  isTyping = false
+  isTyping = false,
+  disabled = false,
+  placeholder = "Type your message..."
 }) => {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -106,21 +110,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type your message..."
+              placeholder={placeholder}
               rows={1}
+              disabled={disabled}
             />
             {!inputValue.trim() ? (
               <button
                 type="button"
                 className="input-action-btn mic"
                 title="Voice input"
+                disabled={disabled}
                 style={{ 
                   background: 'none', 
                   border: 'none', 
                   padding: '0',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer'
                 }}
               >
                 <img 
@@ -134,13 +142,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 type="submit"
                 className="action-button"
                 title="Send message"
+                disabled={disabled}
                 style={{
                   background: 'none',
                   border: 'none',
                   padding: '0',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer'
                 }}
               >
                 <img 

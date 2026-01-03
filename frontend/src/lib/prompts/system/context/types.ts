@@ -24,9 +24,16 @@ export interface NetworkContext {
 }
 
 export interface BalanceContext {
-  free: string;
-  reserved: string;
-  frozen: string;
+  relayChain: {
+    free: string;
+    reserved: string;
+    frozen: string;
+  };
+  assetHub: {
+    free: string;
+    reserved: string;
+    frozen: string;
+  } | null;
   total: string;  
   symbol: string;
 }

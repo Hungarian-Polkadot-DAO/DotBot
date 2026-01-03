@@ -140,11 +140,27 @@ function formatContext(context?: SystemContext): string {
   
   // Balance context
   if (context.balance) {
-    prompt += `**Balance**: ${context.balance.total} ${context.balance.symbol}\n`;
-    prompt += `  - Free: ${context.balance.free}\n`;
-    if (context.balance.reserved !== '0') {
-      prompt += `  - Reserved: ${context.balance.reserved}\n`;
+    prompt += `**Total Balance**: ${context.balance.total} ${context.balance.symbol}\n\n`;
+    
+    // Relay Chain balance
+    prompt += `**Relay Chain** (${context.network.rpcEndpoint || 'wss://rpc.polkadot.io'}):\n`;
+    prompt += `  - Free: ${context.balance.relayChain.free}\n`;
+    if (context.balance.relayChain.reserved !== '0') {
+      prompt += `  - Reserved: ${context.balance.relayChain.reserved}\n`;
     }
+    
+    // Asset Hub balance
+    if (context.balance.assetHub) {
+      prompt += `\n**Asset Hub** (wss://polkadot-asset-hub-rpc.polkadot.io):\n`;
+      prompt += `  - Free: ${context.balance.assetHub.free}\n`;
+      if (context.balance.assetHub.reserved !== '0') {
+        prompt += `  - Reserved: ${context.balance.assetHub.reserved}\n`;
+      }
+    } else {
+      prompt += `\n**Asset Hub**: Not connected (balance not available)\n`;
+    }
+    
+    prompt += `\nNote: After the Polkadot 2.0 migration, users can have DOT on both Relay Chain and Asset Hub.\n`;
   }
   
   prompt += '\n';

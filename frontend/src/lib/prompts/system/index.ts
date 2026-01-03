@@ -9,7 +9,7 @@ export { buildSystemPrompt, buildSystemPromptSync, getDefaultSystemPrompt, build
 export { logSystemPrompt, logSystemPromptAsync, getSystemPromptString, logSystemPromptWithMockContext } from './utils';
 export { BASE_SYSTEM_PROMPT } from './base';
 export { EXECUTION_ARRAY_INSTRUCTIONS } from './execution/instructions';
-export { 
+export {
   detectSystemQueries, 
   loadKnowledgeFile, 
   processSystemQueries, 

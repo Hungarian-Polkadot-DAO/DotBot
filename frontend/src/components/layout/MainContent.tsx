@@ -24,6 +24,8 @@ interface MainContentProps {
   messages: Message[];
   isTyping: boolean;
   showWelcomeScreen: boolean;
+  disabled?: boolean;
+  placeholder?: string;
 }
 
 const MainContent: React.FC<MainContentProps> = ({
@@ -33,7 +35,9 @@ const MainContent: React.FC<MainContentProps> = ({
   onSendMessage,
   messages,
   isTyping,
-  showWelcomeScreen
+  showWelcomeScreen,
+  disabled = false,
+  placeholder = "Type your message..."
 }) => {
   const [welcomeInputValue, setWelcomeInputValue] = useState('');
   const welcomeInputRef = useRef<HTMLTextAreaElement>(null);
@@ -96,6 +100,11 @@ const MainContent: React.FC<MainContentProps> = ({
                   key={index}
                   onClick={action.onClick}
                   className="quick-action-btn"
+                  disabled={disabled}
+                  style={{
+                    opacity: disabled ? 0.5 : 1,
+                    cursor: disabled ? 'not-allowed' : 'pointer'
+                  }}
                 >
                   <img 
                     src={action.icon} 
@@ -117,7 +126,7 @@ const MainContent: React.FC<MainContentProps> = ({
               >
                 <textarea
                   ref={welcomeInputRef}
-                  placeholder="Type your message..."
+                  placeholder={placeholder}
                   value={welcomeInputValue}
                   onChange={(e) => setWelcomeInputValue(e.target.value)}
                   onKeyDown={(e) => {
@@ -128,19 +137,23 @@ const MainContent: React.FC<MainContentProps> = ({
                     }
                   }}
                   rows={1}
+                  disabled={disabled}
                 />
                 {!welcomeInputValue.trim() ? (
                   <button
                     type="button"
                     className="input-action-btn mic"
                     title="Voice input"
+                    disabled={disabled}
                     style={{ 
                       background: 'none', 
                       border: 'none', 
                       padding: '0',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center'
+                      justifyContent: 'center',
+                      opacity: disabled ? 0.5 : 1,
+                      cursor: disabled ? 'not-allowed' : 'pointer'
                     }}
                   >
                     <img 
@@ -154,6 +167,7 @@ const MainContent: React.FC<MainContentProps> = ({
                     type="button"
                     className="action-button"
                     title="Send message"
+                    disabled={disabled}
                     onClick={() => {
                       if (welcomeInputValue.trim()) {
                         onSendMessage(welcomeInputValue.trim());
@@ -166,7 +180,9 @@ const MainContent: React.FC<MainContentProps> = ({
                       padding: '0',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center'
+                      justifyContent: 'center',
+                      opacity: disabled ? 0.5 : 1,
+                      cursor: disabled ? 'not-allowed' : 'pointer'
                     }}
                   >
                     <img 
@@ -185,6 +201,8 @@ const MainContent: React.FC<MainContentProps> = ({
             messages={messages}
             onSendMessage={onSendMessage}
             isTyping={isTyping}
+            disabled={disabled}
+            placeholder={placeholder}
           />
         )}
       </div>

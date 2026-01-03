@@ -297,11 +297,13 @@ export const STATIC_KNOWLEDGE_BASE: PolkadotKnowledge = {
       date: 'November 4, 2025 (Polkadot), October 7, 2025 (Kusama)',
       description: 'Account balances moved from Relay Chain to Asset Hub after runtime version 2.0.0. Staking was migrated to a dedicated Staking System Parachain (not Asset Hub).',
       impact: [
+        'Users can have DOT balances on BOTH Relay Chain AND Asset Hub simultaneously',
         'Asset Hub is now the main network for everyday activity and balances',
-        'Relay Chain primarily used by validators and parachain operators',
+        'Relay Chain still holds balances for validators and parachain operators',
         'Lower existential deposits on Asset Hub (0.01 DOT vs 0.1 DOT on Relay Chain)',
         'Staking was migrated off the relay chain to a dedicated system parachain (Staking Chain), not Asset Hub',
         'Governance operations moved to Asset Hub',
+        'This system checks both locations and shows total balance',
       ],
     },
   },
@@ -319,6 +321,27 @@ export const STATIC_KNOWLEDGE_BASE: PolkadotKnowledge = {
   },
   
   safetyGuidelines: {
+    balanceChecking: {
+      warning: 'After the Asset Hub migration, users can have DOT on BOTH Relay Chain AND Asset Hub',
+      bestPractice: [
+        'This system checks both Relay Chain and Asset Hub balances automatically',
+        'The total balance shown includes DOT from both locations',
+        'Individual balances for each location are also provided in the context',
+        'Users may choose to move DOT between Relay Chain and Asset Hub as needed',
+      ],
+      locations: {
+        relayChain: {
+          endpoint: 'wss://rpc.polkadot.io',
+          checked: true,
+          note: 'Checked automatically - balance shown in context',
+        },
+        assetHub: {
+          endpoint: 'wss://polkadot-asset-hub-rpc.polkadot.io',
+          checked: true,
+          note: 'Checked automatically - balance shown in context',
+        },
+      },
+    },
     assetVerification: {
       warning: 'Asset Hub allows multiple user-created assets with identical symbols (e.g., "USDT"). Always verify the assetId, not the symbol.',
       bestPractice: 'Always rely on canonical governance-registered asset IDs. Confirm assetId via on-chain metadata or a trusted registry.',
@@ -408,6 +431,22 @@ export function formatPolkadotKnowledgeBase(): string {
   
   // Safety Guidelines
   output += '### ⚠️ Safety Guidelines\n\n';
+  
+  // Balance Checking (CRITICAL)
+  output += `**Balance Checking**: ${kb.safetyGuidelines.balanceChecking.warning}\n\n`;
+  output += '**Best Practices for Balance Queries**:\n';
+  kb.safetyGuidelines.balanceChecking.bestPractice.forEach(practice => {
+    output += `- ${practice}\n`;
+  });
+  output += '\n**Balance Locations**:\n';
+  Object.entries(kb.safetyGuidelines.balanceChecking.locations).forEach(([location, info]) => {
+    output += `- ${location}: ${info.endpoint}\n`;
+    output += `  - Currently checked: ${info.checked ? '✅ YES' : '❌ NO'}\n`;
+    output += `  - Note: ${info.note}\n`;
+  });
+  output += '\n';
+  
+  // Asset Verification
   output += `**Asset Verification**: ${kb.safetyGuidelines.assetVerification.warning}\n\n`;
   output += `**Best Practice**: ${kb.safetyGuidelines.assetVerification.bestPractice}\n\n`;
   output += '**Canonical Governance-Registered Assets**:\n';
