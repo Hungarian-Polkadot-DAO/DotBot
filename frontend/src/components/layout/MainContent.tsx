@@ -27,6 +27,22 @@ interface MainContentProps {
   disabled?: boolean;
   placeholder?: string;
   executionFlow?: React.ReactNode;
+  simulationStatus?: {
+    phase: string;
+    message: string;
+    progress?: number;
+    details?: string;
+    chain?: string;
+    result?: {
+      success: boolean;
+      estimatedFee?: string;
+      validationMethod?: 'chopsticks' | 'paymentInfo';
+      balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+      runtimeInfo?: Record<string, any>;
+      error?: string;
+      wouldSucceed?: boolean;
+    };
+  } | null;
 }
 
 const MainContent: React.FC<MainContentProps> = ({
@@ -39,7 +55,8 @@ const MainContent: React.FC<MainContentProps> = ({
   showWelcomeScreen,
   disabled = false,
   placeholder = "Type your message...",
-  executionFlow
+  executionFlow,
+  simulationStatus
 }) => {
   const [welcomeInputValue, setWelcomeInputValue] = useState('');
   const welcomeInputRef = useRef<HTMLTextAreaElement>(null);
@@ -206,6 +223,7 @@ const MainContent: React.FC<MainContentProps> = ({
             disabled={disabled}
             placeholder={placeholder}
             executionFlow={executionFlow}
+            simulationStatus={simulationStatus}
           />
         )}
       </div>

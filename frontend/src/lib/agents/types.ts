@@ -49,6 +49,15 @@ export type SimulationStatusCallback = (status: {
   adjustments?: string[];
   progress?: number;
   details?: string;
+  result?: {
+    success: boolean;
+    estimatedFee?: string;
+    validationMethod?: 'chopsticks' | 'paymentInfo';
+    balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+    runtimeInfo?: Record<string, any>;
+    error?: string;
+    wouldSucceed?: boolean;
+  };
 }) => void;
 
 /**

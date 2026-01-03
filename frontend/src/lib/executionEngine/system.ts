@@ -19,6 +19,7 @@ import { ExecutionOptions, SigningRequest, BatchSigningRequest } from './types';
 import { WalletAccount } from '../../types/wallet';
 import { Signer } from './signers/types';
 import type { RpcManager } from '../rpcManager';
+import { SimulationStatusCallback } from '../agents/types';
 
 /**
  * Execution System
@@ -60,6 +61,7 @@ export class ExecutionSystem {
    * @param assetHubApi Optional: Asset Hub API instance (recommended for DOT transfers)
    * @param relayChainManager Optional: RPC manager for Relay Chain endpoints
    * @param assetHubManager Optional: RPC manager for Asset Hub endpoints
+   * @param onSimulationStatus Optional: Callback for simulation status updates
    */
   initialize(
     api: ApiPromise, 
@@ -67,10 +69,11 @@ export class ExecutionSystem {
     signer?: Signer, 
     assetHubApi?: ApiPromise | null,
     relayChainManager?: RpcManager | null,
-    assetHubManager?: RpcManager | null
+    assetHubManager?: RpcManager | null,
+    onSimulationStatus?: SimulationStatusCallback | null
   ): void {
-    this.orchestrator.initialize(api, assetHubApi, undefined, relayChainManager, assetHubManager);
-    this.executioner.initialize(api, account, signer);
+    this.orchestrator.initialize(api, assetHubApi, onSimulationStatus, relayChainManager, assetHubManager);
+    this.executioner.initialize(api, account, signer, assetHubApi, relayChainManager, assetHubManager);
   }
   
   /**

@@ -46,7 +46,24 @@ export async function simulateTransaction(
     if (onStatusUpdate) {
       onStatusUpdate({ phase, message, progress, details });
     }
-    console.log(`[Chopsticks] ${phase.toUpperCase()}: ${message}`);
+    
+    // Enhanced console output with emojis and formatting
+    const emoji = {
+      initializing: '🔧',
+      forking: '🌿',
+      executing: '⚡',
+      analyzing: '🔍',
+      complete: '✅',
+      error: '❌'
+    }[phase];
+    
+    const progressBar = progress !== undefined 
+      ? ` [${'█'.repeat(Math.floor(progress / 10))}${'░'.repeat(10 - Math.floor(progress / 10))}] ${progress}%`
+      : '';
+    
+    const detailsText = details ? ` • ${details}` : '';
+    
+    console.log(`${emoji} [Chopsticks] ${message}${progressBar}${detailsText}`);
   };
   
   try {

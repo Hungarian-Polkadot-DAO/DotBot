@@ -27,6 +27,7 @@ import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executi
 import { WalletAccount } from '../types/wallet';
 import { processSystemQueries, areSystemQueriesEnabled } from './prompts/system/systemQuery';
 import { createRelayChainManager, createAssetHubManager, RpcManager } from './rpcManager';
+import { SimulationStatusCallback } from './agents/types';
 
 export interface DotBotConfig {
   /** Wallet account */
@@ -46,6 +47,9 @@ export interface DotBotConfig {
   
   /** Batch signing request handler */
   onBatchSigningRequest?: (request: BatchSigningRequest) => void;
+  
+  /** Simulation status callback for UI feedback */
+  onSimulationStatus?: SimulationStatusCallback;
   
   /** Auto-approve transactions (NOT recommended for production!) */
   autoApprove?: boolean;
@@ -245,7 +249,7 @@ export class DotBot {
     }
     
     // Initialize execution system with both APIs and RPC managers (after Asset Hub is connected)
-    executionSystem.initialize(api, config.wallet, signer, dotbot.getAssetHubApi(), relayChainManager, assetHubManager);
+    executionSystem.initialize(api, config.wallet, signer, dotbot.getAssetHubApi(), relayChainManager, assetHubManager, config.onSimulationStatus);
     
     return dotbot;
   }

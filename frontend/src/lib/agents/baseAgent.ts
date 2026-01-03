@@ -259,6 +259,16 @@ export abstract class BaseAgent {
     address: string,
     rpcEndpoint?: string | string[]
   ): Promise<DryRunResult> {
+    // CRITICAL: Ensure API is ready before any operations
+    if (!api.isReady) {
+      await api.isReady;
+    }
+    
+    // Validate extrinsic is properly formed
+    if (!extrinsic || !extrinsic.method || !extrinsic.method.section || !extrinsic.method.method) {
+      throw new Error('Invalid extrinsic: missing method information');
+    }
+    
     let chopsticksError: any = null;
     
     // Try Chopsticks simulation first (real runtime execution)
@@ -278,31 +288,53 @@ export abstract class BaseAgent {
         // Pass status callback to simulation for user feedback
         const result = await simulateTransaction(api, endpoints, extrinsic, address, this.onStatusUpdate || undefined);
         
+        const dryRunResult: DryRunResult = result.success ? {
+          success: true,
+          estimatedFee: result.estimatedFee,
+          wouldSucceed: true,
+          validationMethod: 'chopsticks',
+          balanceChanges: result.balanceChanges.map((bc: any) => ({
+            value: bc.value.toString(),
+            change: bc.change,
+          })),
+          runtimeInfo: {
+            validated: true,
+            events: result.events.length,
+          },
+        } : {
+          success: false,
+          error: result.error || 'Simulation failed',
+          estimatedFee: result.estimatedFee,
+          wouldSucceed: false,
+          validationMethod: 'chopsticks',
+        };
+
+        // Send result to status callback
+        if (this.onStatusUpdate && (dryRunResult.success || dryRunResult.error)) {
+          this.onStatusUpdate({
+            phase: dryRunResult.success ? 'complete' : 'error',
+            message: dryRunResult.success 
+              ? `✓ Simulation successful!` 
+              : `✗ Simulation failed: ${dryRunResult.error}`,
+            progress: 100,
+            result: {
+              success: dryRunResult.success,
+              estimatedFee: dryRunResult.estimatedFee,
+              validationMethod: dryRunResult.validationMethod,
+              balanceChanges: dryRunResult.balanceChanges,
+              runtimeInfo: dryRunResult.runtimeInfo,
+              error: dryRunResult.error,
+              wouldSucceed: dryRunResult.wouldSucceed,
+            },
+          });
+        }
+
         if (result.success) {
           console.log('[Simulation] ✓ Chopsticks validation passed');
-          return {
-            success: true,
-            estimatedFee: result.estimatedFee,
-            wouldSucceed: true,
-            validationMethod: 'chopsticks',
-            balanceChanges: result.balanceChanges.map((bc: any) => ({
-              value: bc.value.toString(),
-              change: bc.change,
-            })),
-            runtimeInfo: {
-              validated: true,
-              events: result.events.length,
-            },
-          };
+          return dryRunResult;
         } else {
           console.log('[Simulation] ✗ Chopsticks validation failed:', result.error);
-          return {
-            success: false,
-            error: result.error || 'Simulation failed',
-            estimatedFee: result.estimatedFee,
-            wouldSucceed: false,
-            validationMethod: 'chopsticks',
-          };
+          return dryRunResult;
         }
       } else {
         console.log('[Simulation] Chopsticks not available, falling back to paymentInfo');
@@ -315,13 +347,31 @@ export abstract class BaseAgent {
     
     // Fallback: Use paymentInfo (structure validation only)
     // WARNING: This does NOT validate runtime execution!
+    // CRITICAL: Ensure API is ready and extrinsic is valid before calling paymentInfo
     try {
+      // Ensure API is ready
+      if (!api.isReady) {
+        await api.isReady;
+      }
+      
+      // Validate extrinsic before calling paymentInfo
+      // This helps catch invalid extrinsic shapes before they cause runtime panics
+      if (!extrinsic.method || !extrinsic.method.section || !extrinsic.method.method) {
+        throw new Error('Invalid extrinsic structure: missing method information');
+      }
+      
+      // Ensure address is valid SS58 format
+      if (!address || address.trim().length === 0) {
+        throw new Error('Invalid address for paymentInfo');
+      }
+      
+      // Call paymentInfo with error handling for runtime panics
       const paymentInfo = await extrinsic.paymentInfo(address);
       const estimatedFee = paymentInfo.partialFee.toString();
       
       console.warn('[Simulation] ⚠ Using paymentInfo only - runtime execution NOT validated!');
       
-      return {
+      const paymentInfoResult: DryRunResult = {
         success: true,
         estimatedFee,
         wouldSucceed: true,
@@ -334,6 +384,25 @@ export abstract class BaseAgent {
           chopsticksError: chopsticksError ? (chopsticksError instanceof Error ? chopsticksError.message : String(chopsticksError)) : undefined,
         },
       };
+
+      // Send result to status callback
+      if (this.onStatusUpdate) {
+        this.onStatusUpdate({
+          phase: 'complete',
+          message: '⚠️ Using basic validation (Chopsticks unavailable)',
+          progress: 100,
+          details: 'Runtime execution not validated - paymentInfo only checks structure',
+          result: {
+            success: paymentInfoResult.success,
+            estimatedFee: paymentInfoResult.estimatedFee,
+            validationMethod: paymentInfoResult.validationMethod,
+            runtimeInfo: paymentInfoResult.runtimeInfo,
+            wouldSucceed: paymentInfoResult.wouldSucceed,
+          },
+        });
+      }
+
+      return paymentInfoResult;
     } catch (error) {
       console.error('[Simulation] ✗ paymentInfo also failed:', error);
       

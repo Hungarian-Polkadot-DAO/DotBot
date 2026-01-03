@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import voiceIcon from '../../assets/mingcute_voice-line.svg';
 import actionButtonIcon from '../../assets/action-button.svg';
+import SimulationStatus from '../simulation/SimulationStatus';
 
 interface Message {
   id: string;
@@ -16,6 +17,22 @@ interface ChatInterfaceProps {
   disabled?: boolean;
   placeholder?: string;
   executionFlow?: React.ReactNode;
+  simulationStatus?: {
+    phase: string;
+    message: string;
+    progress?: number;
+    details?: string;
+    chain?: string;
+    result?: {
+      success: boolean;
+      estimatedFee?: string;
+      validationMethod?: 'chopsticks' | 'paymentInfo';
+      balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+      runtimeInfo?: Record<string, any>;
+      error?: string;
+      wouldSucceed?: boolean;
+    };
+  } | null;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
@@ -24,7 +41,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   isTyping = false,
   disabled = false,
   placeholder = "Type your message...",
-  executionFlow
+  executionFlow,
+  simulationStatus
 }) => {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -85,6 +103,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
           </div>
         ))}
+        
+        {/* Simulation Status */}
+        {simulationStatus && (
+          <SimulationStatus
+            phase={simulationStatus.phase as any}
+            message={simulationStatus.message}
+            progress={simulationStatus.progress}
+            details={simulationStatus.details}
+            chain={simulationStatus.chain}
+          />
+        )}
         
         {/* Typing indicator */}
         {isTyping && (

@@ -42,6 +42,22 @@ const App: React.FC = () => {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [signingRequest, setSigningRequest] = useState<SigningRequest | BatchSigningRequest | null>(null);
   const [executionArrayState, setExecutionArrayState] = useState<ExecutionArrayState | null>(null);
+  const [simulationStatus, setSimulationStatus] = useState<{
+    phase: string;
+    message: string;
+    progress?: number;
+    details?: string;
+    chain?: string;
+    result?: {
+      success: boolean;
+      estimatedFee?: string;
+      validationMethod?: 'chopsticks' | 'paymentInfo';
+      balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+      runtimeInfo?: Record<string, any>;
+      error?: string;
+      wouldSucceed?: boolean;
+    };
+  } | null>(null);
   
   // DotBot integration - just two lines!
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
@@ -81,7 +97,14 @@ const App: React.FC = () => {
         wallet: selectedAccount!,
         endpoint: 'wss://rpc.polkadot.io',
         onSigningRequest: (request) => setSigningRequest(request),
-        onBatchSigningRequest: (request) => setSigningRequest(request)
+        onBatchSigningRequest: (request) => setSigningRequest(request),
+        onSimulationStatus: (status) => {
+          setSimulationStatus(status);
+          // Clear status after 3 seconds if complete or error
+          if (status.phase === 'complete' || status.phase === 'error') {
+            setTimeout(() => setSimulationStatus(null), 3000);
+          }
+        }
       });
       
       setDotbot(dotbotInstance);
@@ -245,16 +268,47 @@ const App: React.FC = () => {
                 ? "Initializing DotBot (connecting to Polkadot networks)..."
                 : "Type your message..."
             }
+            simulationStatus={simulationStatus}
             executionFlow={
               /* Execution Flow - Visual representation and approval */
           <ExecutionFlow
             state={executionArrayState}
-                onAcceptAndStart={() => {
+                onAcceptAndStart={async () => {
                   console.log('✅ Accepting and starting execution flow');
-                  // Auto-approve the signing request
+                  
+                  // Resolve the signing request if it exists (this unblocks execution)
                   if (signingRequest) {
+                    console.log('📝 Resolving signing request to unblock execution');
                     signingRequest.resolve(true);
                     setSigningRequest(null);
+                  } else {
+                    console.warn('⚠️ No signing request found - execution may not be waiting for approval');
+                  }
+                  
+                  // If execution hasn't started yet, start it now
+                  // This handles the case where execution was deferred until user approval
+                  if (dotbot && executionArrayState) {
+                    const executionArray = (dotbot as any).currentExecutionArray;
+                    if (executionArray && !executionArrayState.isExecuting) {
+                      console.log('🚀 Execution not started yet, starting now...');
+                      try {
+                        const executionSystem = (dotbot as any).executionSystem;
+                        const executioner = (executionSystem as any).executioner;
+                        if (executioner) {
+                          console.log('▶️ Starting executioner.execute()');
+                          // Start execution (signing requests will be handled normally)
+                          executioner.execute(executionArray, { autoApprove: false }).catch((error: Error) => {
+                            console.error('❌ Execution error:', error);
+                          });
+                        }
+                      } catch (error) {
+                        console.error('❌ Failed to start execution:', error);
+                      }
+                    } else if (executionArrayState.isExecuting) {
+                      console.log('ℹ️ Execution already running');
+                    } else {
+                      console.warn('⚠️ No execution array available');
+                    }
                   }
             }}
             onCancel={() => {
