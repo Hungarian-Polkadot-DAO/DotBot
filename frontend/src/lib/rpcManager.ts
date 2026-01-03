@@ -22,15 +22,18 @@ interface RpcManagerConfig {
   connectionTimeout?: number; // Connection attempt timeout (default: 10 seconds)
   storageKey?: string; // LocalStorage key for persisting health data (default: no persistence)
   healthDataMaxAge?: number; // Max age for persisted health data before invalidation (default: 24 hours)
+  healthCheckInterval?: number; // Interval for periodic health checks in milliseconds (default: 10 minutes)
+  enablePeriodicHealthChecks?: boolean; // Enable background health monitoring (default: true)
 }
 
 /**
  * RPC Manager for handling multiple endpoints with automatic failover
  * 
- * Health checks are EVENT-DRIVEN (not periodic):
- * - Health is checked when connecting to an endpoint
+ * Health checks are both EVENT-DRIVEN and PERIODIC:
+ * - Health is checked when connecting to an endpoint (event-driven)
+ * - Periodic background polling keeps health data up-to-date (every 10 minutes by default)
  * - Endpoints marked healthy/unhealthy based on connection success/failure
- * - No background polling - health updates happen during actual usage
+ * - Health data is persisted to localStorage for cross-session persistence
  */
 export class RpcManager {
   private endpoints: string[];
@@ -40,6 +43,9 @@ export class RpcManager {
   private connectionTimeout: number;
   private storageKey?: string;
   private healthDataMaxAge: number;
+  private healthCheckInterval: number;
+  private healthCheckTimer: NodeJS.Timeout | null = null;
+  private isMonitoring: boolean = false;
 
   constructor(config: RpcManagerConfig) {
     this.endpoints = config.endpoints;
@@ -47,6 +53,7 @@ export class RpcManager {
     this.connectionTimeout = config.connectionTimeout || 10000; // 10 seconds
     this.storageKey = config.storageKey;
     this.healthDataMaxAge = config.healthDataMaxAge || 24 * 60 * 60 * 1000; // 24 hours (86,400,000ms)
+    this.healthCheckInterval = config.healthCheckInterval || 10 * 60 * 1000; // 10 minutes (600,000ms)
 
     // Initialize health map
     this.healthMap = new Map();
@@ -66,6 +73,11 @@ export class RpcManager {
           failureCount: 0
         });
       });
+    }
+    
+    // Start periodic health monitoring if enabled (default: true)
+    if (config.enablePeriodicHealthChecks !== false) {
+      this.startHealthMonitoring();
     }
   }
   
@@ -129,10 +141,25 @@ export class RpcManager {
   private getOrderedEndpoints(): string[] {
     const now = Date.now();
     
+    // Ensure all endpoints have health entries
+    this.endpoints.forEach(endpoint => {
+      if (!this.healthMap.has(endpoint)) {
+        this.healthMap.set(endpoint, {
+          endpoint,
+          healthy: true,
+          lastChecked: 0,
+          failureCount: 0
+        });
+      }
+    });
+    
     // Filter out recently failed endpoints (within failover timeout)
     const availableEndpoints = this.endpoints.filter(endpoint => {
       const health = this.healthMap.get(endpoint);
-      if (!health) return true;
+      if (!health) {
+        // Should not happen after ensuring all endpoints have health entries, but handle it
+        return true;
+      }
       
       // If endpoint failed recently, check if enough time has passed
       if (health.lastFailure) {
@@ -147,8 +174,31 @@ export class RpcManager {
 
     // Sort by health metrics
     return availableEndpoints.sort((a, b) => {
-      const healthA = this.healthMap.get(a)!;
-      const healthB = this.healthMap.get(b)!;
+      const healthA = this.healthMap.get(a);
+      const healthB = this.healthMap.get(b);
+      
+      // Safety check: if health data is missing, initialize it
+      if (!healthA) {
+        const newHealth: EndpointHealth = {
+          endpoint: a,
+          healthy: true,
+          lastChecked: 0,
+          failureCount: 0
+        };
+        this.healthMap.set(a, newHealth);
+        return 1; // Put uninitialized endpoints at the end
+      }
+      
+      if (!healthB) {
+        const newHealth: EndpointHealth = {
+          endpoint: b,
+          healthy: true,
+          lastChecked: 0,
+          failureCount: 0
+        };
+        this.healthMap.set(b, newHealth);
+        return -1; // Put uninitialized endpoints at the end
+      }
 
       // Prioritize healthy endpoints
       if (healthA.healthy !== healthB.healthy) {
@@ -306,6 +356,130 @@ export class RpcManager {
       });
     });
     this.currentEndpoint = null;
+    this.saveHealthData();
+  }
+
+  /**
+   * Start periodic health monitoring
+   * Checks all endpoints every healthCheckInterval milliseconds
+   */
+  startHealthMonitoring(): void {
+    if (this.isMonitoring) {
+      return; // Already monitoring
+    }
+
+    this.isMonitoring = true;
+    console.log(`🔄 Starting periodic health monitoring (interval: ${this.healthCheckInterval / 1000 / 60} minutes)`);
+
+    // Perform initial health check
+    this.performHealthCheck();
+
+    // Set up periodic checks
+    this.healthCheckTimer = setInterval(() => {
+      this.performHealthCheck();
+    }, this.healthCheckInterval);
+  }
+
+  /**
+   * Stop periodic health monitoring
+   */
+  stopHealthMonitoring(): void {
+    if (!this.isMonitoring) {
+      return;
+    }
+
+    this.isMonitoring = false;
+    if (this.healthCheckTimer) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
+    }
+    console.log('⏹️ Stopped periodic health monitoring');
+  }
+
+  /**
+   * Perform health check on all endpoints
+   * This is called periodically and can also be called manually
+   */
+  private async performHealthCheck(): Promise<void> {
+    const now = Date.now();
+    console.log(`🔍 Performing health check on ${this.endpoints.length} endpoints...`);
+
+    // Check all endpoints in parallel (but limit concurrency)
+    const checkPromises = this.endpoints.map(endpoint => this.checkEndpointHealth(endpoint));
+    await Promise.allSettled(checkPromises);
+
+    // Save updated health data
+    this.saveHealthData();
+
+    const healthyCount = Array.from(this.healthMap.values()).filter(h => h.healthy).length;
+    console.log(`✅ Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy`);
+  }
+
+  /**
+   * Check health of a single endpoint
+   * This performs a lightweight connection test
+   */
+  private async checkEndpointHealth(endpoint: string): Promise<void> {
+    const health = this.healthMap.get(endpoint);
+    if (!health) {
+      return;
+    }
+
+    // Skip if recently checked (within last 2 minutes) to avoid excessive checks
+    const now = Date.now();
+    if (health.lastChecked && (now - health.lastChecked) < 2 * 60 * 1000) {
+      return;
+    }
+
+    const startTime = Date.now();
+
+    try {
+      // Perform lightweight health check (just try to create provider and check connection)
+      const provider = new WsProvider(endpoint);
+      
+      // Use a shorter timeout for health checks (5 seconds)
+      const healthCheckTimeout = 5000;
+      
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          provider.disconnect();
+          reject(new Error('Health check timeout'));
+        }, healthCheckTimeout);
+
+        provider.on('connected', () => {
+          clearTimeout(timeout);
+          provider.disconnect();
+          resolve();
+        });
+
+        provider.on('error', (error) => {
+          clearTimeout(timeout);
+          provider.disconnect();
+          reject(error);
+        });
+
+        // If already connected, resolve immediately
+        if (provider.isConnected) {
+          clearTimeout(timeout);
+          provider.disconnect();
+          resolve();
+        }
+      });
+
+      // Endpoint is healthy
+      const responseTime = Date.now() - startTime;
+      this.markEndpointHealthy(endpoint, responseTime);
+    } catch (error) {
+      // Endpoint is unhealthy
+      this.markEndpointFailed(endpoint);
+    }
+  }
+
+  /**
+   * Cleanup resources (call this when RpcManager is no longer needed)
+   */
+  destroy(): void {
+    this.stopHealthMonitoring();
   }
 }
 
@@ -322,7 +496,9 @@ export const RpcEndpoints = {
   ASSET_HUB: [
     'wss://sys.ibp.network/statemint',
     'wss://sys.dotters.network/statemint',
-    'wss://polkadot-asset-hub-rpc.polkadot.io'
+    'wss://polkadot-asset-hub-rpc.polkadot.io',
+    'wss://statemint-rpc.dwellir.com',
+    'wss://statemint.api.onfinality.io/public-ws'
   ]
 };
 

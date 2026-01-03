@@ -149,6 +149,40 @@ export function analyzeError(error: Error | string): ErrorAnalysis {
     };
   }
 
+  // Module errors (dispatch errors from pallets)
+  if (
+    errorLower.includes('module error') ||
+    errorLower.includes('dispatcherror') ||
+    errorLower.includes('dispatch error')
+  ) {
+    // Some module errors are user errors (e.g., balance issues)
+    // Others are configuration errors (wrong chain)
+    // For now, treat as configuration error and let retry logic handle it
+    return {
+      category: 'CONFIGURATION_ERROR',
+      shouldRetry: true,
+      suggestedFix: 'Check transaction parameters or try alternate chain',
+      userMessage: 'Transaction validation failed at runtime',
+      technicalDetails: errorMessage,
+    };
+  }
+
+  // Token errors (balance-related but might be chain-specific)
+  if (
+    errorLower.includes('tokenerror') ||
+    errorLower.includes('token error') ||
+    errorLower.includes('funds unavailable') ||
+    errorLower.includes('liquidityrestrictions')
+  ) {
+    return {
+      category: 'CONFIGURATION_ERROR',
+      shouldRetry: true,
+      suggestedFix: 'Try alternate chain',
+      userMessage: 'Token/balance error - might need different chain',
+      technicalDetails: errorMessage,
+    };
+  }
+
   // Provider/Consumer issues (Asset Hub specific)
   if (
     errorLower.includes('noproviders') ||
@@ -196,7 +230,8 @@ export function analyzeError(error: Error | string): ErrorAnalysis {
 
 /**
  * Determine retry strategy based on error analysis
- * Reviews all adjustable parameters, not just chain
+ * Analyzes the specific error and suggests targeted fixes
+ * Does NOT randomly try combinations - only fixes what the error indicates
  */
 export function getRetryStrategy(
   analysis: ErrorAnalysis,
@@ -213,45 +248,65 @@ export function getRetryStrategy(
   }
 
   const strategy: RetryStrategy = {};
+  const errorLower = analysis.technicalDetails.toLowerCase();
 
-  // Configuration errors: try multiple adjustments
+  // Analyze specific error patterns and suggest targeted fixes
   if (analysis.category === 'CONFIGURATION_ERROR') {
+    // WASM unreachable or InvalidTransaction usually means wrong chain
+    if (
+      errorLower.includes('wasm unreachable') ||
+      errorLower.includes('invalidtransaction') ||
+      errorLower.includes('taggedtransactionqueue')
+    ) {
+      strategy.tryAlternateChain = true;
+      return strategy;
+    }
+
+    // NoProviders on Asset Hub - try Relay Chain
+    if (errorLower.includes('noproviders') || errorLower.includes('system.noproviders')) {
+      if (currentChain === 'assetHub') {
+        strategy.tryAlternateChain = true;
+        return strategy;
+      }
+    }
+
+    // Asset not found - wrong chain
+    if (
+      errorLower.includes('unknown asset') ||
+      errorLower.includes('asset not found') ||
+      errorLower.includes('assetnotfound')
+    ) {
+      strategy.tryAlternateChain = true;
+      return strategy;
+    }
+
+    // Call not found - wrong chain or wrong method
+    if (
+      errorLower.includes('call not found') ||
+      errorLower.includes('method not found') ||
+      errorLower.includes('unknown call')
+    ) {
+      strategy.tryAlternateChain = true;
+      return strategy;
+    }
+
+    // If suggested fix mentions alternate chain, try it
     if (analysis.suggestedFix?.includes('alternate chain')) {
       strategy.tryAlternateChain = true;
-    }
-    
-    // If keepAlive is false, try with keepAlive (might help with provider issues)
-    if (!currentKeepAlive && attemptNumber <= 2) {
-      strategy.tryKeepAlive = true;
-    }
-    
-    // If keepAlive is true and we've tried alternate chain, try without it
-    if (currentKeepAlive && attemptNumber >= 3) {
-      strategy.tryKeepAlive = false;
+      return strategy;
     }
   }
 
-  // Network errors: retry same config
+  // Network errors: just retry same config
   if (analysis.category === 'NETWORK_ERROR') {
     return {
       tryDifferentEndpoint: false,
     };
   }
 
-  // Unknown errors: try systematic adjustments
-  if (analysis.category === 'UNKNOWN_ERROR') {
-    if (attemptNumber === 1) {
-      strategy.tryAlternateChain = true;
-    } else if (attemptNumber === 2 && !currentKeepAlive) {
-      strategy.tryKeepAlive = true;
-    } else if (attemptNumber === 3) {
-      strategy.tryAlternateChain = true;
-      strategy.tryKeepAlive = false;
-    }
-  }
-
-  // Return strategy if any adjustments suggested
-  if (strategy.tryAlternateChain || strategy.tryKeepAlive !== undefined) {
+  // Unknown errors: try alternate chain once, then stop
+  if (analysis.category === 'UNKNOWN_ERROR' && attemptNumber === 1) {
+    strategy.tryAlternateChain = true;
     return strategy;
   }
 

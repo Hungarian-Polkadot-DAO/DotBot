@@ -244,8 +244,8 @@ export class DotBot {
       console.warn('⚠️ Asset Hub connection failed, continuing without it:', err instanceof Error ? err.message : err);
     }
     
-    // Initialize execution system with both APIs (after Asset Hub is connected)
-    executionSystem.initialize(api, config.wallet, signer, dotbot.getAssetHubApi());
+    // Initialize execution system with both APIs and RPC managers (after Asset Hub is connected)
+    executionSystem.initialize(api, config.wallet, signer, dotbot.getAssetHubApi(), relayChainManager, assetHubManager);
     
     return dotbot;
   }

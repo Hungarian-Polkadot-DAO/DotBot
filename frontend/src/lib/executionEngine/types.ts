@@ -108,6 +108,9 @@ export interface ExecutionResult {
   
   /** Error code (if failed) */
   errorCode?: string;
+  
+  /** Raw error details (JSON stringified, for debugging) */
+  rawError?: string;
 }
 
 /**

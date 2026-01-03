@@ -18,6 +18,7 @@ import { Executioner } from './executioner';
 import { ExecutionOptions, SigningRequest, BatchSigningRequest } from './types';
 import { WalletAccount } from '../../types/wallet';
 import { Signer } from './signers/types';
+import type { RpcManager } from '../rpcManager';
 
 /**
  * Execution System
@@ -57,9 +58,18 @@ export class ExecutionSystem {
    * @param account Account information
    * @param signer Optional: Pluggable signer (for portability)
    * @param assetHubApi Optional: Asset Hub API instance (recommended for DOT transfers)
+   * @param relayChainManager Optional: RPC manager for Relay Chain endpoints
+   * @param assetHubManager Optional: RPC manager for Asset Hub endpoints
    */
-  initialize(api: ApiPromise, account: WalletAccount, signer?: Signer, assetHubApi?: ApiPromise | null): void {
-    this.orchestrator.initialize(api, assetHubApi);
+  initialize(
+    api: ApiPromise, 
+    account: WalletAccount, 
+    signer?: Signer, 
+    assetHubApi?: ApiPromise | null,
+    relayChainManager?: RpcManager | null,
+    assetHubManager?: RpcManager | null
+  ): void {
+    this.orchestrator.initialize(api, assetHubApi, undefined, relayChainManager, assetHubManager);
     this.executioner.initialize(api, account, signer);
   }
   

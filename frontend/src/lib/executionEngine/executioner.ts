@@ -311,32 +311,54 @@ export class Executioner {
     // If not specified, fall back to the default API
     const apiForExtrinsic = (agentResult.metadata?.apiInstance as ApiPromise) || this.api;
     
+    console.log('[Executioner] Executing extrinsic:', {
+      description: item.description,
+      estimatedFee: agentResult.estimatedFee,
+      chain: agentResult.metadata?.chain,
+      usingCustomAPI: !!agentResult.metadata?.apiInstance,
+    });
+    
     // Request user signature (unless auto-approve is enabled)
     if (!autoApprove) {
+      console.log('[Executioner] Requesting user approval...');
       const approved = await this.requestSignature(item, extrinsic);
       if (!approved) {
+        console.log('[Executioner] User rejected transaction');
         executionArray.updateStatus(item.id, 'cancelled', 'User rejected transaction');
         return;
       }
+      console.log('[Executioner] User approved transaction');
     }
     
     executionArray.updateStatus(item.id, 'signing');
+    console.log('[Executioner] Signing transaction...');
     
-    // Sign the transaction using pluggable signer
-    const signedExtrinsic = await this.signTransaction(extrinsic, this.account.address);
-    
-    executionArray.updateStatus(item.id, 'broadcasting');
-    
-    // Broadcast and monitor using the correct API
-    const result = await this.broadcastAndMonitor(signedExtrinsic, timeout, apiForExtrinsic, true);
-    
-    if (result.success) {
-      executionArray.updateStatus(item.id, 'finalized');
-      executionArray.updateResult(item.id, result);
-    } else {
-      executionArray.updateStatus(item.id, 'failed', result.error);
-      executionArray.updateResult(item.id, result);
-      throw new Error(result.error || 'Transaction failed');
+    try {
+      // Sign the transaction using pluggable signer
+      const signedExtrinsic = await this.signTransaction(extrinsic, this.account.address);
+      console.log('[Executioner] Transaction signed successfully');
+      
+      executionArray.updateStatus(item.id, 'broadcasting');
+      console.log('[Executioner] Broadcasting transaction...');
+      
+      // Broadcast and monitor using the correct API
+      const result = await this.broadcastAndMonitor(signedExtrinsic, timeout, apiForExtrinsic, true);
+      
+      if (result.success) {
+        console.log('[Executioner] ✓ Transaction successful:', result.txHash);
+        executionArray.updateStatus(item.id, 'finalized');
+        executionArray.updateResult(item.id, result);
+      } else {
+        console.error('[Executioner] ✗ Transaction failed:', result.error);
+        executionArray.updateStatus(item.id, 'failed', result.error);
+        executionArray.updateResult(item.id, result);
+        throw new Error(result.error || 'Transaction failed');
+      }
+    } catch (error) {
+      console.error('[Executioner] Error during transaction execution:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      executionArray.updateStatus(item.id, 'failed', errorMessage);
+      throw error;
     }
   }
   
@@ -565,26 +587,39 @@ export class Executioner {
     // Use the provided API or fall back to default
     const api = apiToUse || this.api;
     
+    console.log('[Executioner] Broadcasting with API:', apiToUse ? 'custom' : 'default');
+    
     return new Promise<ExecutionResult>((resolve, reject) => {
       const timeoutHandle = setTimeout(() => {
+        console.error('[Executioner] Transaction timeout');
         reject(new Error('Transaction timeout'));
       }, timeout);
       
-      // If already signed, just send it. Otherwise, sign and send.
-      if (alreadySigned) {
-        extrinsic.send((result) => {
-          this.handleTransactionResult(result, api, extrinsic, timeoutHandle, resolve);
-        }).catch((error: Error) => {
-          clearTimeout(timeoutHandle);
-          reject(error);
-        });
-      } else {
-      this.signAndSendTransaction(extrinsic, this.account!.address, (result) => {
-          this.handleTransactionResult(result, api, extrinsic, timeoutHandle, resolve);
-        }).catch((error: Error) => {
-          clearTimeout(timeoutHandle);
-          reject(error);
-        });
+      try {
+        // If already signed, just send it. Otherwise, sign and send.
+        if (alreadySigned) {
+          console.log('[Executioner] Sending pre-signed transaction...');
+          extrinsic.send((result) => {
+            this.handleTransactionResult(result, api, extrinsic, timeoutHandle, resolve);
+          }).catch((error: Error) => {
+            clearTimeout(timeoutHandle);
+            console.error('[Executioner] Broadcast error:', error);
+            reject(error);
+          });
+        } else {
+          console.log('[Executioner] Signing and sending transaction...');
+          this.signAndSendTransaction(extrinsic, this.account!.address, (result) => {
+            this.handleTransactionResult(result, api, extrinsic, timeoutHandle, resolve);
+          }).catch((error: Error) => {
+            clearTimeout(timeoutHandle);
+            console.error('[Executioner] Sign and send error:', error);
+            reject(error);
+          });
+        }
+      } catch (error) {
+        clearTimeout(timeoutHandle);
+        console.error('[Executioner] Unexpected error in broadcastAndMonitor:', error);
+        reject(error);
       }
     });
   }
@@ -600,27 +635,50 @@ export class Executioner {
     resolve: (value: ExecutionResult) => void
   ): void {
         if (result.status.isInBlock) {
-          // Transaction is in a block
+          console.log('[Executioner] Transaction included in block:', result.status.asInBlock.toHex().slice(0, 10) + '...');
         }
         
         if (result.status.isFinalized) {
           clearTimeout(timeoutHandle);
+          const blockHash = result.status.asFinalized.toString();
+          console.log('[Executioner] Transaction finalized in block:', blockHash.slice(0, 10) + '...');
           
-      // Check if transaction succeeded (use the correct API)
+          // Check if transaction succeeded (use the correct API)
           const failedEvent = result.events.find(({ event }: any) => {
-        return api.events.system.ExtrinsicFailed.is(event);
+            return api.events.system.ExtrinsicFailed.is(event);
           });
           
           if (failedEvent) {
             const errorEvent = failedEvent.event.toHuman();
+            console.error('[Executioner] ✗ Extrinsic failed:', errorEvent);
+            
+            // Try to extract detailed error information
+            const { event } = failedEvent;
+            let errorDetails = 'Transaction failed';
+            
+            if (event.data && event.data.length > 0) {
+              const dispatchError = event.data[0];
+              
+              if (dispatchError.isModule) {
+                try {
+                  const decoded = api.registry.findMetaError(dispatchError.asModule);
+                  errorDetails = `${decoded.section}.${decoded.name}: ${decoded.docs.join(' ')}`;
+                  console.error('[Executioner] Error details:', errorDetails);
+                } catch (e) {
+                  console.error('[Executioner] Could not decode error:', e);
+                }
+              }
+            }
+            
             resolve({
               success: false,
-              error: JSON.stringify(errorEvent),
+              error: errorDetails,
               errorCode: 'EXTRINSIC_FAILED',
+              rawError: JSON.stringify(errorEvent),
             });
           } else {
-            // Extract block info
-            const blockHash = result.status.asFinalized.toString();
+            console.log('[Executioner] ✓ Transaction succeeded');
+            console.log('[Executioner] Events:', result.events.length);
             
             resolve({
               success: true,
@@ -629,6 +687,19 @@ export class Executioner {
               events: result.events.map((e: any) => e.event.toHuman()),
             });
           }
+        }
+        
+        // Handle invalid/dropped transactions
+        if (result.status.isInvalid || result.status.isDropped || result.status.isUsurped) {
+          clearTimeout(timeoutHandle);
+          const statusType = result.status.isInvalid ? 'Invalid' : 
+                           result.status.isDropped ? 'Dropped' : 'Usurped';
+          console.error(`[Executioner] ✗ Transaction ${statusType}`);
+          resolve({
+            success: false,
+            error: `Transaction ${statusType}`,
+            errorCode: statusType.toUpperCase(),
+          });
         }
   }
   

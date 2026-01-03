@@ -38,14 +38,31 @@ export interface AgentResult {
 }
 
 /**
+ * Status update callback for visual feedback during simulation
+ */
+export type SimulationStatusCallback = (status: {
+  phase: 'validating' | 'simulating' | 'analyzing' | 'retrying' | 'complete' | 'initializing' | 'forking' | 'executing' | 'error';
+  message: string;
+  attempt?: number;
+  maxAttempts?: number;
+  chain?: string;
+  adjustments?: string[];
+  progress?: number;
+  details?: string;
+}) => void;
+
+/**
  * Base parameters that all agent functions might need
  */
 export interface BaseAgentParams {
-  /** Account address (sender/actor) */
+  /** Account address (sender/actor) - must be SS58 format */
   address: string;
   
   /** Network/chain identifier */
   network?: 'polkadot' | 'kusama' | string;
+  
+  /** Optional callback for simulation status updates */
+  onSimulationStatus?: SimulationStatusCallback;
 }
 
 /**

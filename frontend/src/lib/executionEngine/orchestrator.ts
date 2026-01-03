@@ -18,9 +18,10 @@
 import { ApiPromise } from '@polkadot/api';
 import { ExecutionStep, ExecutionPlan } from '../prompts/system/execution/types';
 import { ExecutionArray } from './executionArray';
-import { AgentResult, AgentError } from '../agents/types';
+import { AgentResult, AgentError, SimulationStatusCallback } from '../agents/types';
 import { createAgent, getAgentByClassName } from '../agents';
 import { BaseAgent } from '../agents/baseAgent';
+import type { RpcManager } from '../rpcManager';
 
 /**
  * Result of orchestration
@@ -78,16 +79,31 @@ export class ExecutionOrchestrator {
   private api: ApiPromise | null = null;
   private assetHubApi: ApiPromise | null = null;
   private agentInstances: Map<string, BaseAgent> = new Map();
+  private onStatusUpdate: SimulationStatusCallback | null = null;
+  private relayChainManager: RpcManager | null = null;
+  private assetHubManager: RpcManager | null = null;
   
   /**
    * Initialize with Polkadot API
    * 
    * @param api Polkadot Relay Chain API
    * @param assetHubApi Optional Asset Hub API (recommended for DOT transfers)
+   * @param onStatusUpdate Optional callback for simulation status updates
+   * @param relayChainManager Optional RPC manager for Relay Chain endpoints
+   * @param assetHubManager Optional RPC manager for Asset Hub endpoints
    */
-  initialize(api: ApiPromise, assetHubApi?: ApiPromise | null): void {
+  initialize(
+    api: ApiPromise, 
+    assetHubApi?: ApiPromise | null, 
+    onStatusUpdate?: SimulationStatusCallback | null,
+    relayChainManager?: RpcManager | null,
+    assetHubManager?: RpcManager | null
+  ): void {
     this.api = api;
     this.assetHubApi = assetHubApi || null;
+    this.onStatusUpdate = onStatusUpdate || null;
+    this.relayChainManager = relayChainManager || null;
+    this.assetHubManager = assetHubManager || null;
   }
   
   /**
@@ -267,10 +283,16 @@ export class ExecutionOrchestrator {
     
     console.log('✅ Function exists, calling with params:', step.parameters);
     
+    // Add status callback to parameters if not present
+    const paramsWithCallback = {
+      ...step.parameters,
+      onSimulationStatus: step.parameters.onSimulationStatus || this.onStatusUpdate || undefined,
+    };
+    
     // Call the agent function
     // Agent will create the extrinsic and return AgentResult
     try {
-      const result = await (agent as any)[step.functionName](step.parameters);
+      const result = await (agent as any)[step.functionName](paramsWithCallback);
       console.log('✅ Agent function returned:', {
         hasResult: !!result,
         hasExtrinsic: !!result?.extrinsic,
@@ -369,7 +391,7 @@ export class ExecutionOrchestrator {
     
     // Initialize with API (and Asset Hub API if available)
     if (agent.initialize) {
-      agent.initialize(this.api!, this.assetHubApi);
+      agent.initialize(this.api!, this.assetHubApi, this.onStatusUpdate, this.relayChainManager, this.assetHubManager);
     }
     
     // Cache

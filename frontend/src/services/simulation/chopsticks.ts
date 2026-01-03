@@ -21,6 +21,13 @@ export interface SimulationResult {
   events: any[];
 }
 
+export type SimulationStatusCallback = (status: {
+  phase: 'initializing' | 'forking' | 'executing' | 'analyzing' | 'complete' | 'error';
+  message: string;
+  progress?: number;
+  details?: string;
+}) => void;
+
 /**
  * Simulates transaction execution on a forked chain state
  */
@@ -28,25 +35,45 @@ export async function simulateTransaction(
   api: ApiPromise,
   rpcEndpoints: string | string[],
   extrinsic: SubmittableExtrinsic<'promise'>,
-  senderAddress: string
+  senderAddress: string,
+  onStatusUpdate?: SimulationStatusCallback
 ): Promise<SimulationResult> {
   const startTime = Date.now();
+  let chain: any = null;
+  let storage: ChopsticksDatabase | null = null;
+  
+  const updateStatus = (phase: 'initializing' | 'forking' | 'executing' | 'analyzing' | 'complete' | 'error', message: string, progress?: number, details?: string) => {
+    if (onStatusUpdate) {
+      onStatusUpdate({ phase, message, progress, details });
+    }
+    console.log(`[Chopsticks] ${phase.toUpperCase()}: ${message}`);
+  };
   
   try {
+    updateStatus('initializing', 'Preparing transaction simulation...', 10);
+    
     const { BuildBlockMode, setup } = await import('@acala-network/chopsticks-core');
     
+    updateStatus('initializing', 'Setting up simulation environment...', 20);
     const dbName = `dotbot-sim-cache:${api.genesisHash.toHex()}`;
-    const storage = new ChopsticksDatabase(dbName);
+    storage = new ChopsticksDatabase(dbName);
     
+    updateStatus('forking', 'Fetching current blockchain state...', 30);
     const blockHash = await api.rpc.chain.getBlockHash();
+    const blockNumber = await api.rpc.chain.getHeader(blockHash);
     
-    const chain = await setup({
-      endpoint: Array.isArray(rpcEndpoints) ? rpcEndpoints : [rpcEndpoints],
+    const endpoints = Array.isArray(rpcEndpoints) ? rpcEndpoints : [rpcEndpoints];
+    updateStatus('forking', `Creating chain fork at block #${blockNumber.number.toNumber()}...`, 40, `Block: ${blockHash.toHex().slice(0, 12)}...`);
+    
+    chain = await setup({
+      endpoint: endpoints,
       block: blockHash.toHex(),
       buildBlockMode: BuildBlockMode.Batch,
       mockSignatureHost: true,
       db: storage,
     });
+    
+    updateStatus('executing', 'Simulating transaction execution...', 60, 'Running on forked chain state');
     
     const { outcome, storageDiff } = await chain.dryRunExtrinsic(
       {
@@ -55,6 +82,8 @@ export async function simulateTransaction(
       },
       blockHash.toHex()
     );
+    
+    updateStatus('analyzing', 'Analyzing simulation results...', 80);
     
     const balanceDeltas = await computeBalanceDeltas(
       api,
@@ -66,15 +95,32 @@ export async function simulateTransaction(
     
     let fee = '0';
     try {
+      updateStatus('analyzing', 'Calculating transaction fees...', 90);
       const feeInfo = await extrinsic.paymentInfo(senderAddress);
       fee = feeInfo.partialFee.toString();
-    } catch {
-      // Fee estimation failed, use default
+    } catch (feeError) {
+      console.warn('[Chopsticks] Fee estimation failed:', feeError);
     }
     
-    await storage.deleteBlock(blockHash.toHex());
-    await storage.close();
-    await chain.close();
+    // Cleanup
+    try {
+      await storage.deleteBlock(blockHash.toHex());
+      await storage.close();
+      await chain.close();
+    } catch (cleanupError) {
+      console.warn('[Chopsticks] Cleanup warning:', cleanupError);
+    }
+    
+    const duration = Date.now() - startTime;
+    
+    if (succeeded) {
+      const balanceChangeText = balanceDeltas.length > 0 
+        ? `Balance change: ${balanceDeltas[0].change === 'send' ? '-' : '+'}${balanceDeltas[0].value.toString()}`
+        : 'No balance changes';
+      updateStatus('complete', `✓ Simulation successful!`, 100, `Validated in ${duration}ms • ${balanceChangeText}`);
+    } else {
+      updateStatus('error', `✗ Simulation failed: ${failureReason || 'Unknown error'}`, 100);
+    }
     
     return {
       success: succeeded,
@@ -84,9 +130,21 @@ export async function simulateTransaction(
       events: [],
     };
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    updateStatus('error', `✗ Simulation error: ${errorMessage}`, 100);
+    
+    // Attempt cleanup even on error
+    try {
+      if (storage) await storage.close();
+      if (chain) await chain.close();
+    } catch (cleanupError) {
+      console.warn('[Chopsticks] Cleanup error:', cleanupError);
+    }
+    
+    // Re-throw the error so caller knows Chopsticks failed
     return {
       success: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: `Chopsticks simulation failed: ${errorMessage}`,
       estimatedFee: '0',
       balanceChanges: [],
       events: [],

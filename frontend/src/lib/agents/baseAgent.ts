@@ -7,24 +7,55 @@
 
 import { ApiPromise } from '@polkadot/api';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
-import { decodeAddress } from '@polkadot/keyring';
+import { decodeAddress, encodeAddress } from '@polkadot/keyring';
 import { isAddress } from '@polkadot/util-crypto';
 import { BN } from '@polkadot/util';
-import { AgentResult, AgentError, ValidationResult, BalanceInfo, DryRunResult } from './types';
+import { AgentResult, AgentError, ValidationResult, BalanceInfo, DryRunResult, SimulationStatusCallback } from './types';
+import type { RpcManager } from '../rpcManager';
 
 export abstract class BaseAgent {
   protected api: ApiPromise | null = null;
   protected assetHubApi: ApiPromise | null = null;
+  protected onStatusUpdate: SimulationStatusCallback | null = null;
+  protected relayChainManager: RpcManager | null = null;
+  protected assetHubManager: RpcManager | null = null;
 
   /**
    * Initialize the agent with a Polkadot API instance
    * 
    * @param api Polkadot Relay Chain API instance
    * @param assetHubApi Optional Asset Hub API instance (recommended for DOT operations)
+   * @param onStatusUpdate Optional callback for simulation status updates
+   * @param relayChainManager Optional RPC manager for Relay Chain endpoints
+   * @param assetHubManager Optional RPC manager for Asset Hub endpoints
    */
-  initialize(api: ApiPromise, assetHubApi?: ApiPromise | null): void {
+  initialize(
+    api: ApiPromise, 
+    assetHubApi?: ApiPromise | null, 
+    onStatusUpdate?: SimulationStatusCallback | null,
+    relayChainManager?: RpcManager | null,
+    assetHubManager?: RpcManager | null
+  ): void {
     this.api = api;
     this.assetHubApi = assetHubApi || null;
+    this.onStatusUpdate = onStatusUpdate || null;
+    this.relayChainManager = relayChainManager || null;
+    this.assetHubManager = assetHubManager || null;
+  }
+
+  /**
+   * Ensure address is in SS58 format for Polkadot (prefix 0)
+   */
+  protected ensurePolkadotAddress(address: string): string {
+    try {
+      // Decode to get raw bytes
+      const decoded = decodeAddress(address);
+      // Re-encode with Polkadot prefix (0)
+      return encodeAddress(decoded, 0);
+    } catch {
+      // If decode fails, address is invalid - return as is (will fail validation later)
+      return address;
+    }
   }
 
   /**
@@ -103,7 +134,17 @@ export abstract class BaseAgent {
    */
   protected async getAssetHubBalance(address: string): Promise<BalanceInfo | null> {
     if (!this.assetHubApi) {
-      return null;
+      // Try to reconnect if we have the manager
+      if (this.assetHubManager) {
+        try {
+          this.assetHubApi = await this.assetHubManager.connect();
+        } catch (error) {
+          console.error('Failed to reconnect to Asset Hub for balance check:', error);
+          return null;
+        }
+      } else {
+        return null;
+      }
     }
 
     try {
@@ -204,7 +245,7 @@ export abstract class BaseAgent {
    * This catches runtime errors BEFORE the user sees the transaction
    * 
    * Uses Chopsticks for real runtime simulation (fork-based execution)
-   * Falls back to paymentInfo if Chopsticks is unavailable
+   * Falls back to paymentInfo if Chopsticks is unavailable (with warning)
    * 
    * @param api The API instance that created the extrinsic (MUST match!)
    * @param extrinsic The extrinsic to validate
@@ -218,6 +259,8 @@ export abstract class BaseAgent {
     address: string,
     rpcEndpoint?: string | string[]
   ): Promise<DryRunResult> {
+    let chopsticksError: any = null;
+    
     // Try Chopsticks simulation first (real runtime execution)
     try {
       const { simulateTransaction, isChopsticksAvailable } = await import(
@@ -225,10 +268,18 @@ export abstract class BaseAgent {
       );
       
       if (await isChopsticksAvailable()) {
-        const rpc = rpcEndpoint || this.extractRpcEndpoint(api);
-        const result = await simulateTransaction(api, rpc, extrinsic, address);
+        // Use RPC manager endpoints if available, otherwise fallback
+        const chain = api === this.assetHubApi ? 'assetHub' : 'relay';
+        const endpoints = rpcEndpoint 
+          ? (Array.isArray(rpcEndpoint) ? rpcEndpoint : [rpcEndpoint])
+          : this.getRpcEndpointsForChain(chain);
+        console.log('[Simulation] Using Chopsticks for runtime validation with endpoints:', endpoints);
+        
+        // Pass status callback to simulation for user feedback
+        const result = await simulateTransaction(api, endpoints, extrinsic, address, this.onStatusUpdate || undefined);
         
         if (result.success) {
+          console.log('[Simulation] ✓ Chopsticks validation passed');
           return {
             success: true,
             estimatedFee: result.estimatedFee,
@@ -244,6 +295,7 @@ export abstract class BaseAgent {
             },
           };
         } else {
+          console.log('[Simulation] ✗ Chopsticks validation failed:', result.error);
           return {
             success: false,
             error: result.error || 'Simulation failed',
@@ -252,15 +304,22 @@ export abstract class BaseAgent {
             validationMethod: 'chopsticks',
           };
         }
+      } else {
+        console.log('[Simulation] Chopsticks not available, falling back to paymentInfo');
       }
-    } catch (chopsticksError) {
-      // Chopsticks unavailable, fall back to paymentInfo
+    } catch (error) {
+      chopsticksError = error;
+      console.warn('[Simulation] Chopsticks error (falling back to paymentInfo):', 
+        error instanceof Error ? error.message : String(error));
     }
     
     // Fallback: Use paymentInfo (structure validation only)
+    // WARNING: This does NOT validate runtime execution!
     try {
       const paymentInfo = await extrinsic.paymentInfo(address);
       const estimatedFee = paymentInfo.partialFee.toString();
+      
+      console.warn('[Simulation] ⚠ Using paymentInfo only - runtime execution NOT validated!');
       
       return {
         success: true,
@@ -271,9 +330,12 @@ export abstract class BaseAgent {
           weight: paymentInfo.weight.toString(),
           class: paymentInfo.class.toString(),
           validated: false,
+          warning: 'Runtime execution not validated - paymentInfo only checks structure',
+          chopsticksError: chopsticksError ? (chopsticksError instanceof Error ? chopsticksError.message : String(chopsticksError)) : undefined,
         },
       };
     } catch (error) {
+      console.error('[Simulation] ✗ paymentInfo also failed:', error);
       
       const errorMessage = error instanceof Error ? error.message : String(error);
       
@@ -288,7 +350,76 @@ export abstract class BaseAgent {
   }
 
   /**
-   * Extract RPC endpoint from API instance
+   * Get RPC endpoints for a chain using RPC manager if available
+   * Returns ordered list of healthy endpoints for round-robin
+   */
+  protected getRpcEndpointsForChain(chain: 'assetHub' | 'relay'): string[] {
+    const manager = chain === 'assetHub' ? this.assetHubManager : this.relayChainManager;
+    
+    if (manager) {
+      // Get current endpoint first (the one API is connected to)
+      const currentEndpoint = manager.getCurrentEndpoint();
+      
+      // Get all endpoints from manager (it handles health and ordering)
+      const healthStatus = manager.getHealthStatus();
+      const now = Date.now();
+      const failoverTimeout = 5 * 60 * 1000; // 5 minutes
+      
+      // Filter and sort endpoints
+      const orderedEndpoints = healthStatus
+        .filter(h => {
+          // Include if healthy, or if failure was long ago
+          if (h.healthy) return true;
+          if (!h.lastFailure) return true;
+          return (now - h.lastFailure) >= failoverTimeout;
+        })
+        .sort((a, b) => {
+          // Prioritize current endpoint
+          if (a.endpoint === currentEndpoint) return -1;
+          if (b.endpoint === currentEndpoint) return 1;
+          // Then by health
+          if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
+          // Then by failure count
+          if (a.failureCount !== b.failureCount) return a.failureCount - b.failureCount;
+          // Finally by response time
+          if (a.avgResponseTime && b.avgResponseTime) return a.avgResponseTime - b.avgResponseTime;
+          return 0;
+        })
+        .map(h => h.endpoint);
+      
+      if (orderedEndpoints.length > 0) {
+        return orderedEndpoints;
+      }
+      
+      // Fallback to all endpoints if none are healthy
+      return healthStatus.map(h => h.endpoint);
+    }
+    
+    // Fallback to hardcoded endpoints if no manager
+    return this.getDefaultRpcEndpoints(chain);
+  }
+
+  /**
+   * Get default RPC endpoints (fallback when RPC manager not available)
+   */
+  private getDefaultRpcEndpoints(chain: 'assetHub' | 'relay'): string[] {
+    if (chain === 'assetHub') {
+      return [
+        'wss://sys.ibp.network/statemint',
+        'wss://sys.dotters.network/statemint',
+        'wss://polkadot-asset-hub-rpc.polkadot.io',
+      ];
+    }
+    
+    return [
+      'wss://rpc.polkadot.io',
+      'wss://polkadot-rpc.dwellir.com',
+      'wss://polkadot.api.onfinality.io/public-ws',
+    ];
+  }
+
+  /**
+   * Extract RPC endpoint from API instance (legacy method, kept for compatibility)
    */
   private extractRpcEndpoint(api: ApiPromise): string {
     try {
@@ -325,13 +456,29 @@ export abstract class BaseAgent {
    * @returns The corresponding API instance
    * @throws AgentError if the requested API is not available
    */
-  protected getApiForChain(chain: 'assetHub' | 'relay'): ApiPromise {
+  protected async getApiForChain(chain: 'assetHub' | 'relay'): Promise<ApiPromise> {
     if (chain === 'assetHub') {
       if (!this.assetHubApi) {
-        throw new AgentError(
-          'Asset Hub API not available. Please ensure Asset Hub connection is initialized.',
-          'ASSET_HUB_NOT_AVAILABLE'
-        );
+        // Try to reconnect if we have the manager
+        if (this.assetHubManager) {
+          console.log('🔄 Asset Hub API not available, attempting to reconnect...');
+          try {
+            this.assetHubApi = await this.assetHubManager.connect();
+            console.log(`✅ Asset Hub reconnected via: ${this.assetHubManager.getCurrentEndpoint()}`);
+            return this.assetHubApi;
+          } catch (error) {
+            console.error('❌ Asset Hub reconnection failed:', error);
+            throw new AgentError(
+              `Asset Hub API not available. Failed to connect to any Asset Hub endpoint: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              'ASSET_HUB_NOT_AVAILABLE'
+            );
+          }
+        } else {
+          throw new AgentError(
+            'Asset Hub API not available. Please ensure Asset Hub connection is initialized.',
+            'ASSET_HUB_NOT_AVAILABLE'
+          );
+        }
       }
       return this.assetHubApi;
     }
