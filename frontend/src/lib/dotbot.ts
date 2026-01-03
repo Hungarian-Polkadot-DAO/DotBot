@@ -508,9 +508,9 @@ export class DotBot {
       frozen: string;
     };
     assetHub: {
-      free: string;
-      reserved: string;
-      frozen: string;
+    free: string;
+    reserved: string;
+    frozen: string;
     } | null;
     total: string;
   }> {
@@ -539,8 +539,8 @@ export class DotBot {
           free: assetHubData.data?.free || '0',
           reserved: assetHubData.data?.reserved || '0',
           frozen: assetHubData.data?.frozen || assetHubData.data?.miscFrozen || '0'
-        };
-        
+    };
+    
         console.log('💰 Asset Hub balance:', assetHubBalance);
       } catch (error) {
         console.warn('⚠️ Failed to fetch Asset Hub balance:', error);

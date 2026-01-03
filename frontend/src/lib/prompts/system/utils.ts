@@ -138,8 +138,8 @@ export function logSystemPromptWithMockContext(): void {
       },
       assetHub: {
         free: '25500000000000',
-        reserved: '0',
-        frozen: '0',
+      reserved: '0',
+      frozen: '0',
       },
       total: '100500000000000',
       symbol: 'DOT',

@@ -116,6 +116,30 @@ function formatAgentDefinitions(): string {
 }
 
 /**
+ * Convert Planck to DOT (1 DOT = 10^10 Planck)
+ * 
+ * @param planck Balance in Planck (as string or number)
+ * @returns Balance in DOT as a formatted string
+ */
+function formatPlanckToDot(planck: string | number): string {
+  const PLANCK_PER_DOT = 10_000_000_000; // 10^10
+  const planckBigInt = typeof planck === 'string' ? BigInt(planck) : BigInt(planck);
+  
+  // Convert to DOT (with precision)
+  const dotInteger = planckBigInt / BigInt(PLANCK_PER_DOT);
+  const dotRemainder = planckBigInt % BigInt(PLANCK_PER_DOT);
+  
+  // Format with up to 4 decimal places (remove trailing zeros)
+  const decimalPart = dotRemainder.toString().padStart(10, '0');
+  const significantDecimals = decimalPart.slice(0, 4).replace(/0+$/, '');
+  
+  if (significantDecimals) {
+    return `${dotInteger}.${significantDecimals}`;
+  }
+  return dotInteger.toString();
+}
+
+/**
  * Format context information for inclusion in system prompt
  */
 function formatContext(context?: SystemContext): string {
@@ -140,27 +164,35 @@ function formatContext(context?: SystemContext): string {
   
   // Balance context
   if (context.balance) {
-    prompt += `**Total Balance**: ${context.balance.total} ${context.balance.symbol}\n\n`;
+    // Convert total balance from Planck to DOT
+    const totalDot = formatPlanckToDot(context.balance.total);
+    prompt += `**Total Balance**: ${totalDot} ${context.balance.symbol}\n\n`;
     
-    // Relay Chain balance
+    // Relay Chain balance (convert from Planck to DOT)
     prompt += `**Relay Chain** (${context.network.rpcEndpoint || 'wss://rpc.polkadot.io'}):\n`;
-    prompt += `  - Free: ${context.balance.relayChain.free}\n`;
+    const relayFreeDot = formatPlanckToDot(context.balance.relayChain.free);
+    prompt += `  - Free: ${relayFreeDot} DOT\n`;
     if (context.balance.relayChain.reserved !== '0') {
-      prompt += `  - Reserved: ${context.balance.relayChain.reserved}\n`;
+      const relayReservedDot = formatPlanckToDot(context.balance.relayChain.reserved);
+      prompt += `  - Reserved: ${relayReservedDot} DOT\n`;
     }
     
-    // Asset Hub balance
+    // Asset Hub balance (convert from Planck to DOT)
     if (context.balance.assetHub) {
       prompt += `\n**Asset Hub** (wss://polkadot-asset-hub-rpc.polkadot.io):\n`;
-      prompt += `  - Free: ${context.balance.assetHub.free}\n`;
+      const assetHubFreeDot = formatPlanckToDot(context.balance.assetHub.free);
+      prompt += `  - Free: ${assetHubFreeDot} DOT\n`;
       if (context.balance.assetHub.reserved !== '0') {
-        prompt += `  - Reserved: ${context.balance.assetHub.reserved}\n`;
+        const assetHubReservedDot = formatPlanckToDot(context.balance.assetHub.reserved);
+        prompt += `  - Reserved: ${assetHubReservedDot} DOT\n`;
       }
     } else {
       prompt += `\n**Asset Hub**: Not connected (balance not available)\n`;
     }
     
-    prompt += `\nNote: After the Polkadot 2.0 migration, users can have DOT on both Relay Chain and Asset Hub.\n`;
+    prompt += `\n**CRITICAL**: All balance values above are in DOT denomination. NEVER show Planck values to users.\n`;
+    prompt += `**CRITICAL**: When displaying balances to users, ALWAYS use DOT (not Planck). Example: "12.5 DOT" not "125000000000".\n`;
+    prompt += `Note: After the Polkadot 2.0 migration, users can have DOT on both Relay Chain and Asset Hub.\n`;
   }
   
   prompt += '\n';
