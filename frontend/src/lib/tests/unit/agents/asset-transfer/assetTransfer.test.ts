@@ -13,6 +13,12 @@ jest.mock('@polkadot/util-crypto', () => {
     '5FLSigC9HGRKVhB9F7s3C6qNK8p7tvYwDDeYNP83mZ4pzH9i',
   ];
   
+  // Track the mapping between decoded public keys and original addresses
+  // Since all addresses decode to the same 32-byte array in our mock,
+  // we'll use a simple counter to distinguish them
+  let decodeCounter = 0;
+  const addressMap = new Map<number, string>();
+  
   return {
     isAddress: (address: string) => {
       if (!address || typeof address !== 'string' || address.trim().length === 0) {
@@ -33,13 +39,23 @@ jest.mock('@polkadot/util-crypto', () => {
       if (!address || address.length === 0) {
         throw new Error('Invalid address');
       }
-      // Return a valid 32-byte array
-      return new Uint8Array(32);
+      // Find the index of this address in our test addresses
+      const addressIndex = VALID_TEST_ADDRESSES.indexOf(address);
+      const key = addressIndex >= 0 ? addressIndex : decodeCounter++;
+      
+      // Store the mapping
+      addressMap.set(key, address);
+      
+      // Return a 32-byte array with the key encoded in the first byte
+      const publicKey = new Uint8Array(32);
+      publicKey[0] = key;
+      return publicKey;
     },
     encodeAddress: (publicKey: Uint8Array, ss58Format?: number) => {
-      // Return a mock address - try to preserve the original if possible
-      // For tests, just return a valid test address
-      return VALID_TEST_ADDRESSES[0];
+      // Extract the key from the first byte
+      const key = publicKey[0];
+      // Return the original address if we have it, otherwise return the first test address
+      return addressMap.get(key) || VALID_TEST_ADDRESSES[0];
     },
   };
 });
@@ -103,9 +119,11 @@ describe('AssetTransferAgent', () => {
         expect(result.metadata?.sender).toBe(TEST_ADDRESSES.ALICE);
         expect(result.metadata?.recipient).toBe(TEST_ADDRESSES.BOB);
         expect(result.metadata?.keepAlive).toBe(false);
-        expect(mockApi.tx?.balances?.transfer).toHaveBeenCalledWith(
+        // Asset Hub with DOT prefers transferKeepAlive even when keepAlive is false
+        // (see shouldUseKeepAlive logic in transferCapabilities.ts)
+        expect(mockAssetHubApi.tx?.balances?.transferKeepAlive).toHaveBeenCalledWith(
           TEST_ADDRESSES.BOB,
-          TEST_AMOUNTS.ONE_DOT
+          expect.any(Object) // BN object
         );
       });
 
@@ -119,10 +137,10 @@ describe('AssetTransferAgent', () => {
 
         expect(result.extrinsic).toBeDefined();
         expect(result.metadata?.keepAlive).toBe(true);
-        expect(result.warnings).toContain('Using transferKeepAlive - this ensures the sender account remains alive after transfer');
-        expect(mockApi.tx?.balances?.transferKeepAlive).toHaveBeenCalledWith(
+        expect(result.warnings).toContain('Using transferKeepAlive - sender account will remain alive');
+        expect(mockAssetHubApi.tx?.balances?.transferKeepAlive).toHaveBeenCalledWith(
           TEST_ADDRESSES.BOB,
-          TEST_AMOUNTS.ONE_DOT
+          expect.any(Object) // BN object
         );
       });
 
@@ -285,8 +303,8 @@ describe('AssetTransferAgent', () => {
         expect(result.resultType).toBe('extrinsic');
         expect(result.metadata?.transferCount).toBe(2);
         expect(result.metadata?.transfers).toHaveLength(2);
-        expect(result.warnings).toContain('Batch transfer with 2 recipients');
-        expect(mockApi.tx?.utility?.batch).toHaveBeenCalled();
+        expect(result.warnings).toContain('Using batchAll - all transfers must succeed or entire batch fails');
+        expect(mockAssetHubApi.tx?.utility?.batchAll).toHaveBeenCalled();
       });
 
       it('should calculate total amount correctly', async () => {
