@@ -15,7 +15,7 @@ import { DotBot, ExecutionArrayState, ConversationMessage } from './lib';
 import { useWalletStore } from './stores/walletStore';
 import { ASIOneService } from './lib/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from './lib';
-import { createRelayChainManager, createAssetHubManager, RpcManager } from './lib/rpcManager';
+import { createRpcManagersForNetwork, RpcManager, Network } from './lib/rpcManager';
 import './styles/globals.css';
 import './styles/execution-flow.css';
 
@@ -65,20 +65,23 @@ const App: React.FC = () => {
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
   const [asiOne] = useState(() => new ASIOneService());
   const [isInitializing, setIsInitializing] = useState(false);
+  const [selectedNetwork, setSelectedNetwork] = useState<Network>('polkadot');
   
-  const [relayChainManager] = useState<RpcManager>(() => createRelayChainManager());
-  const [assetHubManager] = useState<RpcManager>(() => createAssetHubManager());
+  // Create RPC managers for the selected network
+  const [rpcManagers] = useState<{ relayChainManager: RpcManager; assetHubManager: RpcManager }>(() => 
+    createRpcManagersForNetwork('polkadot')
+  );
   
   const { isConnected, selectedAccount } = useWalletStore();
 
   useEffect(() => {
     Promise.all([
-      relayChainManager.getReadApi(),
-      assetHubManager.getReadApi()
+      rpcManagers.relayChainManager.getReadApi(),
+      rpcManagers.assetHubManager.getReadApi()
     ]).catch(() => {
       // Ignore pre-connection errors - will retry when needed
     });
-  }, []);
+  }, [rpcManagers]);
 
   // Initialize DotBot when wallet connects
   useEffect(() => {
@@ -112,8 +115,9 @@ const App: React.FC = () => {
     try {
       const dotbotInstance = await DotBot.create({
         wallet: selectedAccount!,
-        relayChainManager,
-        assetHubManager,
+        network: selectedNetwork,
+        relayChainManager: rpcManagers.relayChainManager,
+        assetHubManager: rpcManagers.assetHubManager,
         onSigningRequest: (request) => setSigningRequest(request),
         onBatchSigningRequest: (request) => setSigningRequest(request),
         onSimulationStatus: (status) => {
@@ -127,10 +131,15 @@ const App: React.FC = () => {
       
       setDotbot(dotbotInstance);
       
+      // Get network-specific greeting
+      const networkName = selectedNetwork === 'westend' ? 'Westend testnet' 
+                        : selectedNetwork === 'kusama' ? 'Kusama' 
+                        : 'Polkadot';
+      
       const botMessage: Message = {
         id: Date.now().toString(),
         type: 'bot',
-        content: `Hello! I'm DotBot. Your wallet is connected (${selectedAccount!.address.slice(0, 8)}...). I can help you with Polkadot operations!`,
+        content: `Hello! I'm DotBot. Your wallet is connected (${selectedAccount!.address.slice(0, 8)}...). I can help you with ${networkName} operations!`,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, botMessage]);
@@ -140,7 +149,7 @@ const App: React.FC = () => {
       const errorMessage: Message = {
         id: Date.now().toString(),
         type: 'bot',
-        content: 'Failed to connect to Polkadot network. Please check your connection and try again.',
+        content: `Failed to connect to ${selectedNetwork} network. Please check your connection and try again.`,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -174,11 +183,14 @@ const App: React.FC = () => {
       const result = await dotbot.chat(message, {
         conversationHistory,
         llm: async (msg, systemPrompt, llmContext) => {
+          const networkDisplayName = selectedNetwork === 'westend' ? 'Westend' 
+                                    : selectedNetwork === 'kusama' ? 'Kusama' 
+                                    : 'Polkadot';
           const response = await asiOne.sendMessage(msg, {
             systemPrompt,
             ...llmContext,
             walletAddress: selectedAccount?.address,
-            network: 'Polkadot'
+            network: networkDisplayName
           });
           return response;
         }
@@ -261,7 +273,7 @@ const App: React.FC = () => {
               !isConnected 
                 ? "Connect your wallet to start chatting..."
                 : isInitializing
-                ? "Initializing DotBot (connecting to Polkadot networks)..."
+                ? `Initializing DotBot (connecting to ${selectedNetwork} network)...`
                 : "Type your message..."
             }
             simulationStatus={simulationStatus}
