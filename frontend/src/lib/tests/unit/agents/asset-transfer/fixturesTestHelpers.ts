@@ -76,6 +76,7 @@ export function createMockExtrinsic(
  */
 export function createMockApi(isAssetHub: boolean = false): Partial<ApiPromise> {
   const mockTransfer = createMockExtrinsic('transfer', 'balances');
+  const mockTransferAllowDeath = createMockExtrinsic('transferAllowDeath', 'balances');
   const mockTransferKeepAlive = createMockExtrinsic('transferKeepAlive', 'balances');
   const mockBatch = createMockExtrinsic('batch', 'utility');
   const mockBatchAll = createMockExtrinsic('batchAll', 'utility');
@@ -96,6 +97,7 @@ export function createMockApi(isAssetHub: boolean = false): Partial<ApiPromise> 
     tx: {
       balances: {
         transfer: jest.fn().mockReturnValue(mockTransfer),
+        transferAllowDeath: jest.fn().mockReturnValue(mockTransferAllowDeath),
         transferKeepAlive: jest.fn().mockReturnValue(mockTransferKeepAlive),
       },
       utility: {
