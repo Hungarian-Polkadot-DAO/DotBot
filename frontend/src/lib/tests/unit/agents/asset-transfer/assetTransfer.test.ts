@@ -29,6 +29,13 @@ jest.mock('@polkadot/util-crypto', () => {
       }
       return false;
     },
+    decodeAddress: (address: string) => {
+      if (!address || address.length === 0) {
+        throw new Error('Invalid address');
+      }
+      // Return a valid 32-byte array
+      return new Uint8Array(32);
+    },
   };
 });
 

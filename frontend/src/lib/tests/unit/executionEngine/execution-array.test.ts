@@ -310,11 +310,11 @@ describe('ExecutionArray', () => {
 
       const id = executionArray.add(createMockAgentResult());
       executionArray.updateStatus(id, 'executing');
-      expect(callback).toHaveBeenCalledTimes(1);
+      expect(callback).toHaveBeenCalledTimes(2); // Once from add, once from updateStatus
 
       unsubscribe();
       executionArray.updateStatus(id, 'completed');
-      expect(callback).toHaveBeenCalledTimes(1); // Not called again
+      expect(callback).toHaveBeenCalledTimes(2); // Not called again after unsubscribe
     });
   });
 

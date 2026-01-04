@@ -22,6 +22,21 @@ jest.mock('@polkadot/extension-dapp', () => ({
   web3FromAddress: jest.fn(),
 }));
 
+// Mock @polkadot/util-crypto for dynamic imports
+jest.mock('@polkadot/util-crypto', () => ({
+  decodeAddress: (address: string) => {
+    if (!address || address.length === 0) {
+      throw new Error('Invalid address');
+    }
+    // Return a valid 32-byte array
+    return new Uint8Array(32);
+  },
+  encodeAddress: (publicKey: Uint8Array, ss58Format?: number) => {
+    // Return a mock address
+    return '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+  },
+}));
+
 describe('Executioner', () => {
   let executioner: Executioner;
   let executionArray: ExecutionArray;
@@ -73,6 +88,9 @@ describe('Executioner', () => {
     } as any;
 
     // Mock API
+    const mockRegistry = {
+      chainSS58: 0,
+    };
     mockApi = {
       tx: {
         utility: {
@@ -86,7 +104,11 @@ describe('Executioner', () => {
           },
         },
       },
+      registry: mockRegistry,
     } as any;
+    
+    // Mock extrinsic registry to match API registry
+    (mockExtrinsic as any).registry = mockRegistry;
 
     // Mock signer
     mockSigner = {

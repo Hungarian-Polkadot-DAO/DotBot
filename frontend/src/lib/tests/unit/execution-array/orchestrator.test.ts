@@ -123,7 +123,7 @@ describe('ExecutionOrchestrator', () => {
       expect(result.success).toBe(true);
       expect(result.executionArray.getLength()).toBe(1);
       expect(mockAgent.transfer).toHaveBeenCalledWith(plan.steps[0].parameters);
-      expect(mockAgent.initialize).toHaveBeenCalledWith(mockApi);
+      expect(mockAgent.initialize).toHaveBeenCalledWith(mockApi, null, null, null, null);
     });
 
     it('should orchestrate plan with multiple steps', async () => {
