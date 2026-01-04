@@ -78,6 +78,7 @@ export function createMockApi(isAssetHub: boolean = false): Partial<ApiPromise> 
   const mockTransfer = createMockExtrinsic('transfer', 'balances');
   const mockTransferKeepAlive = createMockExtrinsic('transferKeepAlive', 'balances');
   const mockBatch = createMockExtrinsic('batch', 'utility');
+  const mockBatchAll = createMockExtrinsic('batchAll', 'utility');
 
   // Mock account data
   const mockAccountData = {
@@ -99,6 +100,7 @@ export function createMockApi(isAssetHub: boolean = false): Partial<ApiPromise> 
       },
       utility: {
         batch: jest.fn().mockReturnValue(mockBatch),
+        batchAll: jest.fn().mockReturnValue(mockBatchAll),
       },
     },
     query: {

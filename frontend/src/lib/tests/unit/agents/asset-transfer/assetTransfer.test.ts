@@ -36,6 +36,11 @@ jest.mock('@polkadot/util-crypto', () => {
       // Return a valid 32-byte array
       return new Uint8Array(32);
     },
+    encodeAddress: (publicKey: Uint8Array, ss58Format?: number) => {
+      // Return a mock address - try to preserve the original if possible
+      // For tests, just return a valid test address
+      return VALID_TEST_ADDRESSES[0];
+    },
   };
 });
 
@@ -203,8 +208,8 @@ describe('AssetTransferAgent', () => {
       });
 
       it('should throw AgentError for insufficient balance', async () => {
-        // Mock insufficient balance
-        const mockAccountQuery = mockApi.query?.system?.account as jest.MockedFunction<any>;
+        // Mock insufficient balance on Asset Hub API (used for transfers)
+        const mockAccountQuery = mockAssetHubApi.query?.system?.account as jest.MockedFunction<any>;
         mockAccountQuery.mockResolvedValue(createMockInsufficientBalance());
 
         const error = await agent.transfer({
@@ -218,8 +223,8 @@ describe('AssetTransferAgent', () => {
       });
 
       it('should skip balance validation when validateBalance is false', async () => {
-        // Mock insufficient balance
-        const mockAccountQuery = mockApi.query?.system?.account as jest.MockedFunction<any>;
+        // Mock insufficient balance on Asset Hub API (used for transfers)
+        const mockAccountQuery = mockAssetHubApi.query?.system?.account as jest.MockedFunction<any>;
         mockAccountQuery.mockResolvedValue(createMockInsufficientBalance());
 
         // Should not throw when validateBalance is false
@@ -366,8 +371,8 @@ describe('AssetTransferAgent', () => {
       });
 
       it('should throw AgentError for insufficient balance for total batch amount', async () => {
-        // Mock insufficient balance
-        const mockAccountQuery = mockApi.query?.system?.account as jest.MockedFunction<any>;
+        // Mock insufficient balance on Asset Hub API (used for transfers)
+        const mockAccountQuery = mockAssetHubApi.query?.system?.account as jest.MockedFunction<any>;
         mockAccountQuery.mockResolvedValue(createMockInsufficientBalance());
 
         const error = await agent.batchTransfer({
