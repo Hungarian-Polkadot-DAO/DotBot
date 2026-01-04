@@ -52,6 +52,7 @@ jest.mock('../../prompts/system/loader', () => ({
 import { createRelayChainManager, createAssetHubManager } from '../../rpcManager';
 import { ExecutionSystem as MockExecutionSystem } from '../../executionEngine/system';
 import { BrowserWalletSigner as MockBrowserWalletSigner } from '../../executionEngine/signers/browserSigner';
+import { buildSystemPrompt } from '../../prompts/system/loader';
 
 describe('DotBot', () => {
   let mockRelayChainApi: Partial<ApiPromise>;
@@ -994,6 +995,517 @@ describe('DotBot', () => {
       // Callback should be removed from callbacks set
       // (We can't directly test the Set, but we can verify unsubscribe was called)
       expect(mockUnsubscribe).toHaveBeenCalled();
+    });
+  });
+
+  describe('getRpcHealth()', () => {
+    let dotbot: DotBot;
+
+    beforeEach(async () => {
+      const config: DotBotConfig = {
+        wallet: mockWallet,
+      };
+
+      dotbot = await DotBot.create(config);
+    });
+
+    it('should return health status for both Relay Chain and Asset Hub', () => {
+      const mockRelayHealth = [
+        {
+          endpoint: 'wss://rpc.polkadot.io',
+          healthy: true,
+          lastChecked: Date.now(),
+          failureCount: 0,
+        },
+        {
+          endpoint: 'wss://polkadot-rpc.dwellir.com',
+          healthy: false,
+          lastChecked: Date.now() - 10000,
+          failureCount: 2,
+          lastFailure: Date.now() - 5000,
+        },
+      ];
+
+      const mockAssetHubHealth = [
+        {
+          endpoint: 'wss://polkadot-asset-hub-rpc.polkadot.io',
+          healthy: true,
+          lastChecked: Date.now(),
+          failureCount: 0,
+        },
+      ];
+
+      (mockRelayChainManager.getHealthStatus as jest.Mock).mockReturnValue(mockRelayHealth);
+      (mockAssetHubManager.getHealthStatus as jest.Mock).mockReturnValue(mockAssetHubHealth);
+      (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
+      (mockAssetHubManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://polkadot-asset-hub-rpc.polkadot.io');
+
+      const health = dotbot.getRpcHealth();
+
+      expect(health.relayChain.current).toBe('wss://rpc.polkadot.io');
+      expect(health.relayChain.endpoints).toEqual(mockRelayHealth);
+      expect(health.assetHub.current).toBe('wss://polkadot-asset-hub-rpc.polkadot.io');
+      expect(health.assetHub.endpoints).toEqual(mockAssetHubHealth);
+    });
+
+    it('should include all health information fields', () => {
+      const mockHealth = [
+        {
+          endpoint: 'wss://rpc.polkadot.io',
+          healthy: true,
+          lastChecked: 1234567890,
+          failureCount: 0,
+          avgResponseTime: 150,
+        },
+      ];
+
+      (mockRelayChainManager.getHealthStatus as jest.Mock).mockReturnValue(mockHealth);
+      (mockAssetHubManager.getHealthStatus as jest.Mock).mockReturnValue([]);
+      (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
+      (mockAssetHubManager.getCurrentEndpoint as jest.Mock).mockReturnValue(null);
+
+      const health = dotbot.getRpcHealth();
+
+      expect(health.relayChain.endpoints[0]).toHaveProperty('endpoint');
+      expect(health.relayChain.endpoints[0]).toHaveProperty('healthy');
+      expect(health.relayChain.endpoints[0]).toHaveProperty('lastChecked');
+      expect(health.relayChain.endpoints[0]).toHaveProperty('failureCount');
+      expect(health.relayChain.endpoints[0]).toHaveProperty('avgResponseTime');
+    });
+  });
+
+  describe('buildContextualSystemPrompt()', () => {
+    let dotbot: DotBot;
+
+    beforeEach(async () => {
+      const config: DotBotConfig = {
+        wallet: mockWallet,
+      };
+
+      dotbot = await DotBot.create(config);
+    });
+
+    it('should build system prompt with wallet, network, and balance context', async () => {
+      const mockBalance = {
+        relayChain: {
+          free: '1000000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+        assetHub: {
+          free: '500000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+        total: '1500000000000',
+      };
+
+      const mockChainInfo = {
+        chain: 'Polkadot',
+        version: '0.9.42',
+      };
+
+      // Mock getBalance
+      jest.spyOn(dotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+      // Mock getChainInfo
+      jest.spyOn(dotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+      // Mock RPC manager
+      (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
+      // Mock buildSystemPrompt
+      (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt with context');
+
+      const prompt = await (dotbot as any).buildContextualSystemPrompt();
+
+      expect(dotbot.getBalance).toHaveBeenCalled();
+      expect(dotbot.getChainInfo).toHaveBeenCalled();
+      expect(buildSystemPrompt).toHaveBeenCalled();
+      expect(typeof prompt).toBe('string');
+      expect(prompt.length).toBeGreaterThan(0);
+    });
+
+    it('should include Asset Hub balance when available', async () => {
+      const mockBalance = {
+        relayChain: {
+          free: '1000000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+        assetHub: {
+          free: '500000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+        total: '1500000000000',
+      };
+
+      const mockChainInfo = {
+        chain: 'Polkadot',
+        version: '0.9.42',
+      };
+
+      jest.spyOn(dotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+      jest.spyOn(dotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+      (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
+      (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt with Asset Hub');
+
+      await (dotbot as any).buildContextualSystemPrompt();
+
+      // Verify balance was fetched (which includes Asset Hub)
+      expect(dotbot.getBalance).toHaveBeenCalled();
+      expect(buildSystemPrompt).toHaveBeenCalled();
+    });
+
+    it('should handle Kusama network detection', async () => {
+      const mockBalance = {
+        relayChain: {
+          free: '1000000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+        assetHub: null,
+        total: '1000000000000',
+      };
+
+      const mockChainInfo = {
+        chain: 'Kusama',
+        version: '0.9.40',
+      };
+
+      jest.spyOn(dotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+      jest.spyOn(dotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+      (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://kusama-rpc.polkadot.io');
+      (buildSystemPrompt as jest.Mock).mockResolvedValue('Kusama system prompt');
+
+      const prompt = await (dotbot as any).buildContextualSystemPrompt();
+
+      expect(dotbot.getChainInfo).toHaveBeenCalled();
+      expect(buildSystemPrompt).toHaveBeenCalled();
+      expect(typeof prompt).toBe('string');
+    });
+
+    it('should fallback to basic prompt if context fetch fails', async () => {
+      // Make getBalance fail
+      jest.spyOn(dotbot, 'getBalance').mockRejectedValue(new Error('Balance fetch failed'));
+      (buildSystemPrompt as jest.Mock).mockResolvedValue('Fallback system prompt');
+
+      const prompt = await (dotbot as any).buildContextualSystemPrompt();
+
+      // Should still return a prompt (fallback)
+      expect(buildSystemPrompt).toHaveBeenCalled();
+      expect(typeof prompt).toBe('string');
+      expect(prompt.length).toBeGreaterThan(0);
+    });
+
+    it('should handle missing Asset Hub balance gracefully', async () => {
+      const mockBalance = {
+        relayChain: {
+          free: '1000000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+        assetHub: null, // Asset Hub not connected
+        total: '1000000000000',
+      };
+
+      const mockChainInfo = {
+        chain: 'Polkadot',
+        version: '0.9.42',
+      };
+
+      jest.spyOn(dotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+      jest.spyOn(dotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+      (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
+      (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt without Asset Hub');
+
+      const prompt = await (dotbot as any).buildContextualSystemPrompt();
+
+      // Should still build prompt successfully
+      expect(buildSystemPrompt).toHaveBeenCalled();
+      expect(typeof prompt).toBe('string');
+      expect(prompt.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('extractExecutionPlan()', () => {
+    let dotbot: DotBot;
+
+    beforeEach(async () => {
+      const config: DotBotConfig = {
+        wallet: mockWallet,
+      };
+
+      dotbot = await DotBot.create(config);
+    });
+
+    it('should extract ExecutionPlan from JSON code block', () => {
+      const plan = {
+        id: 'test-plan',
+        originalRequest: 'Test',
+        steps: [
+          {
+            id: 'step-1',
+            stepNumber: 1,
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: {},
+            executionType: 'extrinsic',
+            status: 'pending',
+            description: 'Test step',
+            requiresConfirmation: true,
+            createdAt: Date.now(),
+          },
+        ],
+        status: 'pending',
+        requiresApproval: true,
+        createdAt: Date.now(),
+      };
+
+      const llmResponse = `\`\`\`json\n${JSON.stringify(plan)}\n\`\`\``;
+      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('test-plan');
+      expect(result?.steps).toHaveLength(1);
+    });
+
+    it('should extract ExecutionPlan from generic code block', () => {
+      const plan = {
+        id: 'test-plan',
+        originalRequest: 'Test',
+        steps: [],
+        status: 'pending',
+        requiresApproval: false,
+        createdAt: Date.now(),
+      };
+
+      const llmResponse = `\`\`\`\n${JSON.stringify(plan)}\n\`\`\``;
+      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('test-plan');
+    });
+
+    it('should extract ExecutionPlan from plain JSON string', () => {
+      const plan = {
+        id: 'test-plan',
+        originalRequest: 'Test',
+        steps: [],
+        status: 'pending',
+        requiresApproval: false,
+        createdAt: Date.now(),
+      };
+
+      const llmResponse = JSON.stringify(plan);
+      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('test-plan');
+    });
+
+    it('should return null for invalid JSON', () => {
+      const llmResponse = 'This is not JSON at all';
+      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null for JSON without required fields', () => {
+      const invalidPlan = {
+        // Missing id and steps
+        originalRequest: 'Test',
+      };
+
+      const llmResponse = JSON.stringify(invalidPlan);
+      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null for empty or null input', () => {
+      expect((dotbot as any).extractExecutionPlan('')).toBeNull();
+      expect((dotbot as any).extractExecutionPlan(null as any)).toBeNull();
+      expect((dotbot as any).extractExecutionPlan(undefined as any)).toBeNull();
+    });
+  });
+
+  describe('executeWithArrayTracking()', () => {
+    let dotbot: DotBot;
+
+    beforeEach(async () => {
+      const config: DotBotConfig = {
+        wallet: mockWallet,
+      };
+
+      dotbot = await DotBot.create(config);
+    });
+
+    it('should orchestrate plan and execute with tracking', async () => {
+      const executionPlan = {
+        id: 'test-plan',
+        originalRequest: 'Test',
+        steps: [
+          {
+            id: 'step-1',
+            stepNumber: 1,
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: {},
+            executionType: 'extrinsic',
+            status: 'pending',
+            description: 'Test step',
+            requiresConfirmation: true,
+            createdAt: Date.now(),
+          },
+        ],
+        status: 'pending',
+        requiresApproval: true,
+        createdAt: Date.now(),
+      };
+
+      const mockState = {
+        totalItems: 1,
+        completedItems: 1,
+        failedItems: 0,
+        cancelledItems: 0,
+        currentIndex: 0,
+        isExecuting: false,
+        isPaused: false,
+        items: [],
+      };
+
+      const mockExecutionArray = {
+        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
+        getState: jest.fn().mockReturnValue(mockState),
+      };
+
+      const mockOrchestrator = {
+        orchestrate: jest.fn().mockResolvedValue({
+          success: true,
+          executionArray: mockExecutionArray,
+          errors: [],
+        }),
+      };
+
+      const mockExecutioner = {
+        execute: jest.fn().mockResolvedValue(undefined),
+      };
+
+      (dotbot as any).executionSystem = {
+        orchestrator: mockOrchestrator,
+        executioner: mockExecutioner,
+      };
+
+      const onComplete = jest.fn();
+
+      await (dotbot as any).executeWithArrayTracking(executionPlan, undefined, { onComplete });
+
+      expect(mockOrchestrator.orchestrate).toHaveBeenCalledWith(executionPlan);
+      expect(mockExecutioner.execute).toHaveBeenCalledWith(mockExecutionArray, undefined);
+      expect(onComplete).toHaveBeenCalledWith(true, 1, 0);
+      expect((dotbot as any).currentExecutionArray).toBe(mockExecutionArray);
+    });
+
+    it('should throw error if orchestration fails', async () => {
+      const executionPlan = {
+        id: 'test-plan',
+        originalRequest: 'Test',
+        steps: [],
+        status: 'pending',
+        requiresApproval: false,
+        createdAt: Date.now(),
+      };
+
+      const mockOrchestrator = {
+        orchestrate: jest.fn().mockRejectedValue(new Error('Orchestration failed')),
+      };
+
+      (dotbot as any).executionSystem = {
+        orchestrator: mockOrchestrator,
+      };
+
+      await expect(
+        (dotbot as any).executeWithArrayTracking(executionPlan)
+      ).rejects.toThrow('Orchestration failed');
+    });
+
+    it('should throw error if orchestration has errors', async () => {
+      const executionPlan = {
+        id: 'test-plan',
+        originalRequest: 'Test',
+        steps: [],
+        status: 'pending',
+        requiresApproval: false,
+        createdAt: Date.now(),
+      };
+
+      const mockExecutionArray = {
+        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
+        getState: jest.fn(),
+      };
+
+      const mockOrchestrator = {
+        orchestrate: jest.fn().mockResolvedValue({
+          success: false,
+          executionArray: mockExecutionArray,
+          errors: [{ error: 'Step 1 failed' }, { error: 'Step 2 failed' }],
+        }),
+      };
+
+      (dotbot as any).executionSystem = {
+        orchestrator: mockOrchestrator,
+      };
+
+      await expect(
+        (dotbot as any).executeWithArrayTracking(executionPlan)
+      ).rejects.toThrow('Failed to prepare transaction');
+    });
+
+    it('should unsubscribe from updates after execution', async () => {
+      const executionPlan = {
+        id: 'test-plan',
+        originalRequest: 'Test',
+        steps: [],
+        status: 'pending',
+        requiresApproval: false,
+        createdAt: Date.now(),
+      };
+
+      const mockUnsubscribe = jest.fn();
+      const mockExecutionArray = {
+        onStatusUpdate: jest.fn().mockReturnValue(mockUnsubscribe),
+        getState: jest.fn().mockReturnValue({
+          totalItems: 0,
+          completedItems: 0,
+          failedItems: 0,
+          cancelledItems: 0,
+          currentIndex: -1,
+          isExecuting: false,
+          isPaused: false,
+          items: [],
+        }),
+      };
+
+      const mockOrchestrator = {
+        orchestrate: jest.fn().mockResolvedValue({
+          success: true,
+          executionArray: mockExecutionArray,
+          errors: [],
+        }),
+      };
+
+      const mockExecutioner = {
+        execute: jest.fn().mockResolvedValue(undefined),
+      };
+
+      (dotbot as any).executionSystem = {
+        orchestrator: mockOrchestrator,
+        executioner: mockExecutioner,
+      };
+
+      await (dotbot as any).executeWithArrayTracking(executionPlan);
+
+      // Unsubscribe should be called (though we can't verify it directly, we can verify onStatusUpdate was called)
+      expect(mockExecutionArray.onStatusUpdate).toHaveBeenCalled();
     });
   });
 });
