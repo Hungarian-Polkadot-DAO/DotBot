@@ -315,8 +315,14 @@ Keep responses concise but informative. Use bullet points for multiple options a
    */
   async testConnection(): Promise<boolean> {
     try {
-      const testMessage = "Hello, this is a connection test.";
-      await this.sendMessage(testMessage);
+      const testRequest: ASIOneRequest = {
+        model: this.config.model,
+        messages: [{ role: 'user', content: 'Hello, this is a connection test.' }],
+        temperature: this.config.temperature,
+        max_tokens: 50,
+        stream: false
+      };
+      await this.callASIOneAPI(testRequest);
       return true;
     } catch (error) {
       logger.error({ error }, 'ASI-One connection test failed');

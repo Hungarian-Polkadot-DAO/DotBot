@@ -6,11 +6,11 @@
 // Note: jest.mock() calls are hoisted, so they run before imports
 
 jest.mock('@polkadot/util-crypto', () => {
-  // Valid test addresses - defined inside factory to avoid hoisting issues
+  // Valid test addresses - Polkadot SS58 format (prefix 0)
   const VALID_TEST_ADDRESSES = [
-    '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-    '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
-    '5FLSigC9HGRKVhB9F7s3C6qNK8p7tvYwDDeYNP83mZ4pzH9i',
+    '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
+    '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
+    '14Gjs1TD93gnwEBfDMHoCgsuf1s2TVKUP6Z1qKmAZnZ8cW5q',
   ];
   
   // Track the mapping between decoded public keys and original addresses
@@ -29,8 +29,8 @@ jest.mock('@polkadot/util-crypto', () => {
         return true;
       }
       // Basic SS58 format check - be permissive for tests
-      // SS58 addresses start with '5' and are typically 47-48 characters
-      if (address.startsWith('5') && address.length >= 40 && address.length <= 50) {
+      // Polkadot addresses start with '1' and are typically 47-48 characters
+      if (address.startsWith('1') && address.length >= 40 && address.length <= 50) {
         return true;
       }
       return false;
@@ -69,7 +69,7 @@ jest.mock('@polkadot/keyring', () => {
       // Return a valid 32-byte array
       return new Uint8Array(32);
     },
-    encodeAddress: () => '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+    encodeAddress: () => '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
   };
 });
 

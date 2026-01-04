@@ -62,7 +62,9 @@ export class ChopsticksDatabase implements Database {
 
   async queryHighestBlock(): Promise<BlockEntry | null> {
     const database = await this.db;
-    const index = database.transaction('block').store.index('byNumber');
+    const tx = database.transaction('block');
+    const store = tx.objectStore('block');
+    const index = store.index('byNumber');
     const cursor = await index.openCursor(null, 'prev');
     return cursor?.value ?? null;
   }

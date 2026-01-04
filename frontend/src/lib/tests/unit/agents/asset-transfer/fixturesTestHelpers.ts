@@ -9,12 +9,12 @@ import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { BN } from '@polkadot/util';
 
 /**
- * Valid test addresses (SS58 format)
+ * Valid test addresses (Polkadot SS58 format, prefix 0)
  */
 export const TEST_ADDRESSES = {
-  ALICE: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
-  BOB: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
-  CHARLIE: '5FLSigC9HGRKVhB9F7s3C6qNK8p7tvYwDDeYNP83mZ4pzH9i',
+  ALICE: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
+  BOB: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
+  CHARLIE: '14Gjs1TD93gnwEBfDMHoCgsuf1s2TVKUP6Z1qKmAZnZ8cW5q',
 };
 
 /**
@@ -22,8 +22,8 @@ export const TEST_ADDRESSES = {
  */
 export const INVALID_ADDRESSES = {
   EMPTY: '',
-  TOO_SHORT: '5Grwva',
-  INVALID_CHARS: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY!!!',
+  TOO_SHORT: '15oF4u',
+  INVALID_CHARS: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5!!!',
   NOT_SS58: '0x1234567890abcdef',
 };
 

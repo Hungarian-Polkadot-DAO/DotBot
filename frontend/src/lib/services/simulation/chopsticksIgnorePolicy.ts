@@ -203,9 +203,8 @@ function matchesErrorPattern(
   phase: 'paymentInfo' | 'dryRun'
 ): boolean {
   const messageLower = message.toLowerCase();
-  const patternMatches = rule.phase === 'paymentInfo'
-    ? rule.match.some(fragment => messageLower.includes(fragment.toLowerCase()))
-    : rule.match.every(fragment => messageLower.includes(fragment.toLowerCase()));
+  // Use 'some' for matching - at least one pattern fragment must be present
+  const patternMatches = rule.match.some(fragment => messageLower.includes(fragment.toLowerCase()));
   return patternMatches;
 }
 
@@ -231,7 +230,11 @@ function isChainMatch(chainName: string, ruleChains: readonly string[]): boolean
     const hasPolkadot = chainLower.includes('polkadot');
     const ruleHasPolkadot = ruleLower.includes('polkadot');
 
-    if (hasAssetHub && ruleHasAssetHub) {
+    // Exact Asset Hub matching - both must have Asset Hub
+    if (ruleHasAssetHub) {
+      if (!hasAssetHub) return false; // Rule requires Asset Hub, but chain isn't Asset Hub
+      
+      // Both are Asset Hub, check network compatibility
       if ((hasKusama && ruleHasKusama) || (hasPolkadot && ruleHasPolkadot)) {
         return true;
       }
@@ -239,7 +242,8 @@ function isChainMatch(chainName: string, ruleChains: readonly string[]): boolean
       if (!ruleHasKusama && !ruleHasPolkadot) return true;
     }
 
-    return chainLower.includes(ruleLower) || ruleLower.includes(chainLower);
+    // General substring matching only if rule doesn't specifically require Asset Hub
+    return chainLower === ruleLower || chainLower.includes(ruleLower);
   });
 }
 

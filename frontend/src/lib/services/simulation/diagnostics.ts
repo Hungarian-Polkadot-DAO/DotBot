@@ -66,7 +66,7 @@ export async function runSimulationDiagnostics(): Promise<{
       : '✗ Not in browser environment',
     details: { 
       isBrowser,
-      userAgent: isBrowser ? navigator.userAgent : 'N/A',
+      userAgent: (isBrowser && typeof navigator !== 'undefined') ? navigator.userAgent : 'N/A',
     },
   };
 

@@ -33,7 +33,7 @@ jest.mock('@polkadot/util-crypto', () => ({
   },
   encodeAddress: (publicKey: Uint8Array, ss58Format?: number) => {
     // Return a mock address
-    return '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+    return '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
   },
 }));
 
@@ -51,7 +51,7 @@ describe('Executioner', () => {
 
     // Mock account
     mockAccount = {
-      address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      address: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
       name: 'Test Account',
       source: 'polkadot-js',
     };

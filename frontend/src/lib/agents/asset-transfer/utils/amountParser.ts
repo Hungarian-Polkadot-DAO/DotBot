@@ -19,9 +19,11 @@ export function parseAndValidateAmountWithCapabilities(
   capabilities: TransferCapabilities,
   index?: number
 ): BN {
-  const amountBN = typeof amount === 'string' && amount.includes('.')
-    ? parseAmount(amount, capabilities.nativeDecimals)
-    : new BN(amount);
+  // Convert numbers to strings first to properly handle decimals
+  const amountStr = typeof amount === 'number' ? amount.toString() : amount;
+  const amountBN = amountStr.includes('.')
+    ? parseAmount(amountStr, capabilities.nativeDecimals)
+    : new BN(amountStr);
 
   if (amountBN.lte(new BN(0))) {
     const prefix = index !== undefined ? `Transfer ${index + 1}: ` : '';

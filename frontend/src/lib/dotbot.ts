@@ -214,6 +214,11 @@ export class DotBot {
    * This is the only setup you need!
    */
   static async create(config: DotBotConfig): Promise<DotBot> {
+    // Validate required configuration
+    if (!config.wallet) {
+      throw new Error('Wallet is required. Please provide a wallet account in the config.');
+    }
+    
     // Use pre-initialized RPC managers if provided, otherwise create new ones
     const relayChainManager = config.relayChainManager || createRelayChainManager();
     const assetHubManager = config.assetHubManager || createAssetHubManager();
@@ -612,48 +617,45 @@ export class DotBot {
   }
   
   private extractExecutionPlan(llmResponse: string): ExecutionPlan | null {
+    if (!llmResponse || typeof llmResponse !== 'string') {
+      return null;
+    }
+
+    const normalized = llmResponse.trim();
+
     try {
-      const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/);
+      // Strategy 1: JSON in ```json code block (most common LLM format)
+      const jsonMatch = normalized.match(/```json\s*([\s\S]*?)\s*```/i);
       if (jsonMatch) {
-        const plan = JSON.parse(jsonMatch[1]);
+        const plan = JSON.parse(jsonMatch[1].trim());
         if (this.isValidExecutionPlan(plan)) {
           return plan;
         }
       }
-      
-      const jsonBlockMatch = llmResponse.match(/```\s*([\s\S]*?)\s*```/);
-      if (jsonBlockMatch) {
+
+      // Strategy 2: JSON in generic ``` code block
+      const codeBlockMatch = normalized.match(/```\s*([\s\S]*?)\s*```/);
+      if (codeBlockMatch) {
         try {
-          const plan = JSON.parse(jsonBlockMatch[1]);
+          const plan = JSON.parse(codeBlockMatch[1].trim());
           if (this.isValidExecutionPlan(plan)) {
             return plan;
           }
         } catch {
-          // Not JSON
+          // Not JSON in code block
         }
       }
-      
-      const jsonObjectMatch = llmResponse.match(/\{[\s\S]*"steps"[\s\S]*\}/);
-      if (jsonObjectMatch) {
-        try {
-          const plan = JSON.parse(jsonObjectMatch[0]);
-          if (this.isValidExecutionPlan(plan)) {
-            return plan;
-          }
-        } catch {
-          // Not valid JSON
-        }
-      }
-      
+
+      // Strategy 3: Plain JSON string (LLM returns just JSON)
       try {
-        const plan = JSON.parse(llmResponse);
+        const plan = JSON.parse(normalized);
         if (this.isValidExecutionPlan(plan)) {
           return plan;
         }
       } catch {
-        // Not JSON
+        // Not plain JSON
       }
-      
+
       return null;
     } catch (error) {
       console.error('Error extracting ExecutionPlan:', error);

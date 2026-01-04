@@ -40,24 +40,49 @@ export class ExecutionSession {
   public readonly api: ApiPromise;
   public readonly endpoint: string;
   public readonly registry: Registry;
-  private isActive: boolean = true;
+  private _isActive: boolean = true;
 
   constructor(api: ApiPromise, endpoint: string) {
     this.api = api;
     this.endpoint = endpoint;
     this.registry = api.registry;
-    Object.freeze(this); // Prevent modification
+    
+    // Make readonly properties non-writable at runtime
+    Object.defineProperty(this, 'endpoint', {
+      writable: false,
+      configurable: false,
+    });
+    Object.defineProperty(this, 'api', {
+      writable: false,
+      configurable: false,
+    });
+    Object.defineProperty(this, 'registry', {
+      writable: false,
+      configurable: false,
+    });
+    
+    // Freeze nested objects
+    Object.freeze(this.api);
+    Object.freeze(this.registry);
+    // Note: We don't freeze 'this' because _isActive needs to be mutable
+  }
+
+  /**
+   * Get whether session is active (read-only accessor)
+   */
+  get isActive(): boolean {
+    return this._isActive;
   }
 
   /**
    * Check if session is still active (API is connected)
    */
   async isConnected(): Promise<boolean> {
-    if (!this.isActive) return false;
+    if (!this._isActive) return false;
     try {
       return this.api.isConnected;
     } catch {
-      this.isActive = false;
+      this._isActive = false;
       return false;
     }
   }
@@ -66,7 +91,7 @@ export class ExecutionSession {
    * Mark session as inactive (endpoint died)
    */
   markInactive(): void {
-    this.isActive = false;
+    this._isActive = false;
   }
 
   /**
