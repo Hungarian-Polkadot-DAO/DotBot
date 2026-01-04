@@ -68,5 +68,9 @@
     "autoprefixer": "^10.4.16",
     "pino": "^9.9.4",
     "postcss": "^8.4.32"
+  },
+  "overrides": {
+    "@polkadot/util": "^14.0.1",
+    "@polkadot/util-crypto": "^14.0.1"
   }
 }
