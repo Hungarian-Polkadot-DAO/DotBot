@@ -47,24 +47,6 @@ export async function simulateTransaction(
     if (onStatusUpdate) {
       onStatusUpdate({ phase, message, progress, details });
     }
-    
-    // Enhanced console output with emojis and formatting
-    const emoji = {
-      initializing: '🔧',
-      forking: '🌿',
-      executing: '⚡',
-      analyzing: '🔍',
-      complete: '✅',
-      error: '❌'
-    }[phase];
-    
-    const progressBar = progress !== undefined 
-      ? ` [${'█'.repeat(Math.floor(progress / 10))}${'░'.repeat(10 - Math.floor(progress / 10))}] ${progress}%`
-      : '';
-    
-    const detailsText = details ? ` • ${details}` : '';
-    
-    console.log(`${emoji} [Chopsticks] ${message}${progressBar}${detailsText}`);
   };
   
   try {
@@ -91,9 +73,6 @@ export async function simulateTransaction(
       throw new Error('No valid WebSocket endpoints provided. Chopsticks requires WebSocket (wss://) endpoints, not HTTP (https://)');
     }
     
-    if (endpoints.length < allEndpoints.length) {
-      console.warn(`[Chopsticks] Filtered out ${allEndpoints.length - endpoints.length} HTTP endpoint(s), using ${endpoints.length} WebSocket endpoint(s)`);
-    }
     
     // CRITICAL: Always let Chopsticks fetch the latest block from the RPC endpoint
     // DO NOT use api.rpc.chain.getBlockHash() because:
@@ -159,8 +138,6 @@ export async function simulateTransaction(
         }
       }
       
-      // Last resort: try to get hex representation
-      console.warn('[Chopsticks] Unexpected block hash type:', typeof blockHash, blockHash);
       throw new Error(`Cannot convert block hash to hex string. Type: ${typeof blockHash}, Value: ${JSON.stringify(blockHash)}`);
     };
     
@@ -189,14 +166,11 @@ export async function simulateTransaction(
           const chainBlockNumber = await api.rpc.chain.getHeader(hashForHeader);
           blockNumber = chainBlockNumber;
           updateStatus('forking', `Chain fork created at block #${chainBlockNumber.number.toNumber()}...`, 45, `Block: ${blockHashHex.slice(0, 12)}...`);
-        } catch (headerError) {
-          // If getHeader fails, just log the hash without block number
-          console.warn('[Chopsticks] Could not get block number, using hash only:', headerError);
+        } catch {
           updateStatus('forking', `Chain fork created...`, 45, `Block: ${blockHashHex.slice(0, 12)}...`);
         }
       }
     } catch (err) {
-      console.error('[Chopsticks] Failed to get block info from chain:', err);
       throw new Error(`Failed to get block hash from chain: ${err instanceof Error ? err.message : String(err)}`);
     }
     
@@ -207,32 +181,13 @@ export async function simulateTransaction(
     
     updateStatus('executing', 'Simulating transaction execution...', 60, 'Running on forked chain state');
     
-    // CRITICAL: Validate extrinsic registry matches API registry before simulation
     if (extrinsic.registry !== api.registry) {
       const errorMsg = `Registry mismatch: extrinsic registry (${extrinsic.registry.constructor.name}) does not match API registry (${api.registry.constructor.name}). This will cause wasm unreachable errors.`;
-      console.error('[Chopsticks] Registry mismatch detected before simulation:', {
-        extrinsicRegistry: extrinsic.registry.constructor.name,
-        apiRegistry: api.registry.constructor.name,
-        extrinsicChainSS58: extrinsic.registry.chainSS58,
-        apiChainSS58: api.registry.chainSS58,
-        method: `${extrinsic.method.section}.${extrinsic.method.method}`,
-      });
       throw new Error(errorMsg);
     }
-    
-    // Use the block hash we got from the chain
+
     const finalBlockHashHex = blockHashHex;
-    
-    // Enhanced logging before dryRunExtrinsic
-    console.log('[Chopsticks] Calling dryRunExtrinsic with:', {
-      method: `${extrinsic.method.section}.${extrinsic.method.method}`,
-      callIndex: Array.from(extrinsic.method.toU8a().slice(0, 2)),
-      callHex: extrinsic.method.toHex().slice(0, 32) + '...',
-      senderAddress,
-      blockHash: finalBlockHashHex.slice(0, 16) + '...',
-      registryMatch: extrinsic.registry === api.registry,
-    });
-    
+
     const { outcome, storageDiff } = await chain.dryRunExtrinsic(
       {
         call: extrinsic.method.toHex(),
@@ -240,163 +195,47 @@ export async function simulateTransaction(
       },
       finalBlockHashHex
     );
-    
+
     updateStatus('analyzing', 'Analyzing simulation results...', 80);
-    
+
     const balanceDeltas = await computeBalanceDeltas(
       api,
       senderAddress,
       storageDiff
     );
-    
-    // Enhanced logging of outcome
-    console.log('[Chopsticks] Simulation outcome:', {
-      isOk: outcome.isOk,
-      resultType: outcome.isOk ? (outcome.asOk?.isOk ? 'Ok' : 'Err') : 'Invalid',
-      outcomeString: outcome.toString ? outcome.toString().slice(0, 200) : 'N/A',
-    });
-    
+
     const { succeeded, failureReason } = parseOutcome(api, outcome, chainName);
-    
-    // If simulation passed but we'll fail on paymentInfo, log warning
-    if (succeeded) {
-      console.log('[Chopsticks] ✓ dryRunExtrinsic passed, proceeding to paymentInfo validation...');
-    } else {
-      console.error('[Chopsticks] ✗ dryRunExtrinsic failed:', failureReason);
-    }
     
     let fee = '0';
     try {
       updateStatus('analyzing', 'Calculating transaction fees...', 90);
       
-      // CRITICAL: Validate extrinsic registry matches API registry before paymentInfo
       if (extrinsic.registry !== api.registry) {
         const errorMsg = `Registry mismatch: extrinsic registry (${extrinsic.registry.constructor.name}) does not match API registry (${api.registry.constructor.name}). This will cause wasm unreachable errors.`;
-        console.error('[Chopsticks] Registry mismatch detected:', {
-          extrinsicRegistry: extrinsic.registry.constructor.name,
-          apiRegistry: api.registry.constructor.name,
-          extrinsicChainSS58: extrinsic.registry.chainSS58,
-          apiChainSS58: api.registry.chainSS58,
-        });
         throw new Error(errorMsg);
       }
-      
-      // Ensure sender address is properly encoded for this chain
+
       const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
       const publicKey = decodeAddress(senderAddress);
       const ss58Format = api.registry.chainSS58 || 0;
       const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
-      
-      // Enhanced logging before paymentInfo
-      console.log('[Chopsticks] Calling paymentInfo with:', {
-        method: `${extrinsic.method.section}.${extrinsic.method.method}`,
-        callIndex: Array.from(extrinsic.method.toU8a().slice(0, 2)),
-        senderAddress: encodedSenderAddress,
-        registryMatch: extrinsic.registry === api.registry,
-      });
-      
+
       const feeInfo = await extrinsic.paymentInfo(encodedSenderAddress);
       fee = feeInfo.partialFee.toString();
     } catch (feeError) {
       const errorMessage = feeError instanceof Error ? feeError.message : String(feeError);
-      const errorLower = errorMessage.toLowerCase();
-      
-      // Classify the error using the ignore policy
       const errorClassification = classifyChopsticksError(errorMessage, 'paymentInfo', chainName);
-      
-      console.log('[Chopsticks] 🔍 Error classification:', {
-        ignore: errorClassification.ignore,
-        classification: errorClassification.classification,
-        severity: errorClassification.severity,
-        phase: errorClassification.phase,
-      });
-      
-      // If error is safe to ignore (known Chopsticks limitation), continue with simulation
+
       if (errorClassification.ignore) {
-        console.warn('[Chopsticks] ⚠️ Ignoring known Chopsticks limitation:', {
-          classification: errorClassification.classification,
-          reason: errorClassification.reason,
-        });
-        console.warn('[Chopsticks] Fee estimation failed (non-critical, simulation passed):', errorMessage);
         // Keep fee as '0' - caller can estimate separately if needed
       } else {
-        // BLOCKING error - this indicates a real problem with the extrinsic
-        console.error('[Chopsticks] ✗ BLOCKING error detected:', {
-          classification: errorClassification.classification,
-          severity: errorClassification.severity,
-          reason: errorClassification.reason,
-        });
-        
-        // Get detailed extrinsic information for debugging
-        let extrinsicDetails: any = {};
-        try {
-          extrinsicDetails = {
-            method: `${extrinsic.method.section}.${extrinsic.method.method}`,
-            callIndex: Array.from(extrinsic.method.toU8a().slice(0, 2)),
-            callHex: extrinsic.method.toHex(),
-            args: extrinsic.method.args.map((arg: any, idx: number) => {
-              try {
-                return {
-                  index: idx,
-                  type: arg.constructor.name,
-                  value: arg.toString ? arg.toString() : (arg.toHuman ? JSON.stringify(arg.toHuman()) : String(arg)),
-                  raw: arg.toHex ? arg.toHex() : 'N/A',
-                };
-              } catch {
-                return { index: idx, error: 'Could not serialize argument' };
-              }
-            }),
-            registry: {
-              name: extrinsic.registry.constructor.name,
-              chainSS58: extrinsic.registry.chainSS58,
-              specName: (() => {
-                try {
-                  const props = extrinsic.registry.getChainProperties();
-                  if (props && props.tokenSymbol && props.tokenSymbol.isSome) {
-                    const symbols = props.tokenSymbol.unwrap();
-                    return symbols[0]?.toString() || 'unknown';
-                  }
-                  return 'unknown';
-                } catch {
-                  return 'unknown';
-                }
-              })(),
-            },
-            apiRegistry: {
-              name: api.registry.constructor.name,
-              chainSS58: api.registry.chainSS58,
-              specName: (() => {
-                try {
-                  const props = api.registry.getChainProperties();
-                  if (props && props.tokenSymbol && props.tokenSymbol.isSome) {
-                    const symbols = props.tokenSymbol.unwrap();
-                    return symbols[0]?.toString() || 'unknown';
-                  }
-                  return 'unknown';
-                } catch {
-                  return 'unknown';
-                }
-              })(),
-            },
-            registryMatch: extrinsic.registry === api.registry,
-            toHuman: extrinsic.toHuman ? extrinsic.toHuman() : 'N/A',
-          };
-        } catch (detailError) {
-          extrinsicDetails = { error: 'Could not extract extrinsic details', detailError };
-        }
-        
-        console.error('[Chopsticks] ✗ paymentInfo failed with blocking error:', errorMessage);
-        console.error('[Chopsticks] Extrinsic details:', JSON.stringify(extrinsicDetails, null, 2));
-        
-        // Fail the simulation - this extrinsic will fail on real network
-        // Extract clean error message (remove RPC wrapper and WASM backtrace)
         const cleanError = errorMessage
           .replace(/^4003: Client error: /, '')
           .replace(/^Execution failed: Execution aborted due to trap: /, '')
-          .replace(/WASM backtrace:.*$/s, '') // Remove WASM backtrace (multiline)
-          .replace(/error while executing at.*$/s, '') // Remove execution trace
+          .replace(/WASM backtrace:.*$/s, '')
+          .replace(/error while executing at.*$/s, '')
           .trim();
-        
+
         return {
           success: false,
           error: `${errorClassification.classification}: ${cleanError}. ${errorClassification.reason || 'This indicates a structural problem with the extrinsic.'}`,
@@ -407,13 +246,12 @@ export async function simulateTransaction(
       }
     }
     
-    // Cleanup
     try {
       await storage.deleteBlock(finalBlockHashHex);
       await storage.close();
       await chain.close();
-    } catch (cleanupError) {
-      console.warn('[Chopsticks] Cleanup warning:', cleanupError);
+    } catch {
+      // Ignore cleanup errors
     }
     
     const duration = Date.now() - startTime;
@@ -438,12 +276,11 @@ export async function simulateTransaction(
     const errorMessage = err instanceof Error ? err.message : String(err);
     updateStatus('error', `✗ Simulation error: ${errorMessage}`, 100);
     
-    // Attempt cleanup even on error
     try {
       if (storage) await storage.close();
       if (chain) await chain.close();
-    } catch (cleanupError) {
-      console.warn('[Chopsticks] Cleanup error:', cleanupError);
+    } catch {
+      // Ignore cleanup errors
     }
     
     // Re-throw the error so caller knows Chopsticks failed
@@ -529,38 +366,19 @@ function parseOutcome(
     const invalidType = invalid.type || 'Unknown';
     const invalidDetails = invalid.toString ? invalid.toString() : JSON.stringify(invalid);
     const errorMessage = `InvalidTransaction: ${invalidType} (${invalidDetails})`;
-    
-    // Enhanced error message for InvalidTransaction
-    console.error('[Chopsticks] InvalidTransaction detected:', {
-      type: invalidType,
-      details: invalidDetails,
-      fullOutcome: outcome.toString ? outcome.toString() : 'N/A',
-    });
-    
-    // Classify the error using the ignore policy
+
     const errorClassification = classifyChopsticksError(errorMessage, 'dryRun', chainName);
-    
-    console.log('[Chopsticks] 🔍 DryRun error classification:', {
-      ignore: errorClassification.ignore,
-      classification: errorClassification.classification,
-      severity: errorClassification.severity,
-    });
-    
-    // If error is safe to ignore (known Chopsticks limitation), treat as success
+
     if (errorClassification.ignore) {
-      console.warn('[Chopsticks] ⚠️ Ignoring known Chopsticks limitation in dryRun:', {
-        classification: errorClassification.classification,
-        reason: errorClassification.reason,
-      });
-      return { 
-        succeeded: true, 
-        failureReason: null 
+      return {
+        succeeded: true,
+        failureReason: null
       };
     }
-    
-    return { 
-      succeeded: false, 
-      failureReason: errorMessage 
+
+    return {
+      succeeded: false,
+      failureReason: errorMessage
     };
   }
 }

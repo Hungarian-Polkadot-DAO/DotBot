@@ -147,14 +147,6 @@ export interface ErrorClassification {
   phase?: 'paymentInfo' | 'dryRun' | 'both';
 }
 
-/**
- * Classify a Chopsticks error to determine if it's safe to ignore
- *
- * @param error The error to classify
- * @param phase The phase where the error occurred
- * @param chainName Optional chain name for chain-specific rules
- * @returns Classification result
- */
 export function classifyChopsticksError(
   error: Error | string,
   phase: 'paymentInfo' | 'dryRun' = 'dryRun',
@@ -162,91 +154,28 @@ export function classifyChopsticksError(
 ): ErrorClassification {
   const message = typeof error === 'string' ? error : (error.message ?? '');
 
-  console.log('[ChopsticksIgnorePolicy] 🔍 Classifying error:', {
-    phase,
-    chainName,
-    errorLength: message.length,
-    errorPreview: message.substring(0, 200),
-  });
-
-  // First check for fatal errors (these MUST NOT be ignored)
-  for (const fatalPattern of CHOPSTICKS_FATAL_ERRORS) {
-    if (message.includes(fatalPattern)) {
-      return {
-        ignore: false,
-        classification: 'FATAL_ERROR',
-        severity: 'BLOCKING',
-        reason: `Structural error: ${fatalPattern}. This indicates a real problem with the extrinsic.`,
-      };
-    }
+  if (isFatalError(message)) {
+    return {
+      ignore: false,
+      classification: 'FATAL_ERROR',
+      severity: 'BLOCKING',
+      reason: `Structural error detected. This indicates a real problem with the extrinsic.`,
+    };
   }
 
-  // Check against ignore rules
   for (const rule of CHOPSTICKS_IGNORE_ERRORS) {
-    console.log(`[ChopsticksIgnorePolicy] Checking rule: ${rule.id}`);
-    
-    // For paymentInfo phase: use OR logic (some) - any pattern match is enough
-    // For dryRun phase: use AND logic (every) - all patterns must match for precision
-    const patternsMatch = rule.phase === 'paymentInfo'
-      ? rule.match.some(fragment => message.toLowerCase().includes(fragment.toLowerCase()))
-      : rule.match.every(fragment => message.toLowerCase().includes(fragment.toLowerCase()));
-
-    console.log(`[ChopsticksIgnorePolicy]   - Patterns match: ${patternsMatch} (logic: ${rule.phase === 'paymentInfo' ? 'OR' : 'AND'})`);
-
-    if (!patternsMatch) {
+    if (!matchesErrorPattern(message, rule, phase)) {
       continue;
     }
 
-    // Check if phase matches
-    if (rule.phase !== 'both' && rule.phase !== phase) {
-      console.log(`[ChopsticksIgnorePolicy]   - Phase mismatch: rule=${rule.phase}, actual=${phase}`);
+    if (!isPhaseMatch(rule, phase)) {
       continue;
     }
 
-    // Check if chain-specific rule matches (if chain specified)
-    if (rule.chains && chainName) {
-      const chainLower = chainName.toLowerCase();
-      console.log(`[ChopsticksIgnorePolicy]   - Checking chain match: actual="${chainName}", rule chains:`, rule.chains);
-      
-      const chainMatches = rule.chains.some(ruleChain => {
-        const ruleLower = ruleChain.toLowerCase();
-        
-        // Extract key identifiers (e.g., "asset hub", "kusama", "polkadot")
-        // Check if both contain the same key identifiers
-        const hasAssetHub = chainLower.includes('asset hub') || chainLower.includes('assethub') || chainLower.includes('statemint');
-        const ruleHasAssetHub = ruleLower.includes('asset hub') || ruleLower.includes('assethub') || ruleLower.includes('statemint');
-        
-        const hasKusama = chainLower.includes('kusama');
-        const ruleHasKusama = ruleLower.includes('kusama');
-        
-        const hasPolkadot = chainLower.includes('polkadot');
-        const ruleHasPolkadot = ruleLower.includes('polkadot');
-        
-        // Match if they share the same chain identifiers
-        if (hasAssetHub && ruleHasAssetHub) {
-          // Both are Asset Hub chains - check network match
-          if ((hasKusama && ruleHasKusama) || (hasPolkadot && ruleHasPolkadot)) {
-            return true;
-          }
-          // If one doesn't specify network, it applies to all Asset Hubs
-          if (!hasKusama && !hasPolkadot) return true;
-          if (!ruleHasKusama && !ruleHasPolkadot) return true;
-        }
-        
-        // Fallback: bidirectional substring check
-        return chainLower.includes(ruleLower) || ruleLower.includes(chainLower);
-      });
-      
-      console.log(`[ChopsticksIgnorePolicy]   - Chain match result: ${chainMatches}`);
-      
-      if (!chainMatches) {
-        continue;
-      }
+    if (rule.chains && chainName && !isChainMatch(chainName, rule.chains)) {
+      continue;
     }
 
-    // Rule matches - safe to ignore
-    console.log(`[ChopsticksIgnorePolicy] ✅ Rule matched: ${rule.id} - IGNORING error`);
-    
     return {
       ignore: true,
       classification: rule.id,
@@ -256,15 +185,62 @@ export function classifyChopsticksError(
     };
   }
 
-  // Unknown error - default to blocking
-  console.log('[ChopsticksIgnorePolicy] ❌ No matching rule found - treating as BLOCKING');
-  
   return {
     ignore: false,
     classification: 'UNKNOWN',
     severity: 'BLOCKING',
     reason: 'Unknown error pattern. Being conservative - treating as blocking.',
   };
+}
+
+function isFatalError(message: string): boolean {
+  return CHOPSTICKS_FATAL_ERRORS.some(pattern => message.includes(pattern));
+}
+
+function matchesErrorPattern(
+  message: string,
+  rule: ChopsticksIgnoreRule,
+  phase: 'paymentInfo' | 'dryRun'
+): boolean {
+  const messageLower = message.toLowerCase();
+  const patternMatches = rule.phase === 'paymentInfo'
+    ? rule.match.some(fragment => messageLower.includes(fragment.toLowerCase()))
+    : rule.match.every(fragment => messageLower.includes(fragment.toLowerCase()));
+  return patternMatches;
+}
+
+function isPhaseMatch(
+  rule: ChopsticksIgnoreRule,
+  phase: 'paymentInfo' | 'dryRun'
+): boolean {
+  return rule.phase === 'both' || rule.phase === phase;
+}
+
+function isChainMatch(chainName: string, ruleChains: readonly string[]): boolean {
+  const chainLower = chainName.toLowerCase();
+
+  return ruleChains.some(ruleChain => {
+    const ruleLower = ruleChain.toLowerCase();
+
+    const hasAssetHub = chainLower.includes('asset hub') || chainLower.includes('assethub') || chainLower.includes('statemint');
+    const ruleHasAssetHub = ruleLower.includes('asset hub') || ruleLower.includes('assethub') || ruleLower.includes('statemint');
+
+    const hasKusama = chainLower.includes('kusama');
+    const ruleHasKusama = ruleLower.includes('kusama');
+
+    const hasPolkadot = chainLower.includes('polkadot');
+    const ruleHasPolkadot = ruleLower.includes('polkadot');
+
+    if (hasAssetHub && ruleHasAssetHub) {
+      if ((hasKusama && ruleHasKusama) || (hasPolkadot && ruleHasPolkadot)) {
+        return true;
+      }
+      if (!hasKusama && !hasPolkadot) return true;
+      if (!ruleHasKusama && !ruleHasPolkadot) return true;
+    }
+
+    return chainLower.includes(ruleLower) || ruleLower.includes(chainLower);
+  });
 }
 
 /**
