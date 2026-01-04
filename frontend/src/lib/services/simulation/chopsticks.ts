@@ -203,8 +203,31 @@ export async function simulateTransaction(
     
     updateStatus('executing', 'Simulating transaction execution...', 60, 'Running on forked chain state');
     
+    // CRITICAL: Validate extrinsic registry matches API registry before simulation
+    if (extrinsic.registry !== api.registry) {
+      const errorMsg = `Registry mismatch: extrinsic registry (${extrinsic.registry.constructor.name}) does not match API registry (${api.registry.constructor.name}). This will cause wasm unreachable errors.`;
+      console.error('[Chopsticks] Registry mismatch detected before simulation:', {
+        extrinsicRegistry: extrinsic.registry.constructor.name,
+        apiRegistry: api.registry.constructor.name,
+        extrinsicChainSS58: extrinsic.registry.chainSS58,
+        apiChainSS58: api.registry.chainSS58,
+        method: `${extrinsic.method.section}.${extrinsic.method.method}`,
+      });
+      throw new Error(errorMsg);
+    }
+    
     // Use the block hash we got from the chain
     const finalBlockHashHex = blockHashHex;
+    
+    // Enhanced logging before dryRunExtrinsic
+    console.log('[Chopsticks] Calling dryRunExtrinsic with:', {
+      method: `${extrinsic.method.section}.${extrinsic.method.method}`,
+      callIndex: Array.from(extrinsic.method.toU8a().slice(0, 2)),
+      callHex: extrinsic.method.toHex().slice(0, 32) + '...',
+      senderAddress,
+      blockHash: finalBlockHashHex.slice(0, 16) + '...',
+      registryMatch: extrinsic.registry === api.registry,
+    });
     
     const { outcome, storageDiff } = await chain.dryRunExtrinsic(
       {
@@ -222,11 +245,37 @@ export async function simulateTransaction(
       storageDiff
     );
     
+    // Enhanced logging of outcome
+    console.log('[Chopsticks] Simulation outcome:', {
+      isOk: outcome.isOk,
+      resultType: outcome.isOk ? (outcome.asOk?.isOk ? 'Ok' : 'Err') : 'Invalid',
+      outcomeString: outcome.toString ? outcome.toString().slice(0, 200) : 'N/A',
+    });
+    
     const { succeeded, failureReason } = parseOutcome(api, outcome);
+    
+    // If simulation passed but we'll fail on paymentInfo, log warning
+    if (succeeded) {
+      console.log('[Chopsticks] ✓ dryRunExtrinsic passed, proceeding to paymentInfo validation...');
+    } else {
+      console.error('[Chopsticks] ✗ dryRunExtrinsic failed:', failureReason);
+    }
     
     let fee = '0';
     try {
       updateStatus('analyzing', 'Calculating transaction fees...', 90);
+      
+      // CRITICAL: Validate extrinsic registry matches API registry before paymentInfo
+      if (extrinsic.registry !== api.registry) {
+        const errorMsg = `Registry mismatch: extrinsic registry (${extrinsic.registry.constructor.name}) does not match API registry (${api.registry.constructor.name}). This will cause wasm unreachable errors.`;
+        console.error('[Chopsticks] Registry mismatch detected:', {
+          extrinsicRegistry: extrinsic.registry.constructor.name,
+          apiRegistry: api.registry.constructor.name,
+          extrinsicChainSS58: extrinsic.registry.chainSS58,
+          apiChainSS58: api.registry.chainSS58,
+        });
+        throw new Error(errorMsg);
+      }
       
       // Ensure sender address is properly encoded for this chain
       const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
@@ -234,13 +283,110 @@ export async function simulateTransaction(
       const ss58Format = api.registry.chainSS58 || 0;
       const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
       
+      // Enhanced logging before paymentInfo
+      console.log('[Chopsticks] Calling paymentInfo with:', {
+        method: `${extrinsic.method.section}.${extrinsic.method.method}`,
+        callIndex: Array.from(extrinsic.method.toU8a().slice(0, 2)),
+        senderAddress: encodedSenderAddress,
+        registryMatch: extrinsic.registry === api.registry,
+      });
+      
       const feeInfo = await extrinsic.paymentInfo(encodedSenderAddress);
       fee = feeInfo.partialFee.toString();
     } catch (feeError) {
-      // paymentInfo can fail with wasm trap if the extrinsic has issues
-      // But simulation already passed, so we can proceed without fee estimate
       const errorMessage = feeError instanceof Error ? feeError.message : String(feeError);
-      console.warn('[Chopsticks] Fee estimation failed (simulation passed, proceeding without fee):', errorMessage);
+      const errorLower = errorMessage.toLowerCase();
+      
+      // CRITICAL: If paymentInfo fails with wasm unreachable, the extrinsic is malformed
+      // This will also fail on the real network, so we must fail the simulation
+      const isWasmUnreachable = 
+        errorLower.includes('unreachable') ||
+        errorLower.includes('wasm trap') ||
+        errorLower.includes('transactionpaymentapi') ||
+        errorLower.includes('taggedtransactionqueue');
+      
+      if (isWasmUnreachable) {
+        // Get detailed extrinsic information for debugging
+        let extrinsicDetails: any = {};
+        try {
+          extrinsicDetails = {
+            method: `${extrinsic.method.section}.${extrinsic.method.method}`,
+            callIndex: Array.from(extrinsic.method.toU8a().slice(0, 2)),
+            callHex: extrinsic.method.toHex(),
+            args: extrinsic.method.args.map((arg: any, idx: number) => {
+              try {
+                return {
+                  index: idx,
+                  type: arg.constructor.name,
+                  value: arg.toString ? arg.toString() : (arg.toHuman ? JSON.stringify(arg.toHuman()) : String(arg)),
+                  raw: arg.toHex ? arg.toHex() : 'N/A',
+                };
+              } catch {
+                return { index: idx, error: 'Could not serialize argument' };
+              }
+            }),
+            registry: {
+              name: extrinsic.registry.constructor.name,
+              chainSS58: extrinsic.registry.chainSS58,
+              specName: (() => {
+                try {
+                  const props = extrinsic.registry.getChainProperties();
+                  if (props && props.tokenSymbol && props.tokenSymbol.isSome) {
+                    const symbols = props.tokenSymbol.unwrap();
+                    return symbols[0]?.toString() || 'unknown';
+                  }
+                  return 'unknown';
+                } catch {
+                  return 'unknown';
+                }
+              })(),
+            },
+            apiRegistry: {
+              name: api.registry.constructor.name,
+              chainSS58: api.registry.chainSS58,
+              specName: (() => {
+                try {
+                  const props = api.registry.getChainProperties();
+                  if (props && props.tokenSymbol && props.tokenSymbol.isSome) {
+                    const symbols = props.tokenSymbol.unwrap();
+                    return symbols[0]?.toString() || 'unknown';
+                  }
+                  return 'unknown';
+                } catch {
+                  return 'unknown';
+                }
+              })(),
+            },
+            registryMatch: extrinsic.registry === api.registry,
+            toHuman: extrinsic.toHuman ? extrinsic.toHuman() : 'N/A',
+          };
+        } catch (detailError) {
+          extrinsicDetails = { error: 'Could not extract extrinsic details', detailError };
+        }
+        
+        console.error('[Chopsticks] ✗ paymentInfo failed with wasm unreachable - extrinsic is malformed:', errorMessage);
+        console.error('[Chopsticks] Extrinsic details:', JSON.stringify(extrinsicDetails, null, 2));
+        
+        // Fail the simulation - this extrinsic will fail on real network
+        // Extract clean error message (remove RPC wrapper and WASM backtrace)
+        const cleanError = errorMessage
+          .replace(/^4003: Client error: /, '')
+          .replace(/^Execution failed: Execution aborted due to trap: /, '')
+          .replace(/WASM backtrace:.*$/s, '') // Remove WASM backtrace (multiline)
+          .replace(/error while executing at.*$/s, '') // Remove execution trace
+          .trim();
+        
+        return {
+          success: false,
+          error: `Extrinsic is malformed: ${cleanError}. The transaction structure is invalid for this chain's runtime and will fail on the real network.`,
+          estimatedFee: '0',
+          balanceChanges: [],
+          events: [],
+        };
+      }
+      
+      // Non-critical paymentInfo failure (e.g., network error) - log warning but continue
+      console.warn('[Chopsticks] Fee estimation failed (non-critical, simulation passed):', errorMessage);
       // Keep fee as '0' - caller can estimate separately if needed
     }
     
@@ -362,9 +508,19 @@ function parseOutcome(
     }
   } else {
     const invalid = outcome.asErr;
+    const invalidType = invalid.type || 'Unknown';
+    const invalidDetails = invalid.toString ? invalid.toString() : JSON.stringify(invalid);
+    
+    // Enhanced error message for InvalidTransaction
+    console.error('[Chopsticks] InvalidTransaction detected:', {
+      type: invalidType,
+      details: invalidDetails,
+      fullOutcome: outcome.toString ? outcome.toString() : 'N/A',
+    });
+    
     return { 
       succeeded: false, 
-      failureReason: `InvalidTransaction: ${invalid.type}` 
+      failureReason: `InvalidTransaction: ${invalidType} (${invalidDetails})` 
     };
   }
 }

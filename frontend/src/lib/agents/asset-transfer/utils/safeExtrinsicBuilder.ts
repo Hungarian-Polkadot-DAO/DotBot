@@ -65,6 +65,55 @@ export function buildSafeTransferExtrinsic(
 ): SafeExtrinsicResult {
   const warnings: string[] = [];
   
+  // Step 0: CRITICAL - Ensure API is ready and validate runtime
+  if (!api || !api.isReady) {
+    throw new Error(
+      `API not ready for ${capabilities.chainName}. ` +
+      `API ready: ${api?.isReady}, Runtime: ${capabilities.specName} v${capabilities.specVersion}`
+    );
+  }
+  
+  // Validate runtime chain matches expected
+  const runtimeChain = api.runtimeChain?.toString() || 'unknown';
+  if (capabilities.chainName !== 'Unknown Chain' && runtimeChain !== capabilities.chainName) {
+    console.warn(
+      `[SafeExtrinsicBuilder] Chain name mismatch: ` +
+      `Expected: ${capabilities.chainName}, Runtime: ${runtimeChain}`
+    );
+  }
+  
+  // CRITICAL: Validate chain type for migration compliance
+  // balances.transferKeepAlive ONLY works for:
+  // - Asset Hub DOT (native balances pallet)
+  // - Relay Chain DOT (native balances pallet)
+  // - Parachain native token (NOT DOT on parachains!)
+  const isAssetHub = 
+    capabilities.chainName.toLowerCase().includes('asset') ||
+    capabilities.chainName.toLowerCase().includes('statemint') ||
+    capabilities.specName.toLowerCase().includes('asset') ||
+    capabilities.specName.toLowerCase().includes('statemint');
+  
+  const isRelayChain = 
+    capabilities.chainName.toLowerCase().includes('polkadot') && 
+    !isAssetHub &&
+    capabilities.specName.toLowerCase().includes('polkadot');
+  
+  const isParachain = !isAssetHub && !isRelayChain;
+  
+  // Store chain type for later use
+  const chainType = { isAssetHub, isRelayChain, isParachain };
+  
+  // Validate that balances methods are appropriate for this chain
+  if (isParachain) {
+    console.warn(
+      `[SafeExtrinsicBuilder] WARNING: Chain "${capabilities.chainName}" appears to be a parachain. ` +
+      `balances pallet methods work ONLY for the parachain's native token, NOT for DOT. ` +
+      `If transferring DOT on a parachain, you MUST use XCM (reserve transfer), not balances pallet.`
+    );
+    // Don't throw here - let it proceed but log the warning
+    // The actual validation will happen at runtime
+  }
+  
   // Step 1: Validate minimum capabilities
   validateMinimumCapabilities(capabilities);
   
@@ -86,8 +135,95 @@ export function buildSafeTransferExtrinsic(
   // Step 5: Select best transfer method
   const method = getBestTransferMethod(capabilities, params.keepAlive);
   
+  // Step 5.1: CRITICAL - Validate transferAllowDeath usage
+  // transferAllowDeath is DESTRUCTIVE and should only be used for:
+  // - Same-chain native token transfers
+  // - When account death is acceptable
+  // - NOT for cross-chain, NOT for assets pallet, NOT for DOT on parachains
+  if (method === 'transferAllowDeath' || method === 'transfer') {
+    // Validate it's being used for native token on same chain
+    if (chainType.isParachain) {
+      warnings.push(
+        `WARNING: Using ${method} on parachain "${capabilities.chainName}". ` +
+        `This works ONLY for the parachain's native token, NOT for DOT. ` +
+        `DOT transfers on parachains require XCM (reserve transfer).`
+      );
+    }
+    
+    // Add account reaping warning
+    warnings.push(
+      `WARNING: ${method} allows sender account to be REAPED if balance drops below ED. ` +
+      `Account death occurs if: (free_balance - fees - amount) < ED (${capabilities.existentialDeposit}). ` +
+      `Reaped accounts lose all state, nonces reset, and locks/reserves are removed. ` +
+      `Consider using keepAlive=true to prevent account reaping.`
+    );
+  }
+  
+  // Step 5.5: CRITICAL - Verify method exists and is callable BEFORE construction
+  let methodExists = false;
+  let methodCallable = false;
+  
+  try {
+    switch (method) {
+      case 'transferAllowDeath':
+        methodExists = !!(api.tx.balances?.transferAllowDeath);
+        if (methodExists) {
+          // Test that it's actually callable (not just defined)
+          const testCall = api.tx.balances.transferAllowDeath;
+          methodCallable = typeof testCall === 'function';
+        }
+        break;
+      case 'transfer':
+        methodExists = !!(api.tx.balances?.transfer);
+        if (methodExists) {
+          const testCall = api.tx.balances.transfer;
+          methodCallable = typeof testCall === 'function';
+        }
+        break;
+      case 'transferKeepAlive':
+        methodExists = !!(api.tx.balances?.transferKeepAlive);
+        if (methodExists) {
+          const testCall = api.tx.balances.transferKeepAlive;
+          methodCallable = typeof testCall === 'function';
+        }
+        break;
+    }
+  } catch (err) {
+    console.error(`[SafeExtrinsicBuilder] Error checking method ${method}:`, err);
+  }
+  
+  if (!methodExists || !methodCallable) {
+    throw new Error(
+      `Method ${method} is not available or not callable on ${capabilities.chainName}. ` +
+      `Runtime: ${capabilities.specName} v${capabilities.specVersion}, ` +
+      `Method exists: ${methodExists}, Callable: ${methodCallable}, ` +
+      `Available methods: transferAllowDeath=${!!api.tx.balances?.transferAllowDeath}, ` +
+      `transfer=${!!api.tx.balances?.transfer}, ` +
+      `transferKeepAlive=${!!api.tx.balances?.transferKeepAlive}`
+    );
+  }
+  
   // Step 6: Construct extrinsic with selected method
   let extrinsic: SubmittableExtrinsic<'promise'>;
+  
+  // Log construction details for debugging
+  const amountFormatted = `${amountBN.div(new BN(10).pow(new BN(capabilities.nativeDecimals))).toString()}.${amountBN.mod(new BN(10).pow(new BN(capabilities.nativeDecimals))).toString().padStart(capabilities.nativeDecimals, '0')} ${capabilities.nativeTokenSymbol}`;
+  
+  console.log(`[SafeExtrinsicBuilder] Constructing ${method} extrinsic:`, {
+    chain: capabilities.chainName,
+    runtime: `${capabilities.specName} v${capabilities.specVersion}`,
+    recipient: recipientEncoded,
+    amount: amountBN.toString(),
+    amountFormatted,
+    ss58Prefix: capabilities.ss58Prefix,
+    ed: capabilities.existentialDeposit,
+    methodType: method === 'transferAllowDeath' || method === 'transfer' 
+      ? 'DESTRUCTIVE (allows account reaping)' 
+      : 'SAFE (prevents account reaping)',
+    accountReapingRisk: method === 'transferAllowDeath' || method === 'transfer' 
+      ? 'YES - Account may be reaped if balance < ED after transfer' 
+      : 'NO - Account protected from reaping',
+  });
   
   try {
     switch (method) {
@@ -110,9 +246,22 @@ export function buildSafeTransferExtrinsic(
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorDetails = {
+      method,
+      chain: capabilities.chainName,
+      runtime: `${capabilities.specName} v${capabilities.specVersion}`,
+      recipient: recipientEncoded,
+      amount: amountBN.toString(),
+      apiReady: api.isReady,
+      hasBalances: !!(api.tx.balances),
+      error: errorMessage,
+    };
+    
+    console.error('[SafeExtrinsicBuilder] Extrinsic construction failed:', errorDetails);
+    
     throw new Error(
       `Failed to construct ${method} extrinsic on ${capabilities.chainName}: ${errorMessage}. ` +
-      `API ready: ${api.isReady}, Runtime: ${capabilities.specName} v${capabilities.specVersion}`
+      `Details: ${JSON.stringify(errorDetails, null, 2)}`
     );
   }
   
@@ -120,9 +269,59 @@ export function buildSafeTransferExtrinsic(
   if (!extrinsic || !extrinsic.method) {
     throw new Error(
       `Extrinsic construction succeeded but result is invalid. ` +
-      `Method: ${method}, Chain: ${capabilities.chainName}`
+      `Method: ${method}, Chain: ${capabilities.chainName}, ` +
+      `Runtime: ${capabilities.specName} v${capabilities.specVersion}`
     );
   }
+  
+  // Step 8: Validate extrinsic structure
+  if (!extrinsic.method.section || !extrinsic.method.method) {
+    throw new Error(
+      `Extrinsic method structure is invalid. ` +
+      `Section: ${extrinsic.method.section}, Method: ${extrinsic.method.method}, ` +
+      `Chain: ${capabilities.chainName}`
+    );
+  }
+  
+  // Step 9: CRITICAL - Final validation for transferAllowDeath
+  // Ensure it's only used for same-chain native token (NOT cross-chain, NOT assets pallet)
+  if (method === 'transferAllowDeath' || method === 'transfer') {
+    // Validate section is 'balances' (not 'assets', 'xcm', etc.)
+    if (extrinsic.method.section !== 'balances') {
+      throw new Error(
+        `Invalid extrinsic section for ${method}: ${extrinsic.method.section}. ` +
+        `${method} MUST use balances pallet for native token transfers only. ` +
+        `Cannot be used for assets pallet, XCM transfers, or cross-chain operations.`
+      );
+    }
+    
+    // Validate method name matches
+    const expectedMethod = method === 'transferAllowDeath' ? 'transferAllowDeath' : 'transfer';
+    if (extrinsic.method.method !== expectedMethod) {
+      throw new Error(
+        `Method name mismatch: Expected ${expectedMethod}, got ${extrinsic.method.method}. ` +
+        `This indicates a metadata/runtime mismatch.`
+      );
+    }
+  }
+  
+  // Log successful construction with migration compliance info
+  console.log(`[SafeExtrinsicBuilder] ✓ Extrinsic constructed successfully:`, {
+    section: extrinsic.method.section,
+    method: extrinsic.method.method,
+    callIndex: extrinsic.method.callIndex?.toString() || 'N/A',
+    chain: capabilities.chainName,
+    chainType: chainType.isAssetHub ? 'Asset Hub' : chainType.isRelayChain ? 'Relay Chain' : 'Parachain',
+    runtime: `${capabilities.specName} v${capabilities.specVersion}`,
+    nativeToken: capabilities.nativeTokenSymbol,
+    migrationCompliance: {
+      balancesForNativeToken: chainType.isAssetHub || chainType.isRelayChain ? 'VALID' : 'PARACHAIN_NATIVE_ONLY',
+      balancesForDOT: chainType.isAssetHub || chainType.isRelayChain ? 'VALID' : 'REQUIRES_XCM',
+      sameChainTransfer: 'VALID',
+      crossChainTransfer: 'NOT_APPLICABLE',
+      accountReapingRisk: method === 'transferAllowDeath' || method === 'transfer' ? 'YES' : 'NO',
+    },
+  });
   
   return {
     extrinsic,

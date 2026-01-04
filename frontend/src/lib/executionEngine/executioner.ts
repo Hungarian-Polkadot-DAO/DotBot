@@ -418,8 +418,48 @@ export class Executioner {
       if (await isChopsticksAvailable()) {
         console.log('[Executioner] Using Chopsticks for runtime simulation...');
         
-        // Get RPC endpoints - use default endpoints for simulation
-        const rpcEndpoints = ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
+        // CRITICAL: Use correct RPC endpoints for the chain!
+        // Try to get endpoints from RPC manager first, fallback to hardcoded if not available
+        const isAssetHub = apiForExtrinsic.registry.chainSS58 === 0;
+        const manager = isAssetHub ? this.assetHubManager : this.relayChainManager;
+        
+        let rpcEndpoints: string[];
+        if (manager) {
+          // Get healthy endpoints from manager (prioritizes current endpoint)
+          const healthStatus = manager.getHealthStatus();
+          const currentEndpoint = manager.getCurrentEndpoint();
+          const now = Date.now();
+          const failoverTimeout = 5 * 60 * 1000; // 5 minutes
+          
+          const orderedEndpoints = healthStatus
+            .filter(h => {
+              if (h.healthy) return true;
+              if (!h.lastFailure) return true;
+              return (now - h.lastFailure) >= failoverTimeout;
+            })
+            .sort((a, b) => {
+              if (a.endpoint === currentEndpoint) return -1;
+              if (b.endpoint === currentEndpoint) return 1;
+              if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
+              return (a.failureCount || 0) - (b.failureCount || 0);
+            })
+            .map(h => h.endpoint);
+          
+          rpcEndpoints = orderedEndpoints.length > 0 
+            ? orderedEndpoints 
+            : healthStatus.map(h => h.endpoint);
+        } else {
+          // Fallback to hardcoded endpoints if no manager
+          rpcEndpoints = isAssetHub
+            ? ['wss://polkadot-asset-hub-rpc.polkadot.io', 'wss://statemint-rpc.dwellir.com']
+            : ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
+        }
+        
+        console.log('[Executioner] Using RPC endpoints for simulation:', {
+          chain: isAssetHub ? 'Asset Hub' : 'Relay Chain',
+          source: manager ? 'RPC Manager' : 'Hardcoded fallback',
+          endpoints: rpcEndpoints,
+        });
         
         // Encode sender address for simulation
         const { encodeAddress: encodeAddr, decodeAddress: decodeAddr } = await import('@polkadot/util-crypto');
@@ -441,15 +481,21 @@ export class Executioner {
           const errorMessage = simulationResult.error || 'Simulation failed';
           console.error('[Executioner] ✗ Chopsticks simulation failed:', errorMessage);
           
+          // Extract the actual error (remove nested prefixes)
+          const cleanError = errorMessage
+            .replace(/^Chopsticks simulation failed: /, '')
+            .replace(/^Simulation failed: /, '')
+            .replace(/^Transaction validation failed: /, '');
+          
           executionArray.updateStatus(item.id, 'failed', 'Transaction simulation failed');
           executionArray.updateResult(item.id, {
             success: false,
-            error: `Transaction would fail on-chain: ${errorMessage}`,
+            error: cleanError, // Use clean error without nested prefixes
             errorCode: 'SIMULATION_FAILED',
-            rawError: errorMessage,
+            rawError: errorMessage, // Keep full error for debugging
           });
           
-          throw new Error(`Simulation failed: ${errorMessage}`);
+          throw new Error(cleanError);
         }
         
         console.log('[Executioner] ✓ Chopsticks simulation passed:', {
@@ -696,10 +742,48 @@ export class Executioner {
       if (await isChopsticksAvailable()) {
         console.log('[Executioner] Using Chopsticks for batch runtime simulation...');
         
-        // Get RPC endpoints - use default endpoints for simulation
-        const rpcEndpoints = apiForBatch.registry.chainSS58 === 0 // Asset Hub uses SS58 0
-          ? ['wss://polkadot-asset-hub-rpc.polkadot.io', 'wss://statemint-rpc.dwellir.com']
-          : ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
+        // CRITICAL: Use correct RPC endpoints for the chain!
+        // Try to get endpoints from RPC manager first, fallback to hardcoded if not available
+        const isAssetHub = apiForBatch.registry.chainSS58 === 0;
+        const manager = isAssetHub ? this.assetHubManager : this.relayChainManager;
+        
+        let rpcEndpoints: string[];
+        if (manager) {
+          // Get healthy endpoints from manager (prioritizes current endpoint)
+          const healthStatus = manager.getHealthStatus();
+          const currentEndpoint = manager.getCurrentEndpoint();
+          const now = Date.now();
+          const failoverTimeout = 5 * 60 * 1000; // 5 minutes
+          
+          const orderedEndpoints = healthStatus
+            .filter(h => {
+              if (h.healthy) return true;
+              if (!h.lastFailure) return true;
+              return (now - h.lastFailure) >= failoverTimeout;
+            })
+            .sort((a, b) => {
+              if (a.endpoint === currentEndpoint) return -1;
+              if (b.endpoint === currentEndpoint) return 1;
+              if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
+              return (a.failureCount || 0) - (b.failureCount || 0);
+            })
+            .map(h => h.endpoint);
+          
+          rpcEndpoints = orderedEndpoints.length > 0 
+            ? orderedEndpoints 
+            : healthStatus.map(h => h.endpoint);
+        } else {
+          // Fallback to hardcoded endpoints if no manager
+          rpcEndpoints = isAssetHub
+            ? ['wss://polkadot-asset-hub-rpc.polkadot.io', 'wss://statemint-rpc.dwellir.com']
+            : ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
+        }
+        
+        console.log('[Executioner] Using RPC endpoints for batch simulation:', {
+          chain: isAssetHub ? 'Asset Hub' : 'Relay Chain',
+          source: manager ? 'RPC Manager' : 'Hardcoded fallback',
+          endpoints: rpcEndpoints,
+        });
         
         // Encode sender address for batch simulation
         const { encodeAddress: encodeAddr, decodeAddress: decodeAddr } = await import('@polkadot/util-crypto');

@@ -54,6 +54,11 @@ export async function detectTransferCapabilities(api: ApiPromise): Promise<Trans
   // Ensure API is ready
   await api.isReady;
   
+  // CRITICAL: Validate API is actually ready
+  if (!api || !api.isReady) {
+    throw new Error('API is not ready. Cannot detect transfer capabilities.');
+  }
+  
   // Detect native token transfers (balances pallet)
   const hasBalances = !!(api.tx.balances);
   const hasTransferAllowDeath = !!(api.tx.balances?.transferAllowDeath);
@@ -86,9 +91,43 @@ export async function detectTransferCapabilities(api: ApiPromise): Promise<Trans
     console.warn('[TransferCapabilities] Could not fetch ED:', err);
   }
   
-  // Get runtime version
-  const specName = api.runtimeVersion?.specName?.toString() || 'unknown';
-  const specVersion = api.runtimeVersion?.specVersion?.toNumber() || 0;
+  // Get runtime version - CRITICAL for migration compatibility
+  let specName = 'unknown';
+  let specVersion = 0;
+  try {
+    // Try to get from runtimeVersion (cached)
+    if (api.runtimeVersion) {
+      specName = api.runtimeVersion.specName?.toString() || 'unknown';
+      specVersion = api.runtimeVersion.specVersion?.toNumber() || 0;
+    }
+    
+    // Also try to get fresh from RPC (more reliable)
+    try {
+      const runtimeVersion = await api.rpc.state.getRuntimeVersion();
+      specName = runtimeVersion.specName.toString();
+      specVersion = runtimeVersion.specVersion.toNumber();
+    } catch (rpcErr) {
+      // Fallback to cached version if RPC call fails
+      console.warn('[TransferCapabilities] Could not fetch runtime version from RPC, using cached:', rpcErr);
+    }
+  } catch (err) {
+    console.error('[TransferCapabilities] Error getting runtime version:', err);
+  }
+  
+  // CRITICAL: Detect chain type for migration compliance (AFTER getting specName)
+  // Asset Hub has specific chain names and spec names
+  const isAssetHub = 
+    chainName.toLowerCase().includes('asset') ||
+    chainName.toLowerCase().includes('statemint') ||
+    specName.toLowerCase().includes('asset') ||
+    specName.toLowerCase().includes('statemint');
+  
+  const isRelayChain = 
+    chainName.toLowerCase().includes('polkadot') && 
+    !isAssetHub &&
+    specName.toLowerCase().includes('polkadot');
+  
+  const isParachain = !isAssetHub && !isRelayChain;
   
   const capabilities: TransferCapabilities = {
     hasBalances,
@@ -109,9 +148,30 @@ export async function detectTransferCapabilities(api: ApiPromise): Promise<Trans
     specVersion,
   };
   
+  // CRITICAL: Validate chain type and method compatibility
+  // Log chain type detection for debugging
+  console.log('[TransferCapabilities] Chain type detection:', {
+    chainName,
+    specName,
+    isAssetHub,
+    isRelayChain,
+    isParachain,
+    ss58Prefix,
+  });
+  
+  // Validate balances pallet usage based on chain type
+  if (isParachain && hasBalances) {
+    console.warn(
+      `[TransferCapabilities] WARNING: Chain "${chainName}" appears to be a parachain. ` +
+      `balances pallet methods work ONLY for the parachain's native token, NOT for DOT. ` +
+      `DOT transfers on parachains require XCM (reserve transfer), not balances pallet.`
+    );
+  }
+  
   // Log capabilities for debugging
   console.log('[TransferCapabilities] Detected capabilities:', {
     chain: chainName,
+    chainType: isAssetHub ? 'Asset Hub' : isRelayChain ? 'Relay Chain' : 'Parachain',
     specName,
     specVersion,
     nativeToken: `${nativeTokenSymbol} (${nativeDecimals} decimals)`,
@@ -122,6 +182,10 @@ export async function detectTransferCapabilities(api: ApiPromise): Promise<Trans
       transferKeepAlive: hasTransferKeepAlive,
       assets: hasAssets,
       tokens: hasTokens,
+    },
+    migrationCompliance: {
+      balancesForNativeToken: isAssetHub || isRelayChain ? 'VALID' : 'PARACHAIN_NATIVE_ONLY',
+      balancesForDOT: isAssetHub || isRelayChain ? 'VALID' : 'REQUIRES_XCM',
     },
   });
   
@@ -159,7 +223,9 @@ export function validateMinimumCapabilities(capabilities: TransferCapabilities):
 /**
  * Get the best available transfer method for this chain
  * 
- * Priority: transferAllowDeath (newer) → transfer (legacy)
+ * CRITICAL: transferAllowDeath is DESTRUCTIVE - can kill sender account!
+ * 
+ * Priority: transferKeepAlive (safest) → transferAllowDeath (destructive) → transfer (legacy)
  * 
  * @param capabilities Detected capabilities
  * @param keepAlive If true, use transferKeepAlive
@@ -182,16 +248,33 @@ export function getBestTransferMethod(
     return 'transferKeepAlive';
   }
   
-  // Prefer transferAllowDeath (newer, more explicit naming)
+  // CRITICAL: Prefer transferKeepAlive if available (safer, prevents account death)
+  // Only use transferAllowDeath if transferKeepAlive is not available
+  if (capabilities.hasTransferKeepAlive) {
+    console.warn(
+      `[TransferCapabilities] WARNING: transferKeepAlive is available but not requested. ` +
+      `Consider using keepAlive=true to prevent sender account from being reaped. ` +
+      `Using transferAllowDeath instead, which may kill the sender account if balance drops below ED.`
+    );
+  }
+  
+  // Prefer transferAllowDeath (newer, more explicit naming) - but warn about risks
   if (capabilities.hasTransferAllowDeath) {
+    console.warn(
+      `[TransferCapabilities] Using transferAllowDeath on ${capabilities.chainName}. ` +
+      `WARNING: This method allows sender account to be reaped if balance drops below ED. ` +
+      `Account death occurs if: (free_balance - fees - amount) < ED. ` +
+      `Use keepAlive=true to prevent account reaping.`
+    );
     return 'transferAllowDeath';
   }
   
-  // Fallback to legacy transfer method
+  // Fallback to legacy transfer method (also destructive)
   if (capabilities.hasTransfer) {
     console.warn(
       `[TransferCapabilities] Using legacy balances.transfer method on ${capabilities.chainName}. ` +
-      `transferAllowDeath not available.`
+      `WARNING: This method allows sender account to be reaped if balance drops below ED. ` +
+      `transferAllowDeath not available. Consider using transferKeepAlive if available.`
     );
     return 'transfer';
   }

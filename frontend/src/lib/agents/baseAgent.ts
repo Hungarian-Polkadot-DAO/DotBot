@@ -521,11 +521,18 @@ export abstract class BaseAgent {
   /**
    * Get API instance for a specific chain
    * 
+   * CRITICAL: This method MUST validate the returned API is actually connected
+   * to the expected chain type. Never trust the API without verification!
+   * 
+   * According to GLOBAL RULE #1: CHAIN TRUTH IS DYNAMIC — NEVER TRUST INITIAL API
+   * 
    * @param chain The target chain ('assetHub' or 'relay')
    * @returns The corresponding API instance
-   * @throws AgentError if the requested API is not available
+   * @throws AgentError if the requested API is not available or wrong chain
    */
   protected async getApiForChain(chain: 'assetHub' | 'relay'): Promise<ApiPromise> {
+    let api: ApiPromise;
+    
     if (chain === 'assetHub') {
       if (!this.assetHubApi) {
         // Try to reconnect if we have the manager
@@ -534,7 +541,6 @@ export abstract class BaseAgent {
           try {
             this.assetHubApi = await this.assetHubManager.getReadApi();
             console.log(`✅ Asset Hub reconnected via: ${this.assetHubManager.getCurrentEndpoint()}`);
-            return this.assetHubApi;
           } catch (error) {
             console.error('❌ Asset Hub reconnection failed:', error);
             throw new AgentError(
@@ -549,11 +555,68 @@ export abstract class BaseAgent {
           );
         }
       }
-      return this.assetHubApi;
+      api = this.assetHubApi;
+    } else {
+      // Relay chain
+      api = this.getApi();
     }
     
-    // Default to relay chain
-    return this.getApi();
+    // CRITICAL: Validate API is ready
+    if (!api || !api.isReady) {
+      await api.isReady;
+    }
+    
+    // CRITICAL: Validate API is actually connected to the expected chain type
+    // This prevents using wrong API for extrinsic construction (causes wasm unreachable)
+    const runtimeChain = api.runtimeChain?.toString() || 'Unknown';
+    const specName = api.runtimeVersion?.specName?.toString() || 'unknown';
+    
+    // Detect actual chain type
+    const isAssetHub = 
+      runtimeChain.toLowerCase().includes('asset') ||
+      runtimeChain.toLowerCase().includes('statemint') ||
+      specName.toLowerCase().includes('asset') ||
+      specName.toLowerCase().includes('statemint');
+    
+    const isRelayChain = 
+      runtimeChain.toLowerCase().includes('polkadot') && 
+      !isAssetHub &&
+      specName.toLowerCase().includes('polkadot');
+    
+    // Validate chain type matches expectation
+    if (chain === 'assetHub' && !isAssetHub) {
+      throw new AgentError(
+        `API chain mismatch: Requested Asset Hub but API is connected to "${runtimeChain}" (${specName}). ` +
+        `This would cause extrinsic construction on the wrong runtime. ` +
+        `Please reconnect to Asset Hub.`,
+        'API_CHAIN_MISMATCH',
+        {
+          requested: 'assetHub',
+          actual: runtimeChain,
+          specName,
+          isAssetHub,
+          isRelayChain,
+        }
+      );
+    }
+    
+    if (chain === 'relay' && !isRelayChain && !isAssetHub) {
+      // Warn but don't fail for relay chain - might be test network
+      console.warn(
+        `[BaseAgent] WARNING: Requested Relay Chain but API is connected to "${runtimeChain}" (${specName}). ` +
+        `This may not be a Polkadot Relay Chain.`
+      );
+    }
+    
+    console.log(`[BaseAgent] ✓ API validated for ${chain}:`, {
+      runtimeChain,
+      specName,
+      specVersion: api.runtimeVersion?.specVersion?.toNumber() || 0,
+      isAssetHub,
+      isRelayChain,
+    });
+    
+    return api;
   }
 
   /**
