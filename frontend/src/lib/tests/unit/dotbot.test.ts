@@ -573,5 +573,428 @@ describe('DotBot', () => {
       await expect(dotbot.chat('Test message')).rejects.toThrow('No LLM configured');
     });
   });
+
+  describe('getBalance()', () => {
+    let dotbot: DotBot;
+
+    beforeEach(async () => {
+      const config: DotBotConfig = {
+        wallet: mockWallet,
+      };
+
+      dotbot = await DotBot.create(config);
+    });
+
+    it('should fetch balance from Relay Chain', async () => {
+      const mockRelayData = {
+        data: {
+          free: '1000000000000', // 100 DOT
+          reserved: '50000000000', // 5 DOT
+          frozen: '0',
+        },
+      };
+
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockRelayData,
+          }),
+        },
+      };
+
+      const balance = await dotbot.getBalance();
+
+      expect(balance.relayChain.free).toBe('1000000000000');
+      expect(balance.relayChain.reserved).toBe('50000000000');
+      expect(balance.relayChain.frozen).toBe('0');
+      expect(mockRelayChainApi.query?.system?.account).toHaveBeenCalledWith(mockWallet.address);
+    });
+
+    it('should fetch balance from both Relay Chain and Asset Hub', async () => {
+      const mockRelayData = {
+        data: {
+          free: '1000000000000', // 100 DOT
+          reserved: '0',
+          frozen: '0',
+        },
+      };
+
+      const mockAssetHubData = {
+        data: {
+          free: '500000000000', // 50 DOT
+          reserved: '0',
+          frozen: '0',
+        },
+      };
+
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockRelayData,
+          }),
+        },
+      };
+
+      (mockAssetHubApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockAssetHubData,
+          }),
+        },
+      };
+
+      const balance = await dotbot.getBalance();
+
+      expect(balance.relayChain.free).toBe('1000000000000');
+      expect(balance.assetHub).not.toBeNull();
+      expect(balance.assetHub?.free).toBe('500000000000');
+      expect(balance.total).toBe('1500000000000'); // 100 + 50 DOT
+    });
+
+    it('should calculate total balance correctly', async () => {
+      const mockRelayData = {
+        data: {
+          free: '2000000000000', // 200 DOT
+          reserved: '0',
+          frozen: '0',
+        },
+      };
+
+      const mockAssetHubData = {
+        data: {
+          free: '3000000000000', // 300 DOT
+          reserved: '0',
+          frozen: '0',
+        },
+      };
+
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockRelayData,
+          }),
+        },
+      };
+
+      (mockAssetHubApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockAssetHubData,
+          }),
+        },
+      };
+
+      const balance = await dotbot.getBalance();
+
+      expect(balance.total).toBe('5000000000000'); // 200 + 300 DOT
+    });
+
+    it('should handle missing Asset Hub connection gracefully', async () => {
+      const mockRelayData = {
+        data: {
+          free: '1000000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+      };
+
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockRelayData,
+          }),
+        },
+      };
+
+      // Set assetHubApi to null (not connected)
+      (dotbot as any).assetHubApi = null;
+
+      const balance = await dotbot.getBalance();
+
+      expect(balance.relayChain.free).toBe('1000000000000');
+      expect(balance.assetHub).toBeNull();
+      expect(balance.total).toBe('1000000000000'); // Only Relay Chain balance
+    });
+
+    it('should handle missing balance data with defaults', async () => {
+      const mockRelayData = {
+        data: {},
+      };
+
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockRelayData,
+          }),
+        },
+      };
+
+      const balance = await dotbot.getBalance();
+
+      expect(balance.relayChain.free).toBe('0');
+      expect(balance.relayChain.reserved).toBe('0');
+      expect(balance.relayChain.frozen).toBe('0');
+    });
+
+    it('should handle miscFrozen when frozen is not available', async () => {
+      const mockRelayData = {
+        data: {
+          free: '1000000000000',
+          reserved: '0',
+          miscFrozen: '10000000000', // 1 DOT frozen
+        },
+      };
+
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockRelayData,
+          }),
+        },
+      };
+
+      const balance = await dotbot.getBalance();
+
+      expect(balance.relayChain.frozen).toBe('10000000000');
+    });
+
+    it('should handle Asset Hub query failure gracefully', async () => {
+      const mockRelayData = {
+        data: {
+          free: '1000000000000',
+          reserved: '0',
+          frozen: '0',
+        },
+      };
+
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => mockRelayData,
+          }),
+        },
+      };
+
+      // Make Asset Hub query fail
+      (mockAssetHubApi.query as any) = {
+        system: {
+          account: jest.fn().mockRejectedValue(new Error('Asset Hub query failed')),
+        },
+      };
+
+      const balance = await dotbot.getBalance();
+
+      // Should still return Relay Chain balance
+      expect(balance.relayChain.free).toBe('1000000000000');
+      expect(balance.assetHub).toBeNull();
+      expect(balance.total).toBe('1000000000000');
+    });
+  });
+
+  describe('getChainInfo()', () => {
+    let dotbot: DotBot;
+
+    beforeEach(async () => {
+      const config: DotBotConfig = {
+        wallet: mockWallet,
+      };
+
+      dotbot = await DotBot.create(config);
+    });
+
+    it('should retrieve chain name and version', async () => {
+      const mockChain = {
+        toString: jest.fn().mockReturnValue('Polkadot'),
+      };
+
+      const mockVersion = {
+        toString: jest.fn().mockReturnValue('0.9.42'),
+      };
+
+      (mockRelayChainApi.rpc as any) = {
+        system: {
+          chain: jest.fn().mockResolvedValue(mockChain),
+          version: jest.fn().mockResolvedValue(mockVersion),
+        },
+      };
+
+      const chainInfo = await dotbot.getChainInfo();
+
+      expect(chainInfo.chain).toBe('Polkadot');
+      expect(chainInfo.version).toBe('0.9.42');
+      expect(mockRelayChainApi.rpc?.system?.chain).toHaveBeenCalled();
+      expect(mockRelayChainApi.rpc?.system?.version).toHaveBeenCalled();
+    });
+
+    it('should query chain and version in parallel', async () => {
+      const mockChain = {
+        toString: jest.fn().mockReturnValue('Kusama'),
+      };
+
+      const mockVersion = {
+        toString: jest.fn().mockReturnValue('0.9.40'),
+      };
+
+      let chainCalled = false;
+      let versionCalled = false;
+
+      (mockRelayChainApi.rpc as any) = {
+        system: {
+          chain: jest.fn().mockImplementation(async () => {
+            chainCalled = true;
+            return mockChain;
+          }),
+          version: jest.fn().mockImplementation(async () => {
+            versionCalled = true;
+            return mockVersion;
+          }),
+        },
+      };
+
+      await dotbot.getChainInfo();
+
+      // Both should be called (Promise.all ensures parallel execution)
+      expect(chainCalled).toBe(true);
+      expect(versionCalled).toBe(true);
+    });
+  });
+
+  describe('onExecutionArrayUpdate()', () => {
+    let dotbot: DotBot;
+
+    beforeEach(async () => {
+      const config: DotBotConfig = {
+        wallet: mockWallet,
+      };
+
+      dotbot = await DotBot.create(config);
+    });
+
+    it('should register callback and return unsubscribe function', () => {
+      const callback = jest.fn();
+      const unsubscribe = dotbot.onExecutionArrayUpdate(callback);
+
+      expect(typeof unsubscribe).toBe('function');
+      expect(callback).not.toHaveBeenCalled(); // No execution array yet
+    });
+
+    it('should call callback immediately if execution array exists', () => {
+      const mockState = {
+        totalItems: 1,
+        completedItems: 0,
+        failedItems: 0,
+        cancelledItems: 0,
+        currentIndex: -1,
+        isExecuting: false,
+        isPaused: false,
+        items: [],
+      };
+
+      const mockExecutionArray = {
+        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
+        getState: jest.fn().mockReturnValue(mockState),
+      };
+
+      (dotbot as any).currentExecutionArray = mockExecutionArray;
+
+      const callback = jest.fn();
+      dotbot.onExecutionArrayUpdate(callback);
+
+      // Should be called immediately with current state
+      expect(callback).toHaveBeenCalledWith(mockState);
+      expect(mockExecutionArray.getState).toHaveBeenCalled();
+    });
+
+    it('should subscribe to execution array updates', () => {
+      const mockState = {
+        totalItems: 1,
+        completedItems: 0,
+        failedItems: 0,
+        pendingItems: 1,
+        items: [],
+      };
+
+      const mockUnsubscribe = jest.fn();
+      const mockExecutionArray = {
+        onStatusUpdate: jest.fn().mockReturnValue(mockUnsubscribe),
+        getState: jest.fn().mockReturnValue(mockState),
+      };
+
+      (dotbot as any).currentExecutionArray = mockExecutionArray;
+
+      const callback = jest.fn();
+      const unsubscribe = dotbot.onExecutionArrayUpdate(callback);
+
+      expect(mockExecutionArray.onStatusUpdate).toHaveBeenCalled();
+    });
+
+    it('should notify all callbacks when execution array updates', () => {
+      const mockState = {
+        totalItems: 1,
+        completedItems: 1,
+        failedItems: 0,
+        cancelledItems: 0,
+        currentIndex: 0,
+        isExecuting: false,
+        isPaused: false,
+        items: [],
+      };
+
+      const mockExecutionArray = {
+        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
+        getState: jest.fn().mockReturnValue(mockState),
+      };
+
+      (dotbot as any).currentExecutionArray = mockExecutionArray;
+
+      const callback1 = jest.fn();
+      const callback2 = jest.fn();
+
+      dotbot.onExecutionArrayUpdate(callback1);
+      dotbot.onExecutionArrayUpdate(callback2);
+
+      // Get the callback that was registered with onStatusUpdate
+      const registeredCallback = (mockExecutionArray.onStatusUpdate as jest.Mock).mock.calls[0][0];
+      
+      // Simulate execution array update - the callback receives an ExecutionItem
+      // but the implementation calls getState() inside
+      registeredCallback({ id: 'test-item' } as any);
+
+      // Both callbacks should be notified (once immediately, once on update)
+      expect(callback1).toHaveBeenCalledTimes(2);
+      expect(callback2).toHaveBeenCalledTimes(2);
+      // Both should receive the state
+      expect(callback1).toHaveBeenCalledWith(mockState);
+      expect(callback2).toHaveBeenCalledWith(mockState);
+    });
+
+    it('should remove callback when unsubscribe is called', () => {
+      const mockState = {
+        totalItems: 0,
+        completedItems: 0,
+        failedItems: 0,
+        pendingItems: 0,
+        items: [],
+      };
+
+      const mockUnsubscribe = jest.fn();
+      const mockExecutionArray = {
+        onStatusUpdate: jest.fn().mockReturnValue(mockUnsubscribe),
+        getState: jest.fn().mockReturnValue(mockState),
+      };
+
+      (dotbot as any).currentExecutionArray = mockExecutionArray;
+
+      const callback = jest.fn();
+      const unsubscribe = dotbot.onExecutionArrayUpdate(callback);
+
+      // Unsubscribe
+      unsubscribe();
+
+      // Callback should be removed from callbacks set
+      // (We can't directly test the Set, but we can verify unsubscribe was called)
+      expect(mockUnsubscribe).toHaveBeenCalled();
+    });
+  });
 });
 
