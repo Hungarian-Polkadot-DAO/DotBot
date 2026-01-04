@@ -53,6 +53,10 @@ export interface DotBotConfig {
   
   /** Auto-approve transactions (NOT recommended for production!) */
   autoApprove?: boolean;
+  
+  /** Pre-initialized RPC managers (optional - for faster connection) */
+  relayChainManager?: RpcManager;
+  assetHubManager?: RpcManager;
 }
 
 export interface ChatResult {
@@ -213,12 +217,13 @@ export class DotBot {
    * This is the only setup you need!
    */
   static async create(config: DotBotConfig): Promise<DotBot> {
-    // Create RPC managers for automatic failover
-    const relayChainManager = createRelayChainManager();
-    const assetHubManager = createAssetHubManager();
+    // Use pre-initialized RPC managers if provided, otherwise create new ones
+    const relayChainManager = config.relayChainManager || createRelayChainManager();
+    const assetHubManager = config.assetHubManager || createAssetHubManager();
     
     // Connect to Polkadot Relay Chain with automatic failover
-    console.log('🔗 Connecting to Polkadot Relay Chain...');
+    const isPreConnected = !!config.relayChainManager;
+    console.log(`🔗 ${isPreConnected ? 'Using pre-connected' : 'Connecting to'} Polkadot Relay Chain...`);
     const api = await relayChainManager.getReadApi();
     console.log(`✅ Connected to Relay Chain via: ${relayChainManager.getCurrentEndpoint()}`);
     

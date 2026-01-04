@@ -52,6 +52,9 @@ export class ExecutionArray {
     };
     
     this.items.push(item);
+    
+    // Notify both progress and status so UI updates immediately
+    this.notifyStatus(item);
     this.notifyProgress();
     
     return id;

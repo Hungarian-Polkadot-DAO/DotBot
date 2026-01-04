@@ -15,6 +15,7 @@ import { DotBot, ExecutionArrayState, ConversationMessage } from './lib';
 import { useWalletStore } from './stores/walletStore';
 import { ASIOneService } from './lib/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from './lib';
+import { createRelayChainManager, createAssetHubManager, RpcManager } from './lib/rpcManager';
 import './styles/globals.css';
 import './styles/execution-flow.css';
 
@@ -59,12 +60,47 @@ const App: React.FC = () => {
     };
   } | null>(null);
   
-  // DotBot integration - just two lines!
+  // DotBot integration
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
   const [asiOne] = useState(() => new ASIOneService());
   const [isInitializing, setIsInitializing] = useState(false);
   
+  // Pre-initialized RPC managers (created on app load, used by DotBot when wallet connects)
+  const [relayChainManager] = useState<RpcManager>(() => {
+    console.log('🌐 Creating Relay Chain manager (background)...');
+    return createRelayChainManager();
+  });
+  const [assetHubManager] = useState<RpcManager>(() => {
+    console.log('🌐 Creating Asset Hub manager (background)...');
+    return createAssetHubManager();
+  });
+  
   const { isConnected, selectedAccount } = useWalletStore();
+
+  // Pre-connect to networks BEFORE wallet (runs once on app load)
+  useEffect(() => {
+    const preConnectNetworks = async () => {
+      try {
+        console.log('🔗 Pre-connecting to Polkadot networks (background)...');
+        
+        // Start connecting in the background (don't block wallet connection)
+        Promise.all([
+          relayChainManager.getReadApi().then(api => {
+            console.log('✅ Relay Chain pre-connected:', relayChainManager.getCurrentEndpoint());
+          }),
+          assetHubManager.getReadApi().then(api => {
+            console.log('✅ Asset Hub pre-connected:', assetHubManager.getCurrentEndpoint());
+          })
+        ]).catch(error => {
+          console.warn('⚠️ Some networks failed to pre-connect (will retry):', error);
+        });
+      } catch (error) {
+        console.warn('⚠️ Network pre-connection failed:', error);
+      }
+    };
+    
+    preConnectNetworks();
+  }, []); // Run once on mount
 
   // Initialize DotBot when wallet connects
   useEffect(() => {
@@ -93,9 +129,13 @@ const App: React.FC = () => {
   const initializeDotBot = async () => {
     setIsInitializing(true);
     try {
+      console.log('🚀 Initializing DotBot with pre-connected networks...');
       const dotbotInstance = await DotBot.create({
         wallet: selectedAccount!,
         endpoint: 'wss://rpc.polkadot.io',
+        // Pass pre-initialized managers (already connecting in background!)
+        relayChainManager,
+        assetHubManager,
         onSigningRequest: (request) => setSigningRequest(request),
         onBatchSigningRequest: (request) => setSigningRequest(request),
         onSimulationStatus: (status) => {

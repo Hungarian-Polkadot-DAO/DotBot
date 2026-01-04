@@ -33,6 +33,13 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   const isSimulating = state.items.some(item => item.status === 'pending');
   const simulatingCount = state.items.filter(item => item.status === 'pending').length;
   
+  // Check simulation results
+  const hasSimulationSuccess = state.items.some(item => item.status === 'ready');
+  const hasSimulationFailure = state.items.some(item => item.status === 'failed');
+  const allSimulationsComplete = !isSimulating && (hasSimulationSuccess || hasSimulationFailure);
+  const successCount = state.items.filter(item => item.status === 'ready').length;
+  const failureCount = state.items.filter(item => item.status === 'failed').length;
+  
   // Check if flow is waiting for user approval (all items are pending/ready)
   const isWaitingForApproval = state.items.every(item => 
     item.status === 'pending' || item.status === 'ready'
@@ -149,18 +156,51 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         )}
       </div>
 
-      {/* Simulation in Progress Banner */}
+      {/* Simulation Status Banners */}
       {isSimulating && (
-        <div className="simulation-banner">
-          <Loader2 className="animate-spin" size={16} />
-          <span>
-            Simulating {simulatingCount} transaction{simulatingCount !== 1 ? 's' : ''} to verify {simulatingCount !== 1 ? 'they' : 'it'} will succeed...
-          </span>
+        <div className="simulation-banner simulation-in-progress">
+          <div className="banner-icon">
+            <Loader2 className="animate-spin" size={20} />
+          </div>
+          <div className="banner-content">
+            <div className="banner-title">Simulation in Progress</div>
+            <div className="banner-description">
+              Running {simulatingCount} transaction{simulatingCount !== 1 ? 's' : ''} through blockchain simulation to verify {simulatingCount !== 1 ? 'they' : 'it'} will succeed before you sign...
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Approval message */}
-      {isWaitingForApproval && !isSimulating && (
+      {allSimulationsComplete && hasSimulationSuccess && !hasSimulationFailure && !isExecuting && (
+        <div className="simulation-banner simulation-success">
+          <div className="banner-icon">
+            <CheckCircle2 size={20} />
+          </div>
+          <div className="banner-content">
+            <div className="banner-title">✓ Simulation Successful</div>
+            <div className="banner-description">
+              {successCount} transaction{successCount !== 1 ? 's' : ''} passed simulation and {successCount !== 1 ? 'are' : 'is'} ready to execute. Review the details below and click "Accept and Start" to proceed.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {allSimulationsComplete && hasSimulationFailure && (
+        <div className="simulation-banner simulation-failure">
+          <div className="banner-icon">
+            <AlertTriangle size={20} />
+          </div>
+          <div className="banner-content">
+            <div className="banner-title">⚠ Simulation Failed</div>
+            <div className="banner-description">
+              {failureCount} transaction{failureCount !== 1 ? 's' : ''} failed simulation. {failureCount === 1 ? 'This transaction would fail' : 'These transactions would fail'} on-chain. Review the error{failureCount !== 1 ? 's' : ''} below for details.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approval message (only show when no banner is active) */}
+      {!isSimulating && !allSimulationsComplete && isWaitingForApproval && (
         <div className="execution-flow-intro">
           <p>Review the steps below. Once you accept, your wallet will ask you to sign each transaction.</p>
         </div>
@@ -178,6 +218,11 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
             <div
               key={item.id}
               className={`execution-item ${item.status} ${isExpanded ? 'expanded' : ''}`}
+              data-simulation-status={
+                item.status === 'pending' ? 'simulating' :
+                item.status === 'ready' ? 'success' :
+                item.status === 'failed' ? 'failed' : 'none'
+              }
             >
               {/* Item Header */}
               <div
@@ -190,11 +235,11 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
                   <div className="execution-item-content">
                     <div className="execution-item-description">{item.description}</div>
                     <div className="execution-item-meta">
-                      {item.estimatedFee && (
+                      {item.estimatedFee && item.status !== 'pending' && (
                         <span className="execution-item-fee">Fee: {item.estimatedFee}</span>
                       )}
                       <span
-                        className="execution-item-status"
+                        className={`execution-item-status status-${item.status}`}
                         style={{ color: getStatusColor(item.status) }}
                       >
                         {getStatusLabel(item.status)}

@@ -91,70 +91,127 @@ export async function simulateTransaction(
       console.warn(`[Chopsticks] Filtered out ${allEndpoints.length - endpoints.length} HTTP endpoint(s), using ${endpoints.length} WebSocket endpoint(s)`);
     }
     
-    // Try to get block hash from the provided API, but with timeout handling
-    // If that fails, we'll use the endpoints directly in setup (which will fetch it)
-    let blockHash: any = null;
-    let blockNumber: any = null;
+    // CRITICAL: Always let Chopsticks fetch the latest block from the RPC endpoint
+    // DO NOT use api.rpc.chain.getBlockHash() because:
+    // 1. The API instance might have a cached/stale block hash
+    // 2. That block might not exist on the endpoint (pruned node)
+    // 3. This causes "Cannot find header" errors in Chopsticks
+    //
+    // By passing undefined, Chopsticks will fetch the latest block from the endpoint,
+    // ensuring we always use a block that exists.
     
-    try {
-      // Use Promise.race to add a timeout
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('getBlockHash timeout after 30s')), 30000)
-      );
-      
-      blockHash = await Promise.race([
-        api.rpc.chain.getBlockHash(),
-        timeoutPromise
-      ]);
-      blockNumber = await Promise.race([
-        api.rpc.chain.getHeader(blockHash),
-        timeoutPromise
-      ]);
-    } catch (apiError) {
-      console.warn('[Chopsticks] Failed to get block hash from API, will fetch from endpoint:', apiError);
-      // If API call fails, setup() will fetch the block hash from the endpoint
-      blockHash = null;
-      blockNumber = null;
-    }
-    
-    if (blockHash && blockNumber) {
-      updateStatus('forking', `Creating chain fork at block #${blockNumber.number.toNumber()}...`, 40, `Block: ${blockHash.toHex().slice(0, 12)}...`);
-    } else {
-      updateStatus('forking', 'Creating chain fork (fetching latest block from endpoint)...', 40);
-    }
+    updateStatus('forking', 'Creating chain fork (fetching latest block from endpoint)...', 40);
     
     chain = await setup({
       endpoint: endpoints,
-      block: blockHash ? blockHash.toHex() : undefined, // If blockHash is null, setup will use latest
+      block: undefined, // Let Chopsticks fetch latest block from endpoint
       buildBlockMode: BuildBlockMode.Batch,
       mockSignatureHost: true,
       db: storage,
     });
     
-    // If we didn't get block info from API, get it from the chain after setup
-    if (!blockHash || !blockNumber) {
-      try {
-        const chainBlockHash = await chain.head;
-        const chainBlockNumber = await chain.api.rpc.chain.getHeader(chainBlockHash);
-        blockHash = chainBlockHash;
-        blockNumber = chainBlockNumber;
-        updateStatus('forking', `Chain fork created at block #${chainBlockNumber.number.toNumber()}...`, 45, `Block: ${chainBlockHash.toHex().slice(0, 12)}...`);
-      } catch (err) {
-        console.warn('[Chopsticks] Could not get block info from chain:', err);
+    // Helper to convert block hash to hex string (always returns 0x-prefixed)
+    const toHexString = (blockHash: any): `0x${string}` => {
+      // Handle null/undefined
+      if (!blockHash) {
+        throw new Error('Block hash is null or undefined');
       }
+      
+      // Already a string? Return it (ensure 0x prefix)
+      if (typeof blockHash === 'string') {
+        return blockHash.startsWith('0x') ? blockHash as `0x${string}` : `0x${blockHash}` as `0x${string}`;
+      }
+      
+      // Is it an object with a 'hash' property? (e.g., {number: 123, hash: "0x..."})
+      if (typeof blockHash === 'object' && blockHash !== null && 'hash' in blockHash) {
+        const hash = blockHash.hash;
+        if (typeof hash === 'string') {
+          return hash.startsWith('0x') ? hash as `0x${string}` : `0x${hash}` as `0x${string}`;
+        }
+        // Recursively convert the hash property
+        return toHexString(hash);
+      }
+      
+      // Has .toHex() method? Call it
+      if (typeof blockHash.toHex === 'function') {
+        const hex = blockHash.toHex();
+        return hex.startsWith('0x') ? hex as `0x${string}` : `0x${hex}` as `0x${string}`;
+      }
+      
+      // Is it a Uint8Array? Convert to hex
+      if (blockHash instanceof Uint8Array) {
+        const hex = Array.from(blockHash)
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        return `0x${hex}` as `0x${string}`;
+      }
+      
+      // Has .toString() that returns hex? Try it
+      if (typeof blockHash.toString === 'function') {
+        const str = blockHash.toString();
+        // Check if it looks like hex (starts with 0x or is all hex chars)
+        if (str.startsWith('0x') || /^[0-9a-fA-F]+$/.test(str)) {
+          return str.startsWith('0x') ? str as `0x${string}` : `0x${str}` as `0x${string}`;
+        }
+      }
+      
+      // Last resort: try to get hex representation
+      console.warn('[Chopsticks] Unexpected block hash type:', typeof blockHash, blockHash);
+      throw new Error(`Cannot convert block hash to hex string. Type: ${typeof blockHash}, Value: ${JSON.stringify(blockHash)}`);
+    };
+    
+    // Get block info from the chain after setup
+    let blockHashHex: `0x${string}` | null = null;
+    let blockNumber: any = null;
+    
+    try {
+      const chainBlockHash = await chain.head;
+      blockHashHex = toHexString(chainBlockHash);
+      
+      // Try to extract block number from chainBlockHash if it's an object with number property
+      // Otherwise, try to get it from the API
+      if (typeof chainBlockHash === 'object' && chainBlockHash !== null && 'number' in chainBlockHash) {
+        // chainBlockHash is {number: 123, hash: "0x..."}
+        blockNumber = { number: { toNumber: () => chainBlockHash.number } };
+        updateStatus('forking', `Chain fork created at block #${chainBlockHash.number}...`, 45, `Block: ${blockHashHex.slice(0, 12)}...`);
+      } else {
+        // Try to get block number from the API using the hash
+        try {
+          const hashForHeader = (typeof chainBlockHash === 'object' && chainBlockHash !== null && 'hash' in chainBlockHash)
+            ? chainBlockHash.hash
+            : chainBlockHash;
+          
+          // Use the passed api parameter instead of chain.api
+          const chainBlockNumber = await api.rpc.chain.getHeader(hashForHeader);
+          blockNumber = chainBlockNumber;
+          updateStatus('forking', `Chain fork created at block #${chainBlockNumber.number.toNumber()}...`, 45, `Block: ${blockHashHex.slice(0, 12)}...`);
+        } catch (headerError) {
+          // If getHeader fails, just log the hash without block number
+          console.warn('[Chopsticks] Could not get block number, using hash only:', headerError);
+          updateStatus('forking', `Chain fork created...`, 45, `Block: ${blockHashHex.slice(0, 12)}...`);
+        }
+      }
+    } catch (err) {
+      console.error('[Chopsticks] Failed to get block info from chain:', err);
+      throw new Error(`Failed to get block hash from chain: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    
+    // Ensure we have a valid block hash
+    if (!blockHashHex) {
+      throw new Error('Failed to get block hash from chain');
     }
     
     updateStatus('executing', 'Simulating transaction execution...', 60, 'Running on forked chain state');
     
-    // Use the block hash we got (either from API or from chain after setup)
-    const finalBlockHash = blockHash || await chain.head;
+    // Use the block hash we got from the chain
+    const finalBlockHashHex = blockHashHex;
     
     const { outcome, storageDiff } = await chain.dryRunExtrinsic(
       {
         call: extrinsic.method.toHex(),
         address: senderAddress,
       },
-      typeof finalBlockHash === 'string' ? finalBlockHash : finalBlockHash.toHex()
+      finalBlockHashHex
     );
     
     updateStatus('analyzing', 'Analyzing simulation results...', 80);
@@ -170,7 +227,14 @@ export async function simulateTransaction(
     let fee = '0';
     try {
       updateStatus('analyzing', 'Calculating transaction fees...', 90);
-      const feeInfo = await extrinsic.paymentInfo(senderAddress);
+      
+      // Ensure sender address is properly encoded for this chain
+      const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
+      const publicKey = decodeAddress(senderAddress);
+      const ss58Format = api.registry.chainSS58 || 0;
+      const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
+      
+      const feeInfo = await extrinsic.paymentInfo(encodedSenderAddress);
       fee = feeInfo.partialFee.toString();
     } catch (feeError) {
       // paymentInfo can fail with wasm trap if the extrinsic has issues
@@ -182,9 +246,7 @@ export async function simulateTransaction(
     
     // Cleanup
     try {
-      const cleanupBlockHash = blockHash || await chain.head;
-      const cleanupBlockHashHex = typeof cleanupBlockHash === 'string' ? cleanupBlockHash : cleanupBlockHash.toHex();
-      await storage.deleteBlock(cleanupBlockHashHex);
+      await storage.deleteBlock(finalBlockHashHex);
       await storage.close();
       await chain.close();
     } catch (cleanupError) {

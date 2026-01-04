@@ -10,9 +10,6 @@ import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { BaseAgent } from '../baseAgent';
 import { AgentResult, AgentError, DryRunResult, SimulationStatusCallback } from '../types';
 import { TransferParams, BatchTransferParams } from './types';
-import { createTransferExtrinsic } from './extrinsics/transfer';
-import { createTransferKeepAliveExtrinsic } from './extrinsics/transferKeepAlive';
-import { createBatchTransferExtrinsic } from './extrinsics/batchTransfer';
 import { BN } from '@polkadot/util';
 import { 
   analyzeError, 
@@ -20,6 +17,16 @@ import {
   formatErrorForUser,
   ErrorAnalysis 
 } from '../errorAnalyzer';
+import {
+  detectTransferCapabilities,
+  validateMinimumCapabilities,
+  validateExistentialDeposit,
+  TransferCapabilities,
+} from './utils/transferCapabilities';
+import {
+  buildSafeTransferExtrinsic,
+  buildSafeBatchExtrinsic,
+} from './utils/safeExtrinsicBuilder';
 
 /**
  * Agent for handling asset transfers
@@ -41,24 +48,24 @@ export class AssetTransferAgent extends BaseAgent {
   /**
    * Transfer DOT or tokens
    * 
-   * ROBUST FLOW with comprehensive retry:
+   * PRODUCTION-SAFE FLOW:
    * 1. Validate addresses and amount (fail fast on user errors)
-   * 2. Try simulation with intelligent retry:
-   *    - Reviews ALL adjustable parameters (chain, keepAlive, etc.)
-   *    - Analyzes errors (user error vs configuration error)
-   *    - Systematically tries different combinations
-   *    - Does NOT change user intent (amount, recipient, sender)
-   * 3. Check balance on successful configuration
-   * 4. Final validation (amount + fees)
-   * 5. Return validated extrinsic with correct API and parameters
+   * 2. Detect chain capabilities (available methods, ED, decimals)
+   * 3. Check balance
+   * 4. Create extrinsic using production-safe builder (automatic fallbacks)
+   * 5. Return extrinsic ready for signing
    * 
    * @param params Transfer parameters
    * @returns AgentResult with transfer extrinsic
    */
   async transfer(params: TransferParams): Promise<AgentResult> {
     this.ensureInitialized();
+    
+    if (!this.api) {
+      throw new AgentError('API not initialized', 'API_NOT_INITIALIZED');
+    }
 
-    // Transfer request received
+    console.log('[AssetTransferAgent] Transfer request received');
 
     try {
       // Step 1: Validate addresses (fail fast on user errors)
@@ -66,79 +73,98 @@ export class AssetTransferAgent extends BaseAgent {
       const amountBN = this.parseAndValidateAmount(params.amount);
       const keepAlive = params.keepAlive === true;
       
-      // Step 2: Determine chain and validate (NO SIMULATION - executioner will simulate!)
-      // Ensure addresses are in SS58 format
-      const senderAddress = this.ensurePolkadotAddress(params.address);
-      const recipientAddress = this.ensurePolkadotAddress(params.recipient);
-      
-      // Determine target chain (default to Asset Hub, user can override)
+      // Step 2: Determine target chain and get appropriate API
       const targetChain = params.chain || 'assetHub';
       const chainName = targetChain === 'assetHub' ? 'Asset Hub' : 'Relay Chain';
-      const finalKeepAlive = keepAlive;
       
-      console.log(`[AssetTransferAgent] Preparing transfer on ${chainName}:`, {
-        from: senderAddress.slice(0, 8) + '...',
-        to: recipientAddress.slice(0, 8) + '...',
-        amount: this.formatAmount(amountBN),
-        keepAlive: finalKeepAlive,
+      console.log(`[AssetTransferAgent] Preparing transfer on ${chainName}`);
+      
+      // Get API for target chain (NOT this.api which might be relay!)
+      // IMPORTANT: Agent is initialized with relay API, but transfers happen on Asset Hub
+      const targetApi = await this.getApiForChain(targetChain);
+      
+      // Step 3: Detect chain capabilities (CRITICAL for multi-network support)
+      const capabilities = await detectTransferCapabilities(targetApi);
+      
+      console.log(`[AssetTransferAgent] Detected chain capabilities:`, {
+        chain: capabilities.chainName,
+        methods: {
+          transferAllowDeath: capabilities.hasTransferAllowDeath,
+          transfer: capabilities.hasTransfer,
+          transferKeepAlive: capabilities.hasTransferKeepAlive,
+        },
+        decimals: capabilities.nativeDecimals,
+        symbol: capabilities.nativeTokenSymbol,
       });
       
-      // Step 3: Check balance on target chain
-      const balance = await this.getBalanceOnChain(targetChain, senderAddress);
+      // Validate minimum capabilities
+      validateMinimumCapabilities(capabilities);
       
-      // Step 4: Validate balance (amount + estimated fees)
-      // Note: This is a rough estimate - actual fees will be calculated during simulation
-      const estimatedFeeBN = new BN('200000000'); // Conservative estimate: 0.02 DOT
+      // Step 4: Validate existential deposit
+      const warnings: string[] = [];
+      const edCheck = validateExistentialDeposit(amountBN, capabilities);
+      if (!edCheck.valid && edCheck.warning) {
+        warnings.push(edCheck.warning);
+      }
+      
+      // Step 5: Check balance on TARGET chain
+      const senderAddress = this.ensurePolkadotAddress(params.address);
+      const balance = await targetApi.query.system.account(senderAddress);
+      const balanceData = balance as any;
+      const availableBN = new BN(balanceData.data?.free?.toString() || '0');
+      
+      // Estimate fees (conservative)
+      const estimatedFeeBN = new BN('200000000'); // 0.02 DOT
       const totalRequired = amountBN.add(estimatedFeeBN);
-      const availableBN = new BN(balance.available);
       
       if (params.validateBalance !== false && availableBN.lt(totalRequired)) {
         throw new AgentError(
-          `Insufficient balance on ${chainName}. Available: ${this.formatAmount(availableBN)} DOT, Required (estimated): ${this.formatAmount(totalRequired)} DOT (including ~${this.formatAmount(estimatedFeeBN)} DOT fees)`,
+          `Insufficient balance. Available: ${this.formatAmount(availableBN)} ${capabilities.nativeTokenSymbol}, Required: ${this.formatAmount(totalRequired)} ${capabilities.nativeTokenSymbol} (including fees)`,
           'INSUFFICIENT_BALANCE',
           {
-            chain: chainName,
+            chain: capabilities.chainName,
             available: availableBN.toString(),
             required: totalRequired.toString(),
-            amount: amountBN.toString(),
-            fees: estimatedFeeBN.toString(),
-            shortfall: totalRequired.sub(availableBN).toString(),
           }
         );
       }
       
-      // Step 5: Collect warnings
-      const warnings: string[] = [];
+      // Step 6: Create extrinsic using production-safe builder with TARGET API
+      console.log('[AssetTransferAgent] Creating transfer extrinsic...');
       
-      // Add chain info
-      if (chainName === 'Asset Hub') {
-        warnings.push('✅ Using Asset Hub (recommended for DOT transfers)');
-      } else {
-        warnings.push('ℹ️ Using Relay Chain');
-      }
+      const result = buildSafeTransferExtrinsic(
+        targetApi, // Use target chain API, not this.api!
+        {
+          recipient: params.recipient,
+          amount: amountBN,
+          keepAlive,
+        },
+        capabilities
+      );
       
-      if (finalKeepAlive) {
-        warnings.push('Using transferKeepAlive - sender account will remain alive after transfer');
-      }
+      // Add builder warnings
+      warnings.push(...result.warnings);
       
-      // Step 6: Return metadata (NO EXTRINSIC - executioner will build and simulate!)
-      const description = `Transfer ${this.formatAmount(amountBN)} DOT from ${senderAddress.slice(0, 8)}...${senderAddress.slice(-8)} to ${recipientAddress.slice(0, 8)}...${recipientAddress.slice(-8)} on ${chainName}`;
+      console.log('[AssetTransferAgent] ✓ Extrinsic created successfully:', {
+        method: result.method,
+        recipient: result.recipientEncoded,
+        amount: result.amountBN.toString(),
+      });
+      
+      // Step 7: Return extrinsic (ready for signing!)
+      const description = `Transfer ${this.formatAmount(result.amountBN)} ${capabilities.nativeTokenSymbol} from ${senderAddress.slice(0, 8)}...${senderAddress.slice(-8)} to ${result.recipientEncoded.slice(0, 8)}...${result.recipientEncoded.slice(-8)} on ${chainName}`;
 
       return this.createResult(
         description,
-        undefined, // NO EXTRINSIC - executioner will rebuild
+        result.extrinsic, // ✅ EXTRINSIC READY!
         {
-          estimatedFee: estimatedFeeBN.toString(), // Rough estimate - actual fee from simulation
+          estimatedFee: estimatedFeeBN.toString(),
           warnings: warnings.length > 0 ? warnings : undefined,
           metadata: {
-            amount: amountBN.toString(),
-            formattedAmount: this.formatAmount(amountBN),
-            recipient: recipientAddress,
-            sender: senderAddress,
-            keepAlive: finalKeepAlive,
-            chain: chainName,
-            chainType: targetChain, // 'assetHub' | 'relay' - for executioner to rebuild
-            // NO API INSTANCE - executioner uses its own session API
+            method: result.method,
+            chain: capabilities.chainName,
+            decimals: capabilities.nativeDecimals,
+            symbol: capabilities.nativeTokenSymbol,
           },
           resultType: 'extrinsic',
           requiresConfirmation: true,
@@ -153,20 +179,24 @@ export class AssetTransferAgent extends BaseAgent {
   /**
    * Batch transfer - transfer to multiple recipients in a single transaction
    * 
-   * ROBUST FLOW with intelligent retry:
-   * 1. Validate all recipients and amounts (fail fast on user errors)
-   * 2. Try simulation with retry logic (same as transfer)
-   * 3. Check balance on successful chain
-   * 4. Final validation (total + fees)
-   * 5. Return validated batch extrinsic
+   * PRODUCTION-SAFE FLOW:
+   * 1. Validate all recipients and amounts
+   * 2. Detect chain capabilities
+   * 3. Check total balance
+   * 4. Create batch extrinsic using production-safe builder
+   * 5. Return extrinsic ready for signing
    */
   async batchTransfer(params: BatchTransferParams): Promise<AgentResult> {
     this.ensureInitialized();
+    
+    if (!this.api) {
+      throw new AgentError('API not initialized', 'API_NOT_INITIALIZED');
+    }
 
-    // Batch transfer request received
+    console.log('[AssetTransferAgent] Batch transfer request received');
 
     try {
-      // Step 1: Validate sender and transfers array (fail fast on user errors)
+      // Step 1: Validate sender and transfers array
       this.validateSenderAddress(params.address);
       this.validateTransfersArray(params.transfers);
 
@@ -175,71 +205,94 @@ export class AssetTransferAgent extends BaseAgent {
         params.transfers
       );
 
-      // Step 2: Determine chain and validate (NO SIMULATION - executioner will simulate!)
-      // Ensure addresses are in SS58 format
-      const senderAddress = this.ensurePolkadotAddress(params.address);
-      const validatedRecipients = validatedTransfers.map(t => ({
-        recipient: this.ensurePolkadotAddress(t.recipient),
-        amount: t.amount,
-      }));
-      
-      // Determine target chain (default to Asset Hub, user can override)
+      // Step 2: Determine target chain and get appropriate API
       const targetChain = params.chain || 'assetHub';
       const chainName = targetChain === 'assetHub' ? 'Asset Hub' : 'Relay Chain';
       
-      console.log(`[AssetTransferAgent] Preparing batch transfer on ${chainName}:`, {
-        from: senderAddress.slice(0, 8) + '...',
-        transfers: validatedRecipients.length,
-        totalAmount: this.formatAmount(totalAmount),
+      console.log(`[AssetTransferAgent] Preparing batch transfer on ${chainName}`);
+      
+      // Get API for target chain
+      const targetApi = await this.getApiForChain(targetChain);
+
+      // Step 3: Detect chain capabilities
+      const capabilities = await detectTransferCapabilities(targetApi);
+      
+      console.log(`[AssetTransferAgent] Detected chain capabilities for batch:`, {
+        chain: capabilities.chainName,
+        hasBatch: capabilities.hasBatch,
+        hasBatchAll: capabilities.hasBatchAll,
       });
+      
+      validateMinimumCapabilities(capabilities);
+      
+      // Check batch support
+      if (!capabilities.hasUtility) {
+        throw new AgentError(
+          `Chain ${capabilities.chainName} does not support batch operations (no utility pallet)`,
+          'BATCH_NOT_SUPPORTED'
+        );
+      }
 
-      // Step 3: Check balance on target chain
-      const balance = await this.getBalanceOnChain(targetChain, senderAddress);
-
-      // Step 4: Validate total balance (amount + estimated fees)
-      // Note: This is a rough estimate - actual fees will be calculated during simulation
-      const estimatedFeeBN = new BN('500000000'); // Conservative estimate for batch: 0.05 DOT
+      // Step 4: Validate total against ED and balance on TARGET chain
+      const warnings: string[] = [];
+      const senderAddress = this.ensurePolkadotAddress(params.address);
+      
+      const balance = await targetApi.query.system.account(senderAddress);
+      const balanceData = balance as any;
+      const availableBN = new BN(balanceData.data?.free?.toString() || '0');
+      
+      const estimatedFeeBN = new BN('500000000'); // 0.05 DOT for batch
       const totalRequired = totalAmount.add(estimatedFeeBN);
-      const availableBN = new BN(balance.available);
       
       if (params.validateBalance !== false && availableBN.lt(totalRequired)) {
         throw new AgentError(
-          `Insufficient balance on ${chainName}. Available: ${this.formatAmount(availableBN)} DOT, Required (estimated): ${this.formatAmount(totalRequired)} DOT (including ~${this.formatAmount(estimatedFeeBN)} DOT fees)`,
+          `Insufficient balance for batch. Available: ${this.formatAmount(availableBN)} ${capabilities.nativeTokenSymbol}, Required: ${this.formatAmount(totalRequired)} ${capabilities.nativeTokenSymbol}`,
           'INSUFFICIENT_BALANCE',
           {
-            chain: chainName,
             available: availableBN.toString(),
             required: totalRequired.toString(),
-            totalAmount: totalAmount.toString(),
-            fees: estimatedFeeBN.toString(),
-            shortfall: totalRequired.sub(availableBN).toString(),
           }
         );
       }
 
-      const warnings = this.collectBatchWarnings(params.transfers.length, chainName);
+      // Step 5: Create batch extrinsic using production-safe builder with TARGET API
+      console.log('[AssetTransferAgent] Creating batch extrinsic...');
       
-      const description = `Batch transfer: ${params.transfers.length} transfers totaling ${this.formatAmount(totalAmount)} DOT from ${senderAddress.slice(0, 8)}...${senderAddress.slice(-8)} on ${chainName}`;
+      const transfersWithBN = validatedTransfers.map(t => ({
+        recipient: t.recipient,
+        amount: new BN(t.amount),
+      }));
+      
+      const result = buildSafeBatchExtrinsic(
+        targetApi, // Use target chain API!
+        transfersWithBN,
+        capabilities,
+        true // useAtomicBatch (batchAll)
+      );
+      
+      warnings.push(...result.warnings);
+      
+      console.log('[AssetTransferAgent] ✓ Batch extrinsic created:', {
+        method: result.method,
+        transfers: params.transfers.length,
+        totalAmount: result.amountBN.toString(),
+      });
+      
+      // Step 6: Return extrinsic
+      const description = `Batch transfer: ${params.transfers.length} transfers totaling ${this.formatAmount(result.amountBN)} ${capabilities.nativeTokenSymbol} from ${senderAddress.slice(0, 8)}...${senderAddress.slice(-8)} on ${chainName}`;
 
       return this.createResult(
         description,
-        undefined, // NO EXTRINSIC - executioner will rebuild and simulate
+        result.extrinsic, // ✅ BATCH EXTRINSIC READY!
         {
-          estimatedFee: estimatedFeeBN.toString(), // Rough estimate - actual fee from simulation
+          estimatedFee: estimatedFeeBN.toString(),
           warnings: warnings.length > 0 ? warnings : undefined,
           metadata: {
+            method: result.method,
             transferCount: params.transfers.length,
-            totalAmount: totalAmount.toString(),
-            formattedTotalAmount: this.formatAmount(totalAmount),
-            sender: senderAddress,
-            chain: chainName,
-            chainType: targetChain, // 'assetHub' | 'relay' - for executioner to rebuild
-            transfers: validatedTransfers.map(t => ({
-              recipient: t.recipient,
-              amount: t.amount,
-              formattedAmount: this.formatAmount(new BN(t.amount)),
-            })),
-            // NO API INSTANCE - executioner uses its own session API
+            chain: capabilities.chainName,
+            decimals: capabilities.nativeDecimals,
+            symbol: capabilities.nativeTokenSymbol,
           },
           resultType: 'extrinsic',
           requiresConfirmation: true,
@@ -252,15 +305,6 @@ export class AssetTransferAgent extends BaseAgent {
   }
 
   // ===== HELPER METHODS =====
-  // NOTE: Agent no longer simulates - that's done by executioner after rebuild!
-  // This simplifies the agent and ensures we simulate what we execute.
-
-  /**
-   * Get RPC endpoints for a specific chain (uses RPC manager if available)
-   */
-  private getRpcEndpointForChain(chain: 'assetHub' | 'relay'): string[] {
-    return this.getRpcEndpointsForChain(chain);
-  }
 
   private validateTransferAddresses(sender: string, recipient: string): void {
     const senderValidation = this.validateAddress(sender);
@@ -361,117 +405,6 @@ export class AssetTransferAgent extends BaseAgent {
     return amountBN;
   }
 
-  private async validateTransferBalance(
-    address: string,
-    amount: BN,
-    validateBalance?: boolean
-  ): Promise<void> {
-    if (validateBalance === false) return;
-
-    const balanceCheck = await this.hasSufficientBalance(address, amount, true);
-    if (!balanceCheck.sufficient) {
-      throw new AgentError(
-        `Insufficient balance. Available: ${this.formatAmount(balanceCheck.available)} DOT, Required: ${this.formatAmount(balanceCheck.required)} DOT`,
-        'INSUFFICIENT_BALANCE',
-        {
-          available: balanceCheck.available,
-          required: balanceCheck.required,
-          shortfall: balanceCheck.shortfall,
-        }
-      );
-    }
-  }
-
-  private async validateDotBalance(
-    balance: { free: string; reserved: string; frozen: string; available: string },
-    amount: BN,
-    validateBalance?: boolean
-  ): Promise<void> {
-    if (validateBalance === false) return;
-
-    const availableBN = new BN(balance.available);
-    const feeBuffer = new BN(10_000_000_000); // 0.01 DOT
-    const totalRequired = amount.add(feeBuffer);
-
-    if (availableBN.lt(totalRequired)) {
-      throw new AgentError(
-        `Insufficient balance. Available: ${this.formatAmount(availableBN)} DOT, Required: ${this.formatAmount(totalRequired)} DOT`,
-        'INSUFFICIENT_BALANCE',
-        {
-          available: availableBN.toString(),
-          required: totalRequired.toString(),
-          shortfall: totalRequired.sub(availableBN).toString(),
-        }
-      );
-    }
-  }
-
-  private createTransferExtrinsic(
-    api: any,
-    recipient: string,
-    amount: BN,
-    keepAlive: boolean
-  ): any {
-    const extrinsicParams = {
-      recipient,
-      amount: amount.toString(),
-    };
-    return keepAlive
-      ? createTransferKeepAliveExtrinsic(api, extrinsicParams)
-      : createTransferExtrinsic(api, extrinsicParams);
-  }
-
-  private async collectTransferWarnings(
-    api: any,
-    recipient: string,
-    keepAlive: boolean,
-    chainName: string
-  ): Promise<string[]> {
-    const warnings: string[] = [];
-
-    // Add chain info
-    if (chainName === 'Asset Hub') {
-      warnings.push('✅ Using Asset Hub (recommended for DOT transfers)');
-    } else {
-      warnings.push('ℹ️ Using Relay Chain');
-    }
-
-    if (keepAlive) {
-      warnings.push('Using transferKeepAlive - this ensures the sender account remains alive after transfer');
-    }
-
-    try {
-      const recipientInfo = await api.query.system.account(recipient);
-      const recipientData = recipientInfo as any;
-      const recipientBalance = recipientData.data?.free?.toString() || '0';
-      if (recipientBalance === '0') {
-        warnings.push('Recipient account appears to be new or empty');
-      }
-    } catch {
-      // Ignore errors when checking recipient
-    }
-
-    return warnings;
-  }
-
-  private collectBatchWarnings(transferCount: number, chainName: string): string[] {
-    const warnings: string[] = [];
-    
-    // Add chain info
-    if (chainName === 'Asset Hub') {
-      warnings.push('✅ Using Asset Hub (recommended for DOT transfers)');
-    } else {
-      warnings.push('ℹ️ Using Relay Chain');
-    }
-    
-    warnings.push(`Batch transfer with ${transferCount} recipients`);
-    
-    if (transferCount > 10) {
-      warnings.push('Large batch transfer - ensure all recipients are correct');
-    }
-    
-    return warnings;
-  }
 
   private handleTransferError(error: unknown, operation: string): never {
     if (error instanceof AgentError) {

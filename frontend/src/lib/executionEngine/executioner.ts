@@ -312,8 +312,8 @@ export class Executioner {
   /**
    * Execute an extrinsic
    * 
-   * CRITICAL: Uses execution session to lock API instance and prevent metadata mismatches.
-   * Rebuilds extrinsic using the exact API that will submit it.
+   * SIMPLIFIED: Agent creates extrinsic with session API (correct registry from start).
+   * Executioner just simulates, signs, and broadcasts.
    */
   private async executeExtrinsic(
     executionArray: ExecutionArray,
@@ -323,19 +323,15 @@ export class Executioner {
   ): Promise<void> {
     const { agentResult } = item;
     
-    // Note: agentResult.extrinsic may be undefined - executioner rebuilds from metadata
-    // This is the correct flow per SIMULATION_ARCHITECTURE_FIX.md
-    
     if (!this.api || !this.account) {
       throw new Error('Executioner not initialized');
     }
     
-    // Validate that we have metadata to rebuild from (extrinsic may be undefined - that's OK)
-    if (!agentResult.metadata) {
-      const errorMessage = 'No extrinsic found in agent result and no metadata to rebuild from. Agent must provide either an extrinsic or metadata with recipient/amount.';
-      console.error('[Executioner] Missing metadata:', {
+    // Validate that agent provided an extrinsic
+    if (!agentResult.extrinsic) {
+      const errorMessage = 'No extrinsic found in agent result. Agent must create and return an extrinsic.';
+      console.error('[Executioner] Missing extrinsic:', {
         hasExtrinsic: !!agentResult.extrinsic,
-        hasMetadata: !!agentResult.metadata,
         executionType: agentResult.executionType,
         resultType: agentResult.resultType,
         description: agentResult.description,
@@ -344,151 +340,64 @@ export class Executioner {
       executionArray.updateResult(item.id, {
         success: false,
         error: errorMessage,
-        errorCode: 'EXTRINSIC_REBUILD_FAILED',
+        errorCode: 'NO_EXTRINSIC',
       });
       throw new Error(errorMessage);
     }
     
-    // Determine chain from metadata
-    const chainType = agentResult.metadata?.chainType as 'assetHub' | 'relay' | undefined;
+    // Use extrinsic from agent (already has correct registry!)
+    const extrinsic = agentResult.extrinsic;
     
-    // If chainType is undefined, try to infer from chain name, otherwise default to relay
-    let resolvedChainType: 'assetHub' | 'relay' = chainType || 'relay';
-    if (!chainType && agentResult.metadata?.chain) {
-      const chainName = String(agentResult.metadata.chain).toLowerCase();
-      if (chainName.includes('asset') || chainName.includes('statemint')) {
-        resolvedChainType = 'assetHub';
-      }
+    console.log('[Executioner] Using extrinsic from agent:', {
+      description: item.description,
+      method: `${extrinsic.method.section}.${extrinsic.method.method}`,
+    });
+    
+    // Enhanced debug logging
+    try {
+      console.log('[Executioner] Extrinsic debug info:', {
+        method: `${extrinsic.method.section}.${extrinsic.method.method}`,
+        callIndex: Array.from(extrinsic.method.toU8a().slice(0, 2)),
+        args: extrinsic.method.args.map((arg: any) => arg.toHuman()),
+        toHuman: extrinsic.toHuman(),
+      });
+    } catch (logError) {
+      console.warn('[Executioner] Could not log extrinsic debug info:', logError);
     }
     
-    const manager = resolvedChainType === 'assetHub' ? this.assetHubManager : this.relayChainManager;
-    
-    // Create execution session - locks API instance for transaction lifecycle
-    let session: ExecutionSession | null = null;
+    // CRITICAL: Use the API that created the extrinsic!
+    // The extrinsic knows which API it came from via its registry
+    // We need to find the matching API instance in our executioner
     let apiForExtrinsic: ApiPromise;
     
-    if (manager) {
-      // Use execution session from RPC manager (immutable API)
-      try {
-        session = await manager.createExecutionSession();
-        apiForExtrinsic = session.api;
-        console.log('[Executioner] Created execution session:', session.endpoint, `(chain: ${resolvedChainType})`);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        executionArray.updateStatus(item.id, 'failed', `Failed to create execution session: ${errorMessage}`);
-        executionArray.updateResult(item.id, {
-          success: false,
-          error: `Failed to create execution session: ${errorMessage}`,
-          errorCode: 'EXECUTION_SESSION_FAILED',
-        });
-        throw new Error(`Failed to create execution session: ${errorMessage}`);
-      }
+    // Check which API's registry matches the extrinsic
+    if (this.api.registry === extrinsic.registry) {
+      apiForExtrinsic = this.api;
+      console.log('[Executioner] Using relay chain API (registry match)');
+    } else if (this.assetHubApi && this.assetHubApi.registry === extrinsic.registry) {
+      apiForExtrinsic = this.assetHubApi;
+      console.log('[Executioner] Using Asset Hub API (registry match)');
     } else {
-      // Fallback: use existing API (not ideal, but better than nothing)
-      // Warn that we're not using execution session
-      apiForExtrinsic = resolvedChainType === 'assetHub' && this.assetHubApi 
-        ? this.assetHubApi 
-        : this.api;
-      console.warn('[Executioner] No RPC manager available, using existing API (no execution session - metadata mismatch risk)');
+      // Fallback: try to determine from metadata
+      console.warn('[Executioner] No exact registry match found, using relay chain API as fallback');
+      console.warn('[Executioner] This may cause issues! Agent should use executioner APIs.');
+      apiForExtrinsic = this.api;
     }
     
-    // Ensure API is ready
-    if (!apiForExtrinsic.isReady) {
-      await apiForExtrinsic.isReady;
-    }
-    
-    // Check session health before proceeding
-    if (session && !(await session.isConnected())) {
-      const errorMessage = 'Execution session disconnected before transaction execution';
-      executionArray.updateStatus(item.id, 'failed', errorMessage);
-      executionArray.updateResult(item.id, {
-        success: false,
-        error: errorMessage,
-        errorCode: 'SESSION_DISCONNECTED',
-      });
-      throw new Error(errorMessage);
-    }
-    
-    // Rebuild extrinsic using the correct API instance
-    // This ensures metadata matches exactly
-    const metadata = agentResult.metadata || {};
-    let extrinsic: SubmittableExtrinsic<'promise'>;
-    
-    try {
-      // Rebuild based on extrinsic type
-      if (metadata.recipient && metadata.amount) {
-        // Transfer extrinsic
-        // IMPORTANT: amount is stored as string in metadata, must convert to BN
-        const { BN } = await import('@polkadot/util');
-        const amount = new BN(metadata.amount);
-        const keepAlive = metadata.keepAlive === true;
-        
-        console.log('[Executioner] Rebuilding transfer extrinsic:', {
-          recipient: metadata.recipient,
-          amount: amount.toString(),
-          keepAlive,
-          chain: resolvedChainType,
-        });
-        
-        if (keepAlive) {
-          extrinsic = apiForExtrinsic.tx.balances.transferKeepAlive(metadata.recipient, amount);
-        } else {
-          extrinsic = apiForExtrinsic.tx.balances.transferAllowDeath(metadata.recipient, amount);
-        }
-      } else {
-        // Cannot rebuild from metadata - this is a critical error
-        // We cannot safely use the original extrinsic as it might have wrong registry
-        const errorMessage = 'Cannot rebuild extrinsic from metadata. Missing recipient or amount.';
-        console.error('[Executioner] Failed to rebuild extrinsic:', errorMessage);
-        executionArray.updateStatus(item.id, 'failed', errorMessage);
-        executionArray.updateResult(item.id, {
-          success: false,
-          error: errorMessage,
-          errorCode: 'EXTRINSIC_REBUILD_FAILED',
-        });
-        throw new Error(errorMessage);
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('[Executioner] Failed to rebuild extrinsic:', errorMessage);
-      executionArray.updateStatus(item.id, 'failed', `Failed to rebuild extrinsic: ${errorMessage}`);
-      executionArray.updateResult(item.id, {
-        success: false,
-        error: `Failed to rebuild extrinsic: ${errorMessage}`,
-        errorCode: 'EXTRINSIC_REBUILD_FAILED',
-      });
-      throw new Error(`Failed to rebuild extrinsic: ${errorMessage}`);
-    }
-    
-    // Validate registry match (if session exists)
-    if (session) {
-      try {
-        session.assertSameRegistry(extrinsic);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('[Executioner] Registry mismatch detected:', errorMessage);
-        executionArray.updateStatus(item.id, 'failed', 'Cross-registry extrinsic detected');
-        executionArray.updateResult(item.id, {
-          success: false,
-          error: errorMessage,
-          errorCode: 'CROSS_REGISTRY_EXTRINSIC',
-        });
-        throw new Error(errorMessage);
-      }
-    }
+    console.log('[Executioner] Registry validation:', {
+      extrinsicRegistryAddr: extrinsic.registry.constructor.name,
+      selectedApiRegistryAddr: apiForExtrinsic.registry.constructor.name,
+      registryMatch: extrinsic.registry === apiForExtrinsic.registry,
+    });
     
     console.log('[Executioner] Executing extrinsic:', {
       description: item.description,
       estimatedFee: agentResult.estimatedFee,
-      chain: metadata.chain,
-      chainType: chainType,
-      endpoint: session?.endpoint || 'fallback',
     });
     
-    // CRITICAL: SIMULATE THE REBUILT EXTRINSIC BEFORE USER APPROVAL
+    // CRITICAL: SIMULATE EXTRINSIC BEFORE USER APPROVAL
     // This ensures we test the EXACT extrinsic that will be sent to the network
-    // DON'T set status to 'ready' yet - wait until simulation passes
-    console.log('[Executioner] Simulating rebuilt extrinsic (testing exact transaction that will execute)...');
+    console.log('[Executioner] Simulating extrinsic (testing exact transaction that will execute)...');
     
     try {
       // Try Chopsticks simulation first (real runtime validation)
@@ -507,43 +416,24 @@ export class Executioner {
       }
       
       if (await isChopsticksAvailable()) {
-        console.log('[Executioner] Using Chopsticks for runtime simulation of rebuilt extrinsic...');
+        console.log('[Executioner] Using Chopsticks for runtime simulation...');
         
-        // Get RPC endpoints for this chain using RPC manager
-        let rpcEndpoints: string[];
-        if (session) {
-          // Use session endpoint and manager's healthy endpoints
-          const sessionEndpoint = session.endpoint; // Capture for use in callback
-          const manager = resolvedChainType === 'assetHub' ? this.assetHubManager : this.relayChainManager;
-          if (manager) {
-            const healthStatus = manager.getHealthStatus();
-            const orderedEndpoints = healthStatus
-              .filter(h => h.healthy || !h.lastFailure || (Date.now() - h.lastFailure) >= 5 * 60 * 1000)
-              .sort((a, b) => {
-                if (a.endpoint === sessionEndpoint) return -1;
-                if (b.endpoint === sessionEndpoint) return 1;
-                if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
-                return (a.failureCount || 0) - (b.failureCount || 0);
-              })
-              .map(h => h.endpoint);
-            rpcEndpoints = orderedEndpoints.length > 0 ? orderedEndpoints : [sessionEndpoint];
-          } else {
-            rpcEndpoints = [sessionEndpoint];
-          }
-        } else {
-          // Fallback to hardcoded endpoints if no session
-          rpcEndpoints = resolvedChainType === 'assetHub' 
-            ? ['wss://polkadot-asset-hub-rpc.polkadot.io', 'wss://statemint-rpc.dwellir.com']
-            : ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
-        }
+        // Get RPC endpoints - use default endpoints for simulation
+        const rpcEndpoints = ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
         
-        // Simulate the REBUILT extrinsic (not the original!)
+        // Encode sender address for simulation
+        const { encodeAddress: encodeAddr, decodeAddress: decodeAddr } = await import('@polkadot/util-crypto');
+        const senderPublicKey = decodeAddr(this.account.address);
+        const senderSS58Format = apiForExtrinsic.registry.chainSS58 || 0;
+        const encodedSender = encodeAddr(senderPublicKey, senderSS58Format);
+        
+        // Simulate the extrinsic
         const simulationResult = await simulateTransaction(
           apiForExtrinsic,
           rpcEndpoints,
           extrinsic,
-          this.account.address,
-          this.onStatusUpdate // Pass the callback so UI shows simulation progress!
+          encodedSender,
+          this.onStatusUpdate
         );
         
         if (!simulationResult.success) {
@@ -572,7 +462,13 @@ export class Executioner {
         console.warn('[Executioner] Chopsticks unavailable, using paymentInfo for basic validation...');
         
         try {
-          const paymentInfo = await extrinsic.paymentInfo(this.account.address);
+          // Encode sender address for this chain before paymentInfo
+          const { encodeAddress: encodeAddr, decodeAddress: decodeAddr } = await import('@polkadot/util-crypto');
+          const senderPublicKey = decodeAddr(this.account.address);
+          const senderSS58Format = apiForExtrinsic.registry.chainSS58 || 0;
+          const encodedSenderAddress = encodeAddr(senderPublicKey, senderSS58Format);
+          
+          const paymentInfo = await extrinsic.paymentInfo(encodedSenderAddress);
           console.log('[Executioner] ⚠️ Basic validation passed (runtime not fully tested):', {
             fee: paymentInfo.partialFee.toString(),
             weight: paymentInfo.weight.toString(),
@@ -643,24 +539,26 @@ export class Executioner {
     console.log('[Executioner] Signing transaction...');
     
     try {
-      // Final registry check before signing
-      if (session) {
-        session.assertSameRegistry(extrinsic);
-      }
+      // Encode sender address for this chain before signing
+      const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
+      const publicKey = decodeAddress(this.account.address);
+      const ss58Format = apiForExtrinsic.registry.chainSS58 || 0;
+      const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
+      
+      console.log('[Executioner] Signing with address:', {
+        original: this.account.address,
+        encoded: encodedSenderAddress,
+        ss58Format,
+      });
       
       // Sign the transaction using pluggable signer
-      const signedExtrinsic = await this.signTransaction(extrinsic, this.account.address);
+      const signedExtrinsic = await this.signTransaction(extrinsic, encodedSenderAddress);
       console.log('[Executioner] Transaction signed successfully');
-      
-      // Validate signed extrinsic registry
-      if (session) {
-        session.assertSameRegistry(signedExtrinsic);
-      }
       
       executionArray.updateStatus(item.id, 'broadcasting');
       console.log('[Executioner] Broadcasting transaction...');
       
-      // Broadcast and monitor using the session API (immutable)
+      // Broadcast and monitor
       const result = await this.broadcastAndMonitor(signedExtrinsic, timeout, apiForExtrinsic, true);
       
       if (result.success) {
@@ -677,22 +575,12 @@ export class Executioner {
       console.error('[Executioner] Error during transaction execution:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
-      // Check if session died
-      if (session && !(await session.isConnected())) {
-        executionArray.updateStatus(item.id, 'failed', 'Execution session disconnected. Please retry.');
-        executionArray.updateResult(item.id, {
-          success: false,
-          error: 'Execution session disconnected. The RPC endpoint died during transaction execution.',
-          errorCode: 'SESSION_DISCONNECTED',
-        });
-      } else {
-        executionArray.updateStatus(item.id, 'failed', errorMessage);
-        executionArray.updateResult(item.id, {
-          success: false,
-          error: errorMessage,
-          errorCode: 'EXECUTION_FAILED',
-        });
-      }
+      executionArray.updateStatus(item.id, 'failed', errorMessage);
+      executionArray.updateResult(item.id, {
+        success: false,
+        error: errorMessage,
+        errorCode: 'EXECUTION_FAILED',
+      });
       throw error;
     }
   }
@@ -700,8 +588,8 @@ export class Executioner {
   /**
    * Execute a batch of extrinsics
    * 
-   * CRITICAL: Uses execution session to lock API instance and prevent metadata mismatches.
-   * Rebuilds all extrinsics using the exact API that will submit them.
+   * SIMPLIFIED: Agents create extrinsics directly. Executioner uses them and batches them together.
+   * Uses registry matching to find the correct API for the batch.
    */
   private async executeBatch(
     executionArray: ExecutionArray,
@@ -713,134 +601,81 @@ export class Executioner {
       throw new Error('Executioner not initialized');
     }
     
-    // Determine chain from first item (all should be on same chain)
-    const firstItemChain = items[0]?.agentResult?.metadata?.chainType as 'assetHub' | 'relay' | undefined;
+    console.log('[Executioner] Batching multiple items:', {
+      itemCount: items.length,
+      items: items.map(item => ({
+        id: item.id,
+        description: item.description,
+        hasExtrinsic: !!item.agentResult.extrinsic,
+      })),
+    });
     
-    // Resolve chain type (same logic as single extrinsic)
-    let resolvedChainType: 'assetHub' | 'relay' = firstItemChain || 'relay';
-    if (!firstItemChain && items[0]?.agentResult?.metadata?.chain) {
-      const chainName = String(items[0].agentResult.metadata.chain).toLowerCase();
-      if (chainName.includes('asset') || chainName.includes('statemint')) {
-        resolvedChainType = 'assetHub';
+    // Validate all items have extrinsics (agents should have created them)
+    const extrinsics: SubmittableExtrinsic<'promise'>[] = [];
+    for (const item of items) {
+      if (!item.agentResult.extrinsic) {
+        const errorMessage = `Item ${item.id} has no extrinsic. Agent must create extrinsic before batching.`;
+        console.error('[Executioner] Batch item missing extrinsic:', errorMessage);
+        executionArray.updateStatus(item.id, 'failed', errorMessage);
+        executionArray.updateResult(item.id, {
+          success: false,
+          error: errorMessage,
+          errorCode: 'NO_EXTRINSIC_IN_BATCH_ITEM',
+        });
+        throw new Error(errorMessage);
       }
+      extrinsics.push(item.agentResult.extrinsic);
     }
     
-    const manager = resolvedChainType === 'assetHub' ? this.assetHubManager : this.relayChainManager;
-    
-    // Create execution session - locks API instance for batch lifecycle
-    let session: ExecutionSession | null = null;
+    // Find the API that matches the first extrinsic's registry
+    const firstExtrinsic = extrinsics[0];
     let apiForBatch: ApiPromise;
     
-    if (manager) {
-      try {
-        session = await manager.createExecutionSession();
-        apiForBatch = session.api;
-        console.log('[Executioner] Created execution session for batch:', session.endpoint, `(chain: ${resolvedChainType})`);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        items.forEach(item => {
-          executionArray.updateStatus(item.id, 'failed', `Failed to create execution session: ${errorMessage}`);
-          executionArray.updateResult(item.id, {
-            success: false,
-            error: `Failed to create execution session: ${errorMessage}`,
-            errorCode: 'EXECUTION_SESSION_FAILED',
-          });
-        });
-        throw new Error(`Failed to create execution session: ${errorMessage}`);
-      }
+    if (this.api.registry === firstExtrinsic.registry) {
+      apiForBatch = this.api;
+      console.log('[Executioner] Using relay chain API for batch (registry match)');
+    } else if (this.assetHubApi && this.assetHubApi.registry === firstExtrinsic.registry) {
+      apiForBatch = this.assetHubApi;
+      console.log('[Executioner] Using Asset Hub API for batch (registry match)');
     } else {
-      // Fallback: use existing API
-      apiForBatch = resolvedChainType === 'assetHub' && this.assetHubApi 
-        ? this.assetHubApi 
-        : this.api;
-      console.warn('[Executioner] No RPC manager available for batch, using existing API (no execution session - metadata mismatch risk)');
+      // Fallback: use relay chain API
+      console.warn('[Executioner] No exact registry match for batch, using relay chain API as fallback');
+      apiForBatch = this.api;
     }
+    
+    // Validate all extrinsics have the same registry (required for batching)
+    const uniqueRegistries = new Set(extrinsics.map(ext => ext.registry));
+    if (uniqueRegistries.size > 1) {
+      const errorMessage = `Batch contains extrinsics with different registries. All batch items must use the same chain.`;
+      console.error('[Executioner] Batch registry validation failed:', errorMessage);
+      items.forEach(item => {
+        executionArray.updateStatus(item.id, 'failed', 'Mixed registries in batch');
+        executionArray.updateResult(item.id, {
+          success: false,
+          error: errorMessage,
+          errorCode: 'MIXED_REGISTRIES_IN_BATCH',
+        });
+      });
+      throw new Error(errorMessage);
+    }
+    
+    console.log('[Executioner] ✓ Batch registry validated:', {
+      registryMatch: apiForBatch.registry === firstExtrinsic.registry,
+      extrinsicCount: extrinsics.length,
+    });
     
     // Ensure API is ready
     if (!apiForBatch.isReady) {
       await apiForBatch.isReady;
     }
     
-    // Check session health before proceeding
-    if (session && !(await session.isConnected())) {
-      const errorMessage = 'Execution session disconnected before batch execution';
-      items.forEach(item => {
-        executionArray.updateStatus(item.id, 'failed', errorMessage);
-        executionArray.updateResult(item.id, {
-          success: false,
-          error: errorMessage,
-          errorCode: 'SESSION_DISCONNECTED',
-        });
-      });
-      throw new Error(errorMessage);
-    }
+    // Create batch extrinsic using the matched API
+    const batchExtrinsic = apiForBatch.tx.utility.batchAll(extrinsics);
     
-    // Rebuild all extrinsics using the correct API
-    const rebuiltExtrinsics: SubmittableExtrinsic<'promise'>[] = [];
-    const { BN } = await import('@polkadot/util');
-    
-    for (const item of items) {
-      const metadata = item.agentResult.metadata || {};
-      
-      // Check if this is a batch transfer (has transfers array)
-      if (metadata.transfers && Array.isArray(metadata.transfers) && metadata.transfers.length > 0) {
-        // Batch transfer - rebuild individual transfers
-        for (const transfer of metadata.transfers) {
-          if (transfer.recipient && transfer.amount) {
-            // IMPORTANT: amount is stored as string, must convert to BN
-            const amount = new BN(transfer.amount);
-            const extrinsic = apiForBatch.tx.balances.transferAllowDeath(transfer.recipient, amount);
-            rebuiltExtrinsics.push(extrinsic);
-            
-            // Validate registry match
-            if (session) {
-              session.assertSameRegistry(extrinsic);
-            }
-          }
-        }
-      } else if (metadata.recipient && metadata.amount) {
-        // Single transfer extrinsic
-        // IMPORTANT: amount is stored as string, must convert to BN
-        const amount = new BN(metadata.amount);
-        const keepAlive = metadata.keepAlive === true;
-        const extrinsic = keepAlive
-          ? apiForBatch.tx.balances.transferKeepAlive(metadata.recipient, amount)
-          : apiForBatch.tx.balances.transferAllowDeath(metadata.recipient, amount);
-        rebuiltExtrinsics.push(extrinsic);
-        
-        // Validate registry match
-        if (session) {
-          session.assertSameRegistry(extrinsic);
-        }
-      } else {
-        // Cannot rebuild from metadata - fail this item
-        const errorMessage = `Cannot rebuild extrinsic from metadata for item ${item.id}. Missing recipient/amount or transfers array.`;
-        console.error('[Executioner] Batch item rebuild failed:', errorMessage);
-        executionArray.updateStatus(item.id, 'failed', errorMessage);
-        executionArray.updateResult(item.id, {
-          success: false,
-          error: errorMessage,
-          errorCode: 'EXTRINSIC_REBUILD_FAILED',
-        });
-        // Don't add to batch - this item will fail
-        continue;
-      }
-    }
-    
-    if (rebuiltExtrinsics.length === 0) {
-      items.forEach(item => {
-        executionArray.updateStatus(item.id, 'failed', 'No valid extrinsics in batch');
-      });
-      return;
-    }
-    
-    // Create batch extrinsic using correct API
-    const batchExtrinsic = apiForBatch.tx.utility.batchAll(rebuiltExtrinsics);
-    
-    // CRITICAL: SIMULATE THE REBUILT BATCH EXTRINSIC BEFORE USER APPROVAL
+    // CRITICAL: SIMULATE THE BATCH EXTRINSIC BEFORE USER APPROVAL
     // This ensures we test the EXACT batch that will be sent to the network
     // DON'T set status to 'ready' yet - wait until simulation passes
-    console.log('[Executioner] Simulating rebuilt batch extrinsic (testing exact batch that will execute)...');
+    console.log('[Executioner] Simulating batch extrinsic (testing exact batch that will execute)...');
     
     try {
       // Try Chopsticks simulation first (real runtime validation)
@@ -859,40 +694,26 @@ export class Executioner {
       }
       
       if (await isChopsticksAvailable()) {
-        console.log('[Executioner] Using Chopsticks for runtime simulation of rebuilt batch...');
+        console.log('[Executioner] Using Chopsticks for batch runtime simulation...');
         
-        // Get RPC endpoints for this chain using RPC manager
-        let rpcEndpoints: string[];
-        if (session) {
-          const sessionEndpoint = session.endpoint; // Capture for use in callback
-          const manager = resolvedChainType === 'assetHub' ? this.assetHubManager : this.relayChainManager;
-          if (manager) {
-            const healthStatus = manager.getHealthStatus();
-            const orderedEndpoints = healthStatus
-              .filter(h => h.healthy || !h.lastFailure || (Date.now() - h.lastFailure) >= 5 * 60 * 1000)
-              .sort((a, b) => {
-                if (a.endpoint === sessionEndpoint) return -1;
-                if (b.endpoint === sessionEndpoint) return 1;
-                if (a.healthy !== b.healthy) return a.healthy ? -1 : 1;
-                return (a.failureCount || 0) - (b.failureCount || 0);
-              })
-              .map(h => h.endpoint);
-            rpcEndpoints = orderedEndpoints.length > 0 ? orderedEndpoints : [sessionEndpoint];
-          } else {
-            rpcEndpoints = [sessionEndpoint];
-          }
-        } else {
-          rpcEndpoints = resolvedChainType === 'assetHub' 
-            ? ['wss://polkadot-asset-hub-rpc.polkadot.io', 'wss://statemint-rpc.dwellir.com']
-            : ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
-        }
+        // Get RPC endpoints - use default endpoints for simulation
+        const rpcEndpoints = apiForBatch.registry.chainSS58 === 0 // Asset Hub uses SS58 0
+          ? ['wss://polkadot-asset-hub-rpc.polkadot.io', 'wss://statemint-rpc.dwellir.com']
+          : ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
         
-        // Simulate the REBUILT batch extrinsic (not the originals!)
+        // Encode sender address for batch simulation
+        const { encodeAddress: encodeAddr, decodeAddress: decodeAddr } = await import('@polkadot/util-crypto');
+        const senderPublicKey = decodeAddr(this.account.address);
+        const senderSS58Format = apiForBatch.registry.chainSS58 || 0;
+        const encodedSender = encodeAddr(senderPublicKey, senderSS58Format);
+        
+        // Simulate the batch extrinsic
         const simulationResult = await simulateTransaction(
           apiForBatch,
           rpcEndpoints,
           batchExtrinsic,
-          this.account.address
+          encodedSender,
+          this.onStatusUpdate
         );
         
         if (!simulationResult.success) {
@@ -915,7 +736,7 @@ export class Executioner {
         
         console.log('[Executioner] ✓ Batch Chopsticks simulation passed:', {
           estimatedFee: simulationResult.estimatedFee,
-          extrinsicsCount: rebuiltExtrinsics.length,
+          extrinsicsCount: extrinsics.length,
         });
         
       } else {
@@ -998,25 +819,28 @@ export class Executioner {
       executionArray.updateStatus(item.id, 'signing');
     });
     
-    // Final registry check
-    if (session) {
-      session.assertSameRegistry(batchExtrinsic);
-    }
+    // Encode sender address for this chain before signing
+    const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
+    const publicKey = decodeAddress(this.account.address);
+    const ss58Format = apiForBatch.registry.chainSS58 || 0;
+    const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
+    
+    console.log('[Executioner] Signing batch with address:', {
+      original: this.account.address,
+      encoded: encodedSenderAddress,
+      ss58Format,
+      registryMatch: batchExtrinsic.registry === apiForBatch.registry,
+    });
     
     // Sign the batch using pluggable signer
-    const signedBatchExtrinsic = await this.signTransaction(batchExtrinsic, this.account.address);
-    
-    // Validate signed batch registry
-    if (session) {
-      session.assertSameRegistry(signedBatchExtrinsic);
-    }
+    const signedBatchExtrinsic = await this.signTransaction(batchExtrinsic, encodedSenderAddress);
     
     // Update all items to broadcasting
     items.forEach(item => {
       executionArray.updateStatus(item.id, 'broadcasting');
     });
     
-    // Broadcast and monitor using the session API (immutable)
+    // Broadcast and monitor using the matched API
     const result = await this.broadcastAndMonitor(signedBatchExtrinsic, timeout, apiForBatch, true);
     
     if (result.success) {

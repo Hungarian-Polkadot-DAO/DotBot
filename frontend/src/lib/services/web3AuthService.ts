@@ -1,4 +1,4 @@
-import { web3Accounts, web3Enable } from '@polkadot/extension-dapp';
+import { web3Accounts, web3Enable, web3FromAddress } from '@polkadot/extension-dapp';
 import { signatureVerify, cryptoWaitReady } from '@polkadot/util-crypto';
 import { decodeAddress } from '@polkadot/keyring';
 import { WalletAccount } from '../../types/wallet';
@@ -202,23 +202,17 @@ class Web3AuthService {
       // Request signature from the wallet
       let signatureData: string;
       try {
-        // Get wallet extension
-        const extensions = await web3Enable('DotBot');
-        const extension = extensions.find((e: any) => e.name === account.source);
+        // Use web3FromAddress instead of web3Enable to avoid triggering permission popup again
+        const injector = await web3FromAddress(account.address);
         
-        if (!extension) {
-          console.error('❌ Extension not found! Available:', extensions.map((e: any) => e.name));
-          throw new Error(`Extension "${account.source}" not found`);
-        }
-        
-        if (!extension.signer || !extension.signer.signRaw) {
-          throw new Error('No signer available');
+        if (!injector.signer || !injector.signer.signRaw) {
+          throw new Error('No signer available for this account');
         }
 
         console.log('🔐 Requesting signature from wallet...');
 
         // Sign the message
-        const signResult = await extension.signer.signRaw({
+        const signResult = await injector.signer.signRaw({
           address: account.address,
           data: message,
           type: 'payload'
