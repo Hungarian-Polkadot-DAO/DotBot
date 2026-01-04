@@ -155,8 +155,8 @@ describe('BaseAgent', () => {
 
     it('should validate correct Polkadot address', () => {
       const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
-      (isAddress as jest.Mock).mockReturnValue(true);
-      (decodeAddress as jest.Mock).mockReturnValue(new Uint8Array([1, 2, 3]));
+      (isAddress as unknown as jest.Mock).mockReturnValue(true);
+      (decodeAddress as unknown as jest.Mock).mockReturnValue(new Uint8Array([1, 2, 3]));
 
       const result = agent['validateAddress'](address);
 
@@ -175,7 +175,7 @@ describe('BaseAgent', () => {
 
     it('should reject invalid address format', () => {
       const address = 'invalid-address';
-      (isAddress as jest.Mock).mockReturnValue(false);
+      (isAddress as unknown as jest.Mock).mockReturnValue(false);
 
       const result = agent['validateAddress'](address);
 
@@ -185,8 +185,8 @@ describe('BaseAgent', () => {
 
     it('should handle decodeAddress errors', () => {
       const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
-      (isAddress as jest.Mock).mockReturnValue(true);
-      (decodeAddress as jest.Mock).mockImplementation(() => {
+      (isAddress as unknown as jest.Mock).mockReturnValue(true);
+      (decodeAddress as unknown as jest.Mock).mockImplementation(() => {
         throw new Error('Invalid address');
       });
 
@@ -212,7 +212,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const balance = await agent['getBalance'](address);
 
@@ -232,7 +232,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const balance = await agent['getBalance'](address);
 
@@ -245,7 +245,7 @@ describe('BaseAgent', () => {
         data: {},
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const balance = await agent['getBalance'](address);
 
@@ -269,7 +269,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockAssetHubApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockAssetHubApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const balance = await agent['getAssetHubBalance'](address);
 
@@ -341,7 +341,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const balance = await agent['getBalanceOnChain']('relay', address);
 
@@ -358,7 +358,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockAssetHubApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockAssetHubApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const balance = await agent['getBalanceOnChain']('assetHub', address);
 
@@ -390,7 +390,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const result = await agent['hasSufficientBalance'](address, '5000000000000', true); // 5 DOT
 
@@ -408,7 +408,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const result = await agent['hasSufficientBalance'](address, '5000000000000', true); // 5 DOT
 
@@ -426,7 +426,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const result = await agent['hasSufficientBalance'](address, '900000000000', true);
 
@@ -444,7 +444,7 @@ describe('BaseAgent', () => {
         },
       };
 
-      (mockApi.query!.system!.account as jest.Mock).mockResolvedValue(mockAccountData);
+      (mockApi.query!.system!.account as unknown as jest.Mock).mockResolvedValue(mockAccountData);
 
       const result = await agent['hasSufficientBalance'](address, '900000000000', false);
 
