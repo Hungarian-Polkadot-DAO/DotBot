@@ -37,25 +37,18 @@ class Web3AuthService {
    * Internal method to enable Web3 extensions (with caching to prevent duplicate calls)
    */
   private async _enableWeb3Internal(): Promise<any[]> {
-    // If already enabled and cached, return cache
     if (this.enabledExtensionsCache !== null) {
-      console.log('Using cached extensions');
       return this.enabledExtensionsCache;
     }
 
-    // If there's already a pending enable call, wait for it
     if (this.enablePromise !== null) {
-      console.log('Waiting for pending web3Enable call...');
       return this.enablePromise;
     }
 
-    // Create new enable promise
-    console.log('Enabling Web3 extensions...');
     this.enablePromise = web3Enable('DotBot');
 
     try {
       const extensions = await this.enablePromise;
-      console.log('Enabled extensions:', extensions);
 
       if (extensions.length === 0) {
         throw new Error('No Web3 extensions found. Please install Talisman, Subwallet, or another Polkadot wallet extension.');
@@ -84,11 +77,9 @@ class Web3AuthService {
     try {
       await this._enableWeb3Internal();
 
-      // Get all available accounts
       const accounts = await web3Accounts();
-      console.log('Available accounts:', accounts);
 
-      // Transform to our WalletAccount interface
+      return accounts.map(account => ({
       return accounts.map(account => ({
         address: account.address,
         name: account.meta?.name || 'Unnamed Account',
@@ -107,29 +98,17 @@ class Web3AuthService {
    */
   async checkWalletAvailability(): Promise<WalletStatus> {
     try {
-      console.log('Checking wallet availability...');
-      
-      // Check if we're in a browser environment
       if (typeof window === 'undefined') {
-        console.log('Not in browser environment');
         return { available: false, locked: false, error: 'Not in browser environment' };
       }
       
-      // Check if the polkadot extension object exists
       if (typeof (window as any).injectedWeb3 === 'undefined') {
-        console.log('No injectedWeb3 found');
         return { available: false, locked: false, error: 'No wallet extensions detected' };
       }
       
-      console.log('Available injected extensions:', Object.keys((window as any).injectedWeb3));
-      
-      // Try to enable extensions (using cached method)
       const extensions = await this._enableWeb3Internal();
-      console.log('web3Enable result:', extensions);
       
-      // If extensions array is empty but we have injectedWeb3, the extensions might be locked
       if (extensions.length === 0 && Object.keys((window as any).injectedWeb3).length > 0) {
-        console.log('Extensions detected but not enabled - likely locked');
         return { 
           available: true, 
           locked: true, 
@@ -157,9 +136,7 @@ class Web3AuthService {
    */
   async getAvailableAccounts(): Promise<WalletAccount[]> {
     try {
-      console.log('Getting available accounts...');
       const accounts = await web3Accounts();
-      console.log('Retrieved accounts:', accounts);
       
       return accounts.map(account => ({
         address: account.address,
@@ -184,9 +161,6 @@ class Web3AuthService {
     try {
       this.currentAccount = account;
       
-      console.log('🚀 Starting authentication process');
-      console.log('📋 Account:', account.address);
-      
       // Create authentication message
       const timestamp = Date.now();
       const message = `Authenticate with DotBot\nTimestamp: ${timestamp}\nAddress: ${account.address}`;
@@ -209,7 +183,6 @@ class Web3AuthService {
           throw new Error('No signer available for this account');
         }
 
-        console.log('🔐 Requesting signature from wallet...');
 
         // Sign the message
         const signResult = await injector.signer.signRaw({
@@ -245,9 +218,6 @@ class Web3AuthService {
       let verificationError: Error | null = null;
       
       try {
-        console.log('🔍 Verifying signature...');
-        
-        // Ensure crypto library is fully initialized (CRITICAL!)
         await cryptoWaitReady();
         
         // Verify the signature
@@ -277,19 +247,12 @@ class Web3AuthService {
         verificationError = verifyError instanceof Error 
           ? verifyError 
           : new Error(`Signature verification threw an error: ${String(verifyError)}`);
-        console.error('❌ Signature verification exception:', {
-          error: verificationError.message,
-          stack: verificationError.stack
-        });
       }
       
       if (verificationError || !isValid) {
         const errorMessage = verificationError?.message || 'Signature verification failed';
-        console.error('❌ Verification failed:', errorMessage);
         throw new Error(`Authentication failed: ${errorMessage}`);
       }
-      
-      console.log('✅ Signature verified successfully!');
 
       // Create session token (in production, send signature to backend for verification)
       const sessionToken = `session_${account.address}_${Date.now()}`;
@@ -324,9 +287,8 @@ class Web3AuthService {
   async logout(): Promise<void> {
     try {
       // In a real implementation, you would call a logout endpoint
-      console.log('Logging out user');
-    } catch (error) {
-      console.warn('Logout API call failed:', error);
+    } catch {
+      // Ignore logout errors
     } finally {
       // Clear local data
       this.currentAccount = null;
@@ -371,8 +333,6 @@ class Web3AuthService {
    */
   async initialize(): Promise<boolean> {
     if (this.authToken && this.user) {
-      // In a real implementation, you would verify the token with your backend
-      console.log('Initializing with existing auth state');
       return true;
     }
     return false;

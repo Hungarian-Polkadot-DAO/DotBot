@@ -221,11 +221,9 @@ export class DotBot {
     const relayChainManager = config.relayChainManager || createRelayChainManager();
     const assetHubManager = config.assetHubManager || createAssetHubManager();
     
-    // Connect to Polkadot Relay Chain with automatic failover
     const isPreConnected = !!config.relayChainManager;
-    console.log(`🔗 ${isPreConnected ? 'Using pre-connected' : 'Connecting to'} Polkadot Relay Chain...`);
     const api = await relayChainManager.getReadApi();
-    console.log(`✅ Connected to Relay Chain via: ${relayChainManager.getCurrentEndpoint()}`);
+    console.info(`Connected to Relay Chain via: ${relayChainManager.getCurrentEndpoint()}`);
     
     // Create signer
     const signer = new BrowserWalletSigner({ 
@@ -245,12 +243,10 @@ export class DotBot {
     
     const dotbot = new DotBot(api, executionSystem, config, relayChainManager, assetHubManager);
     
-    // Initialize Asset Hub connection (blocking - wait for it)
     try {
       await dotbot.initializeAssetHub();
-      console.log('✅ DotBot ready with Asset Hub connection');
     } catch (err) {
-      console.warn('⚠️ Asset Hub connection failed, continuing without it:', err instanceof Error ? err.message : err);
+      console.warn('Asset Hub connection failed, continuing without it:', err instanceof Error ? err.message : err);
     }
     
     // Initialize execution system with both APIs and RPC managers (after Asset Hub is connected)
@@ -259,19 +255,14 @@ export class DotBot {
     return dotbot;
   }
   
-  /**
-   * Initialize Asset Hub connection with automatic failover
-   */
   private async initializeAssetHub(): Promise<void> {
-    console.log('🔗 Connecting to Asset Hub with automatic failover...');
-    
     try {
       this.assetHubApi = await this.assetHubManager.getReadApi();
-      console.log(`✅ Asset Hub connected via: ${this.assetHubManager.getCurrentEndpoint()}`);
+      console.info(`Asset Hub connected via: ${this.assetHubManager.getCurrentEndpoint()}`);
     } catch (error) {
-      console.error('❌ Asset Hub connection failed on all endpoints:', error);
+      console.error('Asset Hub connection failed on all endpoints:', error);
       this.assetHubApi = null;
-      throw error; // Re-throw so caller knows it failed
+      throw error;
     }
   }
   
@@ -288,12 +279,9 @@ export class DotBot {
    * ```typescript
    * // Question - gets text response
    * const result1 = await dotbot.chat("What is staking?");
-   * console.log(result1.response); // Explanation text
    * 
    * // Command - gets ExecutionPlan + execution
    * const result2 = await dotbot.chat("Send 2 DOT to Bob");
-   * console.log(result2.executed); // true
-   * console.log(result2.plan); // ExecutionPlan object
    * ```
    */
   async chat(message: string, options?: ChatOptions): Promise<ChatResult> {
@@ -316,14 +304,10 @@ export class DotBot {
     // Try to extract execution plan
     const plan = this.extractExecutionPlan(llmResponse);
     
-    // SCENARIO 1: No ExecutionPlan found - LLM responded with text
-    // This means the user asked a question, needs clarification, or made an error
     if (!plan || plan.steps.length === 0) {
-      console.log('💬 Text-only response (Question/Clarification/Error scenario)');
       this.currentExecutionArray = null;
       
-      // Clean up the response - remove any code block markers that might remain
-      let cleanedResponse = llmResponse
+      const cleanedResponse = llmResponse
         .replace(/```json\s*/g, '')
         .replace(/```\s*/g, '')
         .trim();
@@ -336,17 +320,6 @@ export class DotBot {
         failed: 0
       };
     }
-    
-    // SCENARIO 2: ExecutionPlan found - LLM generated a command
-    console.log('🔧 ExecutionPlan detected (Command scenario):', {
-      id: plan.id,
-      steps: plan.steps.length,
-      stepsDetails: plan.steps.map(s => ({
-        agent: s.agentClassName,
-        function: s.functionName,
-        type: s.executionType
-      }))
-    });
     
     // Prepare the plan for execution with array tracking
     let completed = 0;
@@ -367,12 +340,11 @@ export class DotBot {
       );
     } catch (error) {
       success = false;
-      console.error('❌ Execution preparation failed:', error);
+      console.error('Execution preparation failed:', error);
       
-      // Return a friendly error message
       const errorMsg = error instanceof Error ? error.message : String(error);
       return {
-        response: `❌ Unable to prepare your transaction:\n\n${errorMsg}\n\nPlease check the parameters and try again.`,
+        response: `Unable to prepare your transaction:\n\n${errorMsg}\n\nPlease check the parameters and try again.`,
         plan,
         executed: false,
         success: false,
@@ -381,7 +353,6 @@ export class DotBot {
       };
     }
     
-    // Generate friendly confirmation message
     const friendlyMessage = this.generateFriendlyMessage(plan, completed, failed);
     
     return {
@@ -394,9 +365,6 @@ export class DotBot {
     };
   }
   
-  /**
-   * Execute plan with ExecutionArray tracking
-   */
   private async executeWithArrayTracking(
     plan: ExecutionPlan,
     options?: ExecutionOptions,
@@ -404,87 +372,31 @@ export class DotBot {
       onComplete?: (success: boolean, completed: number, failed: number) => void;
     }
   ): Promise<void> {
-    // Use orchestrator directly to get the ExecutionArray
     const orchestrator = (this.executionSystem as any).orchestrator;
-    console.log('🎯 Orchestrating plan:', {
-      planId: plan.id,
-      steps: plan.steps.length,
-      stepDetails: plan.steps.map(s => ({
-        id: s.id,
-        agent: s.agentClassName,
-        function: s.functionName
-      }))
-    });
     
     let orchestrationResult;
     try {
       orchestrationResult = await orchestrator.orchestrate(plan);
-      console.log('✅ Orchestration completed');
     } catch (error) {
-      console.error('❌ Orchestration failed:', error);
+      console.error('Orchestration failed:', error);
       throw error;
     }
     
     const { executionArray } = orchestrationResult;
     
-    console.log('📋 Orchestration result:', {
-      hasExecutionArray: !!executionArray,
-      success: orchestrationResult.success,
-      errors: orchestrationResult.errors,
-      arrayItemCount: executionArray?.getItems?.()?.length || 0,
-      arrayState: executionArray?.getState?.(),
-      metadata: orchestrationResult.metadata
-    });
-    
-    // If orchestration failed with errors, show them to the user
     if (!orchestrationResult.success && orchestrationResult.errors.length > 0) {
       const errorMessages = orchestrationResult.errors.map((e: { error: string }) => `• ${e.error}`).join('\n');
       throw new Error(`Failed to prepare transaction:\n\n${errorMessages}`);
     }
     
-    // Store current execution array
     this.currentExecutionArray = executionArray;
     
-    // Log execution array for debugging
-    const items = executionArray.getItems();
-    console.log('📋 ExecutionArray created:', {
-      itemCount: items.length,
-      items: items.map((item: ExecutionItem) => ({
-        id: item.id,
-        description: item.description,
-        status: item.status,
-        type: item.executionType
-      })),
-      state: executionArray.getState()
-    });
-    
-    // Subscribe to updates and notify callbacks
     const unsubscribe = executionArray.onStatusUpdate((item: ExecutionItem) => {
       const state = executionArray.getState();
-      console.log('🔄 ExecutionArray update:', {
-        item: {
-          id: item.id,
-          description: item.description,
-          status: item.status
-        },
-        state: {
-          total: state.totalItems,
-          completed: state.completedItems,
-          failed: state.failedItems,
-          executing: state.isExecuting
-        }
-      });
-      
-      // Notify all subscribers
       this.executionArrayCallbacks.forEach(cb => cb(state));
     });
     
-    // DON'T notify initial state - wait until simulation completes
-    // The status update callback will notify when items become 'ready' (after simulation)
-    // This prevents showing "Review Transaction" UI before simulation runs
-    
     try {
-      // Execute (this will run simulation first, then request approval)
       const executioner = (this.executionSystem as any).executioner;
       await executioner.execute(executionArray, options);
       
@@ -517,7 +429,6 @@ export class DotBot {
     } | null;
     total: string;
   }> {
-    console.log('💰 DotBot.getBalance() - Querying address:', this.wallet.address);
     
     // Get Relay Chain balance
     const relayAccountInfo = await this.api.query.system.account(this.wallet.address);
@@ -529,7 +440,6 @@ export class DotBot {
       frozen: relayData.data?.frozen || relayData.data?.miscFrozen || '0'
     };
     
-    console.log('💰 Relay Chain balance:', relayBalance);
     
     // Get Asset Hub balance (if connected)
     let assetHubBalance: { free: string; reserved: string; frozen: string } | null = null;
@@ -544,12 +454,9 @@ export class DotBot {
           frozen: assetHubData.data?.frozen || assetHubData.data?.miscFrozen || '0'
     };
     
-        console.log('💰 Asset Hub balance:', assetHubBalance);
       } catch (error) {
-        console.warn('⚠️ Failed to fetch Asset Hub balance:', error);
       }
     } else {
-      console.log('ℹ️ Asset Hub not connected, skipping Asset Hub balance');
     }
     
     // Calculate total free balance
@@ -631,7 +538,7 @@ export class DotBot {
     if (totalSteps === 1) {
       const step = plan.steps[0];
       // Single transaction - keep it simple and direct
-      return `✅ Transaction ready:\n\n**${step.description}**\n\nReview the details below and approve when ready.`;
+      return `Transaction ready:\n\n**${step.description}**\n\nReview the details below and approve when ready.`;
     }
     
     // Multiple transactions - show them as a list
@@ -639,7 +546,7 @@ export class DotBot {
       .map((s, i) => `${i + 1}. ${s.description}`)
       .join('\n');
     
-    return `✅ ${totalSteps} transactions ready:\n\n${stepsList}\n\nReview the details below and approve when ready.`;
+    return `${totalSteps} transactions ready:\n\n${stepsList}\n\nReview the details below and approve when ready.`;
   }
 
   /**
@@ -650,18 +557,10 @@ export class DotBot {
       const balance = await this.getBalance();
       const chainInfo = await this.getChainInfo();
       
-      // Use original address - Polkadot API handles all SS58 formats automatically
-      // Converting would point to a different account on different networks
-      console.log('🔄 Using wallet address for system prompt:', {
-        address: this.wallet.address,
-        prefix: this.wallet.address[0],
-        note: 'Polkadot API handles all SS58 formats'
-      });
-      
       return buildSystemPrompt({
         wallet: {
           isConnected: true,
-          address: this.wallet.address, // Use original - don't convert!
+          address: this.wallet.address,
           provider: this.wallet.source
         },
         network: {
@@ -713,36 +612,21 @@ export class DotBot {
     );
   }
   
-  /**
-   * Extract execution plan from LLM response
-   */
   private extractExecutionPlan(llmResponse: string): ExecutionPlan | null {
-    console.log('🔍 Extracting ExecutionPlan from LLM response:', {
-      responseLength: llmResponse.length,
-      responsePreview: llmResponse.substring(0, 200)
-    });
-
     try {
-      // Look for JSON code block (most common format)
       const jsonMatch = llmResponse.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
-        console.log('📦 Found JSON code block');
         const plan = JSON.parse(jsonMatch[1]);
         if (this.isValidExecutionPlan(plan)) {
-          console.log('✅ Valid ExecutionPlan extracted from JSON code block');
           return plan;
-        } else {
-          console.warn('⚠️ JSON found but invalid ExecutionPlan structure:', plan);
         }
       }
       
-      // Look for JSON code block without language tag
       const jsonBlockMatch = llmResponse.match(/```\s*([\s\S]*?)\s*```/);
       if (jsonBlockMatch) {
         try {
           const plan = JSON.parse(jsonBlockMatch[1]);
           if (this.isValidExecutionPlan(plan)) {
-            console.log('✅ Valid ExecutionPlan extracted from code block');
             return plan;
           }
         } catch {
@@ -750,13 +634,11 @@ export class DotBot {
         }
       }
       
-      // Try to find JSON object in the response (might be embedded in text)
       const jsonObjectMatch = llmResponse.match(/\{[\s\S]*"steps"[\s\S]*\}/);
       if (jsonObjectMatch) {
         try {
           const plan = JSON.parse(jsonObjectMatch[0]);
           if (this.isValidExecutionPlan(plan)) {
-            console.log('✅ Valid ExecutionPlan extracted from embedded JSON');
             return plan;
           }
         } catch {
@@ -764,22 +646,18 @@ export class DotBot {
         }
       }
       
-      // Try to parse entire response as JSON
       try {
         const plan = JSON.parse(llmResponse);
         if (this.isValidExecutionPlan(plan)) {
-          console.log('✅ Valid ExecutionPlan extracted from full response');
           return plan;
         }
       } catch {
-        // Not JSON, that's fine
+        // Not JSON
       }
       
-      console.warn('⚠️ No valid ExecutionPlan found in LLM response');
-      console.log('Full response:', llmResponse);
       return null;
     } catch (error) {
-      console.error('❌ Error extracting ExecutionPlan:', error);
+      console.error('Error extracting ExecutionPlan:', error);
       return null;
     }
   }

@@ -161,14 +161,11 @@ export class RpcManager {
       const data = JSON.parse(stored);
       const now = Date.now();
       
-      // Check if data is too old
       if (data.timestamp && (now - data.timestamp) > this.healthDataMaxAge) {
-        console.log(`⚠️ RPC health data expired (age: ${Math.round((now - data.timestamp) / 1000 / 60)} minutes)`);
         localStorage.removeItem(this.storageKey);
         return;
       }
       
-      // Restore health map
       if (data.healthMap && Array.isArray(data.healthMap)) {
         data.healthMap.forEach((entry: any) => {
           if (entry.endpoint && this.endpoints.includes(entry.endpoint)) {
@@ -182,10 +179,8 @@ export class RpcManager {
             });
           }
         });
-        console.log(`✅ Loaded RPC health data for ${this.healthMap.size} endpoints`);
       }
     } catch (error) {
-      console.warn('⚠️ Failed to load RPC health data:', error);
       localStorage.removeItem(this.storageKey);
     }
   }
@@ -203,8 +198,8 @@ export class RpcManager {
         healthMap: healthArray
       };
       localStorage.setItem(this.storageKey, JSON.stringify(data));
-    } catch (error) {
-      console.warn('⚠️ Failed to save RPC health data:', error);
+    } catch {
+      // Ignore storage errors
     }
   }
   
@@ -267,7 +262,6 @@ export class RpcManager {
       health.failureCount = (health.failureCount || 0) + 1;
       this.healthMap.set(endpoint, health);
       this.saveHealthData();
-      console.warn(`⚠️ RPC endpoint marked as unhealthy: ${endpoint} (failures: ${health.failureCount})`);
     }
   }
   
@@ -289,9 +283,6 @@ export class RpcManager {
       }
       this.healthMap.set(endpoint, health);
       this.saveHealthData();
-      if (wasUnhealthy) {
-        console.log(`✅ RPC endpoint recovered: ${endpoint}`);
-      }
     }
   }
   
@@ -301,8 +292,6 @@ export class RpcManager {
   private async tryConnect(endpoint: string): Promise<ApiPromise> {
     const startTime = Date.now();
     return new Promise<ApiPromise>((resolve, reject) => {
-      console.log(`🔗 Attempting connection to: ${endpoint}`);
-      
       const provider = new WsProvider(endpoint);
       
       // Use a shorter timeout for API initialization (20 seconds instead of default 60)
@@ -339,13 +328,12 @@ export class RpcManager {
           }
           
           const responseTime = Date.now() - startTime;
-          console.log(`✅ Connected to ${endpoint} (${responseTime}ms)`);
           this.markEndpointHealthy(endpoint, responseTime);
           resolve(api);
         } catch (error) {
           if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
           provider.disconnect();
-          console.error(`❌ Failed to connect to ${endpoint}:`, error instanceof Error ? error.message : String(error));
+          console.error(`Failed to connect to ${endpoint}:`, error instanceof Error ? error.message : String(error));
           reject(error);
         }
       });
@@ -354,7 +342,7 @@ export class RpcManager {
         clearTimeout(connectionTimeoutHandle);
         if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
         provider.disconnect();
-        console.error(`❌ Failed to connect to ${endpoint}:`, error.message);
+        console.error(`Failed to connect to ${endpoint}:`, error.message);
         reject(error);
       });
     });
@@ -376,8 +364,6 @@ export class RpcManager {
     const orderedEndpoints = this.getOrderedEndpoints();
 
     if (orderedEndpoints.length === 0) {
-      // All endpoints have recently failed, reset and try again
-      console.warn('⚠️ All endpoints recently failed. Resetting failure timers and retrying...');
       this.endpoints.forEach(endpoint => {
         const health = this.healthMap.get(endpoint);
         if (health) {
@@ -385,7 +371,7 @@ export class RpcManager {
           this.healthMap.set(endpoint, health);
         }
       });
-      return this.getReadApi(); // Recursive call with reset state
+      return this.getReadApi();
     }
 
     let lastError: Error | null = null;
@@ -426,8 +412,6 @@ export class RpcManager {
     const orderedEndpoints = this.getOrderedEndpoints();
 
     if (orderedEndpoints.length === 0) {
-      // All endpoints have recently failed, reset and try again
-      console.warn('⚠️ All endpoints recently failed. Resetting failure timers and retrying...');
       this.endpoints.forEach(endpoint => {
         const health = this.healthMap.get(endpoint);
         if (health) {
@@ -435,7 +419,7 @@ export class RpcManager {
           this.healthMap.set(endpoint, health);
         }
       });
-      return this.createExecutionSession(); // Recursive call with reset state
+      return this.createExecutionSession();
     }
 
     let lastError: Error | null = null;
@@ -452,7 +436,6 @@ export class RpcManager {
           this.activeSessions.delete(session);
         });
         
-        console.log(`🔒 Created execution session with ${endpoint}`);
         return session;
       } catch (error) {
         lastError = error as Error;
@@ -472,7 +455,7 @@ export class RpcManager {
    * @deprecated Use getReadApi() for reads or createExecutionSession() for transactions
    */
   async connect(): Promise<ApiPromise> {
-    console.warn('⚠️ RpcManager.connect() is deprecated. Use getReadApi() or createExecutionSession()');
+    console.warn('RpcManager.connect() is deprecated. Use getReadApi() or createExecutionSession()');
     return this.getReadApi();
   }
 
@@ -506,11 +489,10 @@ export class RpcManager {
     }
     
     this.isMonitoring = true;
-    console.log(`🩺 Starting periodic RPC health monitoring (interval: ${this.healthCheckInterval / 1000}s)`);
     
     this.healthCheckTimer = setInterval(() => {
-      this.performHealthCheck().catch(error => {
-        console.warn('⚠️ Health check error:', error);
+      this.performHealthCheck().catch(() => {
+        // Ignore health check errors
       });
     }, this.healthCheckInterval);
   }
@@ -524,7 +506,6 @@ export class RpcManager {
       this.healthCheckTimer = null;
     }
     this.isMonitoring = false;
-    console.log('🩺 Stopped periodic RPC health monitoring');
   }
 
   /**
@@ -532,7 +513,6 @@ export class RpcManager {
    * This performs a lightweight connection test
    */
   async performHealthCheck(): Promise<void> {
-    console.log(`🩺 Performing health check on ${this.endpoints.length} endpoints...`);
     const startTime = Date.now();
     
     const checkPromises = this.endpoints.map(async (endpoint) => {
@@ -574,9 +554,8 @@ export class RpcManager {
     });
     
     await Promise.all(checkPromises);
-    const duration = Date.now() - startTime;
     const healthyCount = Array.from(this.healthMap.values()).filter(h => h.healthy).length;
-    console.log(`✅ Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy (${duration}ms)`);
+    console.info(`Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy`);
   }
 
   /**
@@ -597,7 +576,6 @@ export class RpcManager {
     });
     this.activeSessions.clear();
     
-    console.log('🧹 RpcManager destroyed');
   }
 }
 
