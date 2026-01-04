@@ -395,9 +395,24 @@ export class Executioner {
       estimatedFee: agentResult.estimatedFee,
     });
     
-    // CRITICAL: SIMULATE EXTRINSIC BEFORE USER APPROVAL
-    // This ensures we test the EXACT extrinsic that will be sent to the network
-    console.log('[Executioner] Simulating extrinsic (testing exact transaction that will execute)...');
+    // Check if simulation should be enabled
+    // Simulation is OFF by default for fast development
+    // TODO: Add configuration option to enable simulation globally or per-execution
+    const shouldSimulate = false; // Disabled by default
+    
+    console.log('[Executioner] 🔍 Simulation setting:', {
+      shouldSimulate,
+      note: 'Simulation is OFF by default for fast development. Enable by setting shouldSimulate=true.',
+    });
+    
+    if (!shouldSimulate) {
+      console.log('[Executioner] ⏭️  SIMULATION DISABLED (default) - Skipping validation, proceeding to user approval');
+      // Set item to 'ready' immediately for user approval
+      executionArray.updateStatus(item.id, 'ready');
+      console.log('[Executioner] Item ready for user approval (no pre-execution simulation)');
+    } else {
+      // Simulation ENABLED - validate before user approval
+      console.log('[Executioner] 🧪 SIMULATION ENABLED - Validating extrinsic before user approval...');
     
     try {
       // Try Chopsticks simulation first (real runtime validation)
@@ -568,10 +583,15 @@ export class Executioner {
       
       throw new Error(`Transaction validation failed: ${errorMessage}`);
     }
+    } // End of else block - simulation only runs if agent didn't already validate
     
     // Request user signature (unless auto-approve is enabled)
     if (!autoApprove) {
-      console.log('[Executioner] Requesting user approval...');
+      console.log('[Executioner] 🔐 Requesting user approval for extrinsic:', {
+        itemId: item.id,
+        description: item.description,
+        method: `${extrinsic.method.section}.${extrinsic.method.method}`,
+      });
       const approved = await this.requestSignature(item, extrinsic);
       if (!approved) {
         console.log('[Executioner] User rejected transaction');

@@ -36,6 +36,11 @@ export interface TransferCapabilities {
   existentialDeposit: string;      // In Planck (smallest unit)
   ss58Prefix: number;
   
+  // Chain type classification
+  isAssetHub: boolean;
+  isRelayChain: boolean;
+  isParachain: boolean;
+  
   // Runtime version
   specName: string;
   specVersion: number;
@@ -144,6 +149,9 @@ export async function detectTransferCapabilities(api: ApiPromise): Promise<Trans
     nativeDecimals,
     existentialDeposit,
     ss58Prefix,
+    isAssetHub,
+    isRelayChain,
+    isParachain,
     specName,
     specVersion,
   };
@@ -235,6 +243,30 @@ export function getBestTransferMethod(
   capabilities: TransferCapabilities,
   keepAlive: boolean = false
 ): 'transferAllowDeath' | 'transfer' | 'transferKeepAlive' {
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // Asset Hub DOT Post-Migration (November 4, 2025)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // After migration, DOT IS native to Asset Hub. Both balances.transfer and
+  // balances.transferKeepAlive work normally. However, preferring transferKeepAlive
+  // is safer as it prevents accidental account reaping.
+  //
+  // ✅ Both work on Asset Hub: transferKeepAlive (safer) and transferAllowDeath
+  if (capabilities.isAssetHub && capabilities.nativeTokenSymbol === 'DOT' && !keepAlive) {
+    console.log(
+      `[TransferCapabilities] ✅ Asset Hub DOT detected - preferring transferKeepAlive (safer post-migration)`
+    );
+    
+    if (capabilities.hasTransferKeepAlive) {
+      // Prefer transferKeepAlive (safer)
+      return 'transferKeepAlive';
+    }
+    
+    // Fallback to transferAllowDeath if transferKeepAlive not available
+    console.warn(
+      `[TransferCapabilities] ⚠️  transferKeepAlive not available, using transferAllowDeath`
+    );
+  }
+  
   if (keepAlive) {
     if (!capabilities.hasTransferKeepAlive) {
       throw new Error(

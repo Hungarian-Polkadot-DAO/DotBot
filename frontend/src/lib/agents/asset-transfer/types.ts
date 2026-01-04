@@ -26,9 +26,6 @@ export interface TransferParams extends BaseAgentParams {
   
   /** Whether to validate balance before creating extrinsic - defaults to true */
   validateBalance?: boolean;
-  
-  /** Whether to enable simulation/dry-run validation - defaults to false (simulation OFF by default). Set to true to enable. */
-  enableSimulation?: boolean;
 }
 
 export interface BatchTransferParams extends BaseAgentParams {
@@ -43,8 +40,5 @@ export interface BatchTransferParams extends BaseAgentParams {
   
   /** Whether to validate balance before creating extrinsic - defaults to true */
   validateBalance?: boolean;
-  
-  /** Whether to enable simulation/dry-run validation - defaults to false (simulation OFF by default). Set to true to enable. */
-  enableSimulation?: boolean;
 }
 

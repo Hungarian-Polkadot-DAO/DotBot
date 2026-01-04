@@ -284,6 +284,7 @@ export class ExecutionOrchestrator {
     console.log('✅ Function exists, calling with params:', step.parameters);
     
     // Add status callback to parameters if not present
+    // NOTE: Simulation is now handled by Executioner only, not by agents
     const paramsWithCallback = {
       ...step.parameters,
       onSimulationStatus: step.parameters.onSimulationStatus || this.onStatusUpdate || undefined,

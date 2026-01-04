@@ -51,7 +51,15 @@ export class BrowserWalletSigner implements Signer {
   }
   
   async requestApproval(request: SigningRequest): Promise<boolean> {
+    console.log('[BrowserWalletSigner] 🔐 requestApproval called:', {
+      itemId: request.itemId,
+      description: request.description,
+      autoApprove: this.options.autoApprove,
+      hasHandler: !!this.signingRequestHandler,
+    });
+    
     if (this.options.autoApprove) {
+      console.log('[BrowserWalletSigner] ✅ Auto-approve enabled, approving immediately');
       return true;
     }
     
@@ -59,15 +67,25 @@ export class BrowserWalletSigner implements Signer {
       throw new Error('No signing request handler set. Call setSigningRequestHandler() first.');
     }
     
+    console.log('[BrowserWalletSigner] 📝 Creating signing request and calling handler...');
     return new Promise<boolean>((resolve) => {
       const resolveWrapper = (approved: boolean) => {
+        console.log(`[BrowserWalletSigner] ✅ Signing request resolved: approved=${approved}`);
         resolve(approved);
       };
       
-      this.signingRequestHandler!({
+      const requestWithResolve = {
         ...request,
         resolve: resolveWrapper,
+      };
+      
+      console.log('[BrowserWalletSigner] 📤 Calling signing request handler with request:', {
+        itemId: requestWithResolve.itemId,
+        description: requestWithResolve.description,
+        hasResolve: typeof requestWithResolve.resolve === 'function',
       });
+      
+      this.signingRequestHandler!(requestWithResolve);
     });
   }
   

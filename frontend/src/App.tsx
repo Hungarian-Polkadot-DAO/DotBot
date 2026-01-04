@@ -43,6 +43,7 @@ const App: React.FC = () => {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [signingRequest, setSigningRequest] = useState<SigningRequest | BatchSigningRequest | null>(null);
   const [executionArrayState, setExecutionArrayState] = useState<ExecutionArrayState | null>(null);
+  const [autoApprovePending, setAutoApprovePending] = useState(false);
   const [simulationStatus, setSimulationStatus] = useState<{
     phase: string;
     message: string;
@@ -122,6 +123,16 @@ const App: React.FC = () => {
       unsubscribe();
     };
   }, [dotbot]);
+
+  // Auto-resolve signing requests if user has already clicked Accept
+  useEffect(() => {
+    if (autoApprovePending && signingRequest) {
+      console.log('📝 Auto-resolving signing request (user already approved)');
+      signingRequest.resolve(true);
+      setSigningRequest(null);
+      setAutoApprovePending(false);
+    }
+  }, [signingRequest, autoApprovePending]);
 
   /**
    * Initialize DotBot - Simple!
@@ -316,17 +327,20 @@ const App: React.FC = () => {
                 onAcceptAndStart={async () => {
                   console.log('✅ Accepting and starting execution flow');
                   
-                  // Resolve the signing request if it exists (this unblocks execution)
+                  // If signing request already exists, resolve it immediately
                   if (signingRequest) {
-                    console.log('📝 Resolving signing request to unblock execution');
+                    console.log('📝 Resolving existing signing request');
                     signingRequest.resolve(true);
                     setSigningRequest(null);
+                    setAutoApprovePending(false);
                   } else {
-                    console.warn('⚠️ No signing request found - execution may not be waiting for approval');
+                    // No signing request yet - set flag to auto-approve when it appears
+                    console.log('⏳ No signing request yet - will auto-approve when it appears');
+                    setAutoApprovePending(true);
                   }
                   
                   // If execution hasn't started yet, start it now
-                  // This handles the case where execution was deferred until user approval
+                  // The signing request will be created as execution progresses
                   if (dotbot && executionArrayState) {
                     const executionArray = (dotbot as any).currentExecutionArray;
                     if (executionArray && !executionArrayState.isExecuting) {
@@ -336,28 +350,33 @@ const App: React.FC = () => {
                         const executioner = (executionSystem as any).executioner;
                         if (executioner) {
                           console.log('▶️ Starting executioner.execute()');
-                          // Start execution (signing requests will be handled normally)
+                          // Start execution (signing requests will be created and auto-approved)
                           executioner.execute(executionArray, { autoApprove: false }).catch((error: Error) => {
                             console.error('❌ Execution error:', error);
+                            setAutoApprovePending(false);
                           });
                         }
                       } catch (error) {
                         console.error('❌ Failed to start execution:', error);
+                        setAutoApprovePending(false);
                       }
                     } else if (executionArrayState.isExecuting) {
                       console.log('ℹ️ Execution already running');
                     } else {
                       console.warn('⚠️ No execution array available');
+                      setAutoApprovePending(false);
                     }
                   }
             }}
             onCancel={() => {
               console.log('🚫 Cancelling execution');
-                  // Reject signing request if exists
-                  if (signingRequest) {
-                    signingRequest.resolve(false);
-                    setSigningRequest(null);
-                  }
+              // Clear auto-approve flag
+              setAutoApprovePending(false);
+              // Reject signing request if exists
+              if (signingRequest) {
+                signingRequest.resolve(false);
+                setSigningRequest(null);
+              }
               setExecutionArrayState(null);
             }}
             show={!!executionArrayState && executionArrayState.items.length > 0}

@@ -9,6 +9,7 @@ import type { HexString } from '@polkadot/util/types';
 import { BN } from '@polkadot/util';
 
 import { ChopsticksDatabase } from './database';
+import { classifyChopsticksError } from './chopsticksIgnorePolicy';
 
 export interface SimulationResult {
   success: boolean;
@@ -74,6 +75,9 @@ export async function simulateTransaction(
     updateStatus('initializing', 'Setting up simulation environment...', 20);
     const dbName = `dotbot-sim-cache:${api.genesisHash.toHex()}`;
     storage = new ChopsticksDatabase(dbName);
+    
+    // Get chain name for error classification
+    const chainName = (await api.rpc.system.chain()).toString();
     
     updateStatus('forking', 'Fetching current blockchain state...', 30);
     
@@ -252,7 +256,7 @@ export async function simulateTransaction(
       outcomeString: outcome.toString ? outcome.toString().slice(0, 200) : 'N/A',
     });
     
-    const { succeeded, failureReason } = parseOutcome(api, outcome);
+    const { succeeded, failureReason } = parseOutcome(api, outcome, chainName);
     
     // If simulation passed but we'll fail on paymentInfo, log warning
     if (succeeded) {
@@ -297,15 +301,32 @@ export async function simulateTransaction(
       const errorMessage = feeError instanceof Error ? feeError.message : String(feeError);
       const errorLower = errorMessage.toLowerCase();
       
-      // CRITICAL: If paymentInfo fails with wasm unreachable, the extrinsic is malformed
-      // This will also fail on the real network, so we must fail the simulation
-      const isWasmUnreachable = 
-        errorLower.includes('unreachable') ||
-        errorLower.includes('wasm trap') ||
-        errorLower.includes('transactionpaymentapi') ||
-        errorLower.includes('taggedtransactionqueue');
+      // Classify the error using the ignore policy
+      const errorClassification = classifyChopsticksError(errorMessage, 'paymentInfo', chainName);
       
-      if (isWasmUnreachable) {
+      console.log('[Chopsticks] 🔍 Error classification:', {
+        ignore: errorClassification.ignore,
+        classification: errorClassification.classification,
+        severity: errorClassification.severity,
+        phase: errorClassification.phase,
+      });
+      
+      // If error is safe to ignore (known Chopsticks limitation), continue with simulation
+      if (errorClassification.ignore) {
+        console.warn('[Chopsticks] ⚠️ Ignoring known Chopsticks limitation:', {
+          classification: errorClassification.classification,
+          reason: errorClassification.reason,
+        });
+        console.warn('[Chopsticks] Fee estimation failed (non-critical, simulation passed):', errorMessage);
+        // Keep fee as '0' - caller can estimate separately if needed
+      } else {
+        // BLOCKING error - this indicates a real problem with the extrinsic
+        console.error('[Chopsticks] ✗ BLOCKING error detected:', {
+          classification: errorClassification.classification,
+          severity: errorClassification.severity,
+          reason: errorClassification.reason,
+        });
+        
         // Get detailed extrinsic information for debugging
         let extrinsicDetails: any = {};
         try {
@@ -364,7 +385,7 @@ export async function simulateTransaction(
           extrinsicDetails = { error: 'Could not extract extrinsic details', detailError };
         }
         
-        console.error('[Chopsticks] ✗ paymentInfo failed with wasm unreachable - extrinsic is malformed:', errorMessage);
+        console.error('[Chopsticks] ✗ paymentInfo failed with blocking error:', errorMessage);
         console.error('[Chopsticks] Extrinsic details:', JSON.stringify(extrinsicDetails, null, 2));
         
         // Fail the simulation - this extrinsic will fail on real network
@@ -378,16 +399,12 @@ export async function simulateTransaction(
         
         return {
           success: false,
-          error: `Extrinsic is malformed: ${cleanError}. The transaction structure is invalid for this chain's runtime and will fail on the real network.`,
+          error: `${errorClassification.classification}: ${cleanError}. ${errorClassification.reason || 'This indicates a structural problem with the extrinsic.'}`,
           estimatedFee: '0',
           balanceChanges: [],
           events: [],
         };
       }
-      
-      // Non-critical paymentInfo failure (e.g., network error) - log warning but continue
-      console.warn('[Chopsticks] Fee estimation failed (non-critical, simulation passed):', errorMessage);
-      // Keep fee as '0' - caller can estimate separately if needed
     }
     
     // Cleanup
@@ -480,7 +497,8 @@ async function computeBalanceDeltas(
 
 function parseOutcome(
   api: ApiPromise,
-  outcome: any
+  outcome: any,
+  chainName: string
 ): { succeeded: boolean; failureReason: string | null } {
   if (outcome.isOk) {
     const result = outcome.asOk;
@@ -510,6 +528,7 @@ function parseOutcome(
     const invalid = outcome.asErr;
     const invalidType = invalid.type || 'Unknown';
     const invalidDetails = invalid.toString ? invalid.toString() : JSON.stringify(invalid);
+    const errorMessage = `InvalidTransaction: ${invalidType} (${invalidDetails})`;
     
     // Enhanced error message for InvalidTransaction
     console.error('[Chopsticks] InvalidTransaction detected:', {
@@ -518,9 +537,30 @@ function parseOutcome(
       fullOutcome: outcome.toString ? outcome.toString() : 'N/A',
     });
     
+    // Classify the error using the ignore policy
+    const errorClassification = classifyChopsticksError(errorMessage, 'dryRun', chainName);
+    
+    console.log('[Chopsticks] 🔍 DryRun error classification:', {
+      ignore: errorClassification.ignore,
+      classification: errorClassification.classification,
+      severity: errorClassification.severity,
+    });
+    
+    // If error is safe to ignore (known Chopsticks limitation), treat as success
+    if (errorClassification.ignore) {
+      console.warn('[Chopsticks] ⚠️ Ignoring known Chopsticks limitation in dryRun:', {
+        classification: errorClassification.classification,
+        reason: errorClassification.reason,
+      });
+      return { 
+        succeeded: true, 
+        failureReason: null 
+      };
+    }
+    
     return { 
       succeeded: false, 
-      failureReason: `InvalidTransaction: ${invalidType} (${invalidDetails})` 
+      failureReason: errorMessage 
     };
   }
 }

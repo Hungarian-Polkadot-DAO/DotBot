@@ -75,7 +75,6 @@ export class AssetTransferAgent extends BaseAgent {
       chain: params.chain || 'assetHub (default)',
       keepAlive: params.keepAlive || false,
       validateBalance: params.validateBalance !== false,
-      enableSimulation: params.enableSimulation || false,
     });
     console.log('[AssetTransferAgent] ═══════════════════════════════════════════════════');
 
@@ -223,23 +222,78 @@ export class AssetTransferAgent extends BaseAgent {
         console.log(`[AssetTransferAgent] ✅ STEP 5: ED check passed`);
       }
       
-      // Check balance on TARGET chain
-      // CRITICAL: Don't use ensurePolkadotAddress here - it hardcodes prefix 0!
-      // The address will be properly encoded by safeExtrinsicBuilder using chain's SS58 prefix
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // EXECUTION FLOW: Step 5.0 - Validate Sender Address
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // CRITICAL: Sender address MUST NOT be re-encoded! It must match the wallet format
+      // exactly, otherwise the signature won't validate. Balance queries work with any
+      // valid encoding of the same public key.
+      console.log('[AssetTransferAgent] 🔐 STEP 5.0: Validating sender address...');
+      const { decodeAddress } = await import('@polkadot/util-crypto');
+      
+      // Validate address is decodable (but don't re-encode it!)
+      try {
+        decodeAddress(params.address);
+        console.log('[AssetTransferAgent] ✅ Sender address is valid:', {
+          address: params.address,
+          note: 'Using address as-is from wallet (signature must match)',
+        });
+      } catch (error) {
+        throw new AgentError(
+          `Invalid sender address: ${params.address}`,
+          'INVALID_ADDRESS',
+          { address: params.address, error: error instanceof Error ? error.message : String(error) }
+        );
+      }
+      
+      // Use sender address exactly as provided by wallet
       const senderAddress = params.address;
+      
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // EXECUTION FLOW: Step 5.1 - Balance Check
+      // ═══════════════════════════════════════════════════════════════════════════════
       console.log(`[AssetTransferAgent] 🔍 STEP 5.1: Checking balance on ${chainName}...`);
       const balance = await targetApi.query.system.account(senderAddress);
       const balanceData = balance as any;
       const availableBN = new BN(balanceData.data?.free?.toString() || '0');
       const reservedBN = new BN(balanceData.data?.reserved?.toString() || '0');
       const frozenBN = new BN(balanceData.data?.frozen?.toString() || '0');
+      const nonce = balanceData.nonce?.toString() || '0';
       
       console.log(`[AssetTransferAgent] ✅ STEP 5.1: Balance retrieved:`, {
         free: this.formatAmount(availableBN, capabilities.nativeDecimals),
         reserved: this.formatAmount(reservedBN, capabilities.nativeDecimals),
         frozen: this.formatAmount(frozenBN, capabilities.nativeDecimals),
         available: this.formatAmount(availableBN.sub(frozenBN), capabilities.nativeDecimals),
+        nonce,
       });
+      
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // CRITICAL: Post-Migration Validation (November 4, 2025)
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // After DOT migration to Asset Hub, accounts might not exist on Asset Hub yet
+      // even if they had balance on Relay Chain. This causes validation errors.
+      
+      // Check if account exists on Asset Hub (has any balance or nonce > 0)
+      const accountExists = availableBN.gt(new BN(0)) || new BN(nonce).gt(new BN(0));
+      
+      if (!accountExists) {
+        console.error(`[AssetTransferAgent] ❌ Account does not exist on ${chainName}!`);
+        throw new AgentError(
+          `Account ${senderAddress.slice(0, 8)}...${senderAddress.slice(-8)} does not exist on ${chainName}. ` +
+          `After the November 2025 migration, you need to receive DOT on Asset Hub before you can send. ` +
+          `Free balance: ${availableBN.toString()}, Nonce: ${nonce}`,
+          'ACCOUNT_NOT_EXISTS',
+          {
+            chain: capabilities.chainName,
+            address: senderAddress,
+            free: availableBN.toString(),
+            nonce,
+          }
+        );
+      }
+      
+      console.log(`[AssetTransferAgent] ✅ STEP 5.1: Account exists on ${chainName}`);
       
       // Estimate fees (conservative)
       const estimatedFeeBN = new BN('200000000'); // 0.02 DOT
@@ -298,13 +352,28 @@ export class AssetTransferAgent extends BaseAgent {
       // ═══════════════════════════════════════════════════════════════════════════════
       // EXECUTION FLOW: Step 6 - Extrinsic Construction
       // ═══════════════════════════════════════════════════════════════════════════════
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // IMPORTANT: Post-Migration (November 4, 2025)
+      // ═══════════════════════════════════════════════════════════════════════════════
+      // DOT IS now native to Asset Hub. Both balances.transfer and balances.transferKeepAlive
+      // work normally. We prefer transferKeepAlive for safety (prevents account reaping).
       console.log('[AssetTransferAgent] 🔨 STEP 6: Creating transfer extrinsic...');
+      console.log('[AssetTransferAgent] 📋 Transfer details:', {
+        senderAddress,
+        recipient: params.recipient,
+        amount: amountBN.toString(),
+        amountFormatted: this.formatAmount(amountBN, capabilities.nativeDecimals),
+        keepAlive,
+        chain: capabilities.chainName,
+        symbol: capabilities.nativeTokenSymbol,
+        ss58Prefix: capabilities.ss58Prefix,
+      });
       
       const result = buildSafeTransferExtrinsic(
         targetApi, // Use target chain API, not this.api!
         {
           recipient: params.recipient,
-          amount: amountBN,
+          amount: amountBN, // BN used throughout
           keepAlive,
         },
         capabilities
@@ -319,61 +388,27 @@ export class AssetTransferAgent extends BaseAgent {
         amount: result.amountBN.toString(),
         section: result.extrinsic.method.section,
         methodName: result.extrinsic.method.method,
+        callIndex: Array.from(result.extrinsic.method.toU8a().slice(0, 2)),
+        callHex: result.extrinsic.method.toHex().slice(0, 66) + '...',
+      });
+      
+      // Detailed extrinsic info for debugging validation errors
+      console.log('[AssetTransferAgent] 🔍 Extrinsic details for validation:', {
+        sender: senderAddress,
+        recipient: result.recipientEncoded,
+        amount: result.amountBN.toString(),
+        method: `${result.extrinsic.method.section}.${result.extrinsic.method.method}`,
+        args: result.extrinsic.method.args.map((arg: any) => arg.toString()),
       });
       
       // ═══════════════════════════════════════════════════════════════════════════════
-      // EXECUTION FLOW: Step 7 - Simulation (Optional)
+      // EXECUTION FLOW: Step 7 - Extrinsic Ready (No Simulation in Agent)
       // ═══════════════════════════════════════════════════════════════════════════════
-      // According to global rules: Construction ≠ Execution, but we MUST validate construction
-      // Simulation is OFF by default, enable with enableSimulation flag
-      const enableSimulation = params.enableSimulation === true;
-      let dryRunResult: any = null;
-      let finalEstimatedFee = estimatedFeeBN.toString();
-      
-      if (enableSimulation) {
-        console.log('[AssetTransferAgent] 🧪 STEP 7: SIMULATION ENABLED - Validating extrinsic with dry run...');
-        
-        dryRunResult = await this.dryRunExtrinsic(
-          targetApi, // MUST use same API that constructed the extrinsic!
-          result.extrinsic,
-          senderAddress
-        );
-        
-        if (!dryRunResult.success) {
-          throw new AgentError(
-            `Extrinsic validation failed: ${dryRunResult.error || 'Unknown error'}. ` +
-            `This extrinsic would fail if submitted. ` +
-            `Chain: ${capabilities.chainName}, Method: ${result.method}, ` +
-            `Validation: ${dryRunResult.validationMethod}`,
-            'EXTRINSIC_VALIDATION_FAILED',
-            {
-              chain: capabilities.chainName,
-              method: result.method,
-              validationMethod: dryRunResult.validationMethod,
-              error: dryRunResult.error,
-            }
-          );
-        }
-        
-        console.log('[AssetTransferAgent] ✅ STEP 7: Extrinsic validated successfully:', {
-          validationMethod: dryRunResult.validationMethod,
-          estimatedFee: dryRunResult.estimatedFee,
-          wouldSucceed: dryRunResult.wouldSucceed,
-        });
-        
-        // Use validated fee if available
-        if (dryRunResult.estimatedFee) {
-          finalEstimatedFee = dryRunResult.estimatedFee;
-        }
-        
-        // Add dry run warnings
-        if (dryRunResult.runtimeInfo?.warning) {
-          warnings.push(dryRunResult.runtimeInfo.warning);
-        }
-      } else {
-        console.log('[AssetTransferAgent] ⏭️  STEP 7: SIMULATION DISABLED (default) - Skipping dry-run validation');
-        console.log('[AssetTransferAgent] 💡 TIP: Set enableSimulation=true to validate extrinsic before return');
-      }
+      // Agent's ONLY job is CONSTRUCTION. Validation/simulation happens in Executioner.
+      // This ensures single simulation point and proper separation of concerns.
+      console.log('[AssetTransferAgent] ✅ STEP 7: Extrinsic constructed successfully');
+      console.log('[AssetTransferAgent] 💡 NOTE: Validation will happen in Executioner before execution');
+      const finalEstimatedFee = estimatedFeeBN.toString();
       
       // ═══════════════════════════════════════════════════════════════════════════════
       // EXECUTION FLOW: Step 8 - Return Result
@@ -392,8 +427,6 @@ export class AssetTransferAgent extends BaseAgent {
             chain: capabilities.chainName,
             decimals: capabilities.nativeDecimals,
             symbol: capabilities.nativeTokenSymbol,
-            validated: enableSimulation,
-            validationMethod: enableSimulation ? dryRunResult?.validationMethod : undefined,
           },
           resultType: 'extrinsic',
           requiresConfirmation: true,
@@ -450,7 +483,6 @@ export class AssetTransferAgent extends BaseAgent {
       transferCount: params.transfers?.length || 0,
       chain: params.chain || 'assetHub (default)',
       validateBalance: params.validateBalance !== false,
-      enableSimulation: params.enableSimulation || false,
     });
     console.log('[AssetTransferAgent] ═══════════════════════════════════════════════════');
 
@@ -506,9 +538,24 @@ export class AssetTransferAgent extends BaseAgent {
         capabilities
       );
 
-      // Step 4: Validate total against ED and balance on TARGET chain
+      // Step 4: Validate sender address and check balance
       const warnings: string[] = [];
-      // CRITICAL: Don't use ensurePolkadotAddress here - it hardcodes prefix 0!
+      
+      // CRITICAL: Sender address MUST NOT be re-encoded! Use exactly as from wallet
+      console.log('[AssetTransferAgent] 🔐 Validating sender address (batch)...');
+      const { decodeAddress } = await import('@polkadot/util-crypto');
+      
+      try {
+        decodeAddress(params.address);
+      } catch (error) {
+        throw new AgentError(
+          `Invalid sender address: ${params.address}`,
+          'INVALID_ADDRESS',
+          { address: params.address }
+        );
+      }
+      
+      // Use sender address exactly as provided by wallet
       const senderAddress = params.address;
       
       const balance = await targetApi.query.system.account(senderAddress);
@@ -553,58 +600,13 @@ export class AssetTransferAgent extends BaseAgent {
       });
       
       // ═══════════════════════════════════════════════════════════════════════════════
-      // EXECUTION FLOW: Step 7 - Simulation (Optional)
+      // EXECUTION FLOW: Step 7 - Extrinsic Ready (No Simulation in Agent)
       // ═══════════════════════════════════════════════════════════════════════════════
-      // Simulation is OFF by default, enable with enableSimulation flag
-      const enableSimulation = params.enableSimulation === true;
-      let dryRunResult: any = null;
-      let finalEstimatedFee = estimatedFeeBN.toString();
-      
-      if (enableSimulation) {
-        console.log('[AssetTransferAgent] 🧪 STEP 7: SIMULATION ENABLED - Validating batch extrinsic with dry run...');
-        
-        dryRunResult = await this.dryRunExtrinsic(
-          targetApi, // MUST use same API that constructed the extrinsic!
-          result.extrinsic,
-          senderAddress
-        );
-        
-        if (!dryRunResult.success) {
-          throw new AgentError(
-            `Batch extrinsic validation failed: ${dryRunResult.error || 'Unknown error'}. ` +
-            `This batch would fail if submitted. ` +
-            `Chain: ${capabilities.chainName}, Method: ${result.method}, ` +
-            `Validation: ${dryRunResult.validationMethod}`,
-            'BATCH_VALIDATION_FAILED',
-            {
-              chain: capabilities.chainName,
-              method: result.method,
-              transferCount: params.transfers.length,
-              validationMethod: dryRunResult.validationMethod,
-              error: dryRunResult.error,
-            }
-          );
-        }
-        
-        console.log('[AssetTransferAgent] ✅ STEP 7: Batch extrinsic validated successfully:', {
-          validationMethod: dryRunResult.validationMethod,
-          estimatedFee: dryRunResult.estimatedFee,
-          wouldSucceed: dryRunResult.wouldSucceed,
-        });
-        
-        // Use validated fee if available
-        if (dryRunResult.estimatedFee) {
-          finalEstimatedFee = dryRunResult.estimatedFee;
-        }
-        
-        // Add dry run warnings
-        if (dryRunResult.runtimeInfo?.warning) {
-          warnings.push(dryRunResult.runtimeInfo.warning);
-        }
-      } else {
-        console.log('[AssetTransferAgent] ⏭️  STEP 7: SIMULATION DISABLED (default) - Skipping dry-run validation');
-        console.log('[AssetTransferAgent] 💡 TIP: Set enableSimulation=true to validate batch extrinsic before return');
-      }
+      // Agent's ONLY job is CONSTRUCTION. Validation/simulation happens in Executioner.
+      // This ensures single simulation point and proper separation of concerns.
+      console.log('[AssetTransferAgent] ✅ STEP 7: Batch extrinsic constructed successfully');
+      console.log('[AssetTransferAgent] 💡 NOTE: Validation will happen in Executioner before execution');
+      const finalEstimatedFee = estimatedFeeBN.toString();
       
       // ═══════════════════════════════════════════════════════════════════════════════
       // EXECUTION FLOW: Step 8 - Return Result
@@ -624,8 +626,6 @@ export class AssetTransferAgent extends BaseAgent {
             chain: capabilities.chainName,
             decimals: capabilities.nativeDecimals,
             symbol: capabilities.nativeTokenSymbol,
-            validated: enableSimulation,
-            validationMethod: enableSimulation ? dryRunResult?.validationMethod : undefined,
           },
           resultType: 'extrinsic',
           requiresConfirmation: true,
