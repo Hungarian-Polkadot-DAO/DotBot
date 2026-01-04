@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { WalletAccount, WalletState } from '../types/wallet';
-import web3AuthService from '../services/web3AuthService';
+import web3AuthService from '../lib/services/web3AuthService';
 
 interface WalletStore extends WalletState {
   // Actions
@@ -29,32 +29,33 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
     set({ isConnecting: true, error: null });
     
     try {
-      // Check if wallet is available
-      const walletStatus = await web3AuthService.checkWalletAvailability();
-      
-      if (!walletStatus.available) {
-        throw new Error(walletStatus.error || 'No wallet extensions found. Please install Talisman, Subwallet, or another Polkadot wallet extension.');
-      }
-      
-      if (walletStatus.locked) {
-        throw new Error(`Wallet extensions detected (${walletStatus.extensions?.join(', ')}) but they are locked. Please unlock your wallet in the browser extension and try again.`);
-      }
-      
-      // Get available accounts
-      const accounts = await web3AuthService.getAvailableAccounts();
+      // CRITICAL: Enable Web3 extensions ONCE - all other calls will use cache
+      console.log('Store: Enabling Web3 extensions...');
+      const accounts = await web3AuthService.enableWeb3();
+      console.log('Store: Web3 extensions enabled, got accounts:', accounts.length);
       
       if (accounts.length === 0) {
         throw new Error('No accounts found in wallet. Please unlock your wallet and try again.');
       }
       
       // Transform accounts to wallet info structure
-      const walletInfo = walletStatus.extensions?.map(extensionName => ({
+      // Group accounts by source (extension name)
+      const accountsBySource = new Map<string, WalletAccount[]>();
+      accounts.forEach(account => {
+        const source = account.source || 'unknown';
+        if (!accountsBySource.has(source)) {
+          accountsBySource.set(source, []);
+        }
+        accountsBySource.get(source)!.push(account);
+      });
+      
+      const walletInfo = Array.from(accountsBySource.entries()).map(([extensionName, extensionAccounts]) => ({
         name: extensionName,
         version: '1.0.0', // We don't have version info from the API
-        accounts: accounts.filter(account => account.source === extensionName),
+        accounts: extensionAccounts,
         installed: true,
         connected: true
-      })) || [];
+      }));
       
       set({ 
         availableWallets: walletInfo,
@@ -75,44 +76,46 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
     set({ isConnecting: true, error: null });
     
     try {
-      const result = await web3AuthService.authenticate(account);
-      console.log('Store: Authentication result:', result);
+      // CRITICAL: authenticate() is called from the modal with proper error handling
+      // This function just updates the store state after successful authentication
+      // The service already handled authentication, so we just sync state
       
-      if (result.success) {
-        console.log('Store: Authentication successful, updating state');
-        set({
-          isConnected: true,
-          selectedAccount: account,
-          selectedWallet: account.source,
-          isConnecting: false,
-          error: null
-        });
-        
-        // Double-check by syncing with service state
-        const { syncWithService } = get();
-        syncWithService();
-        
-        console.log('Store: State updated, isConnected should be true');
-      } else {
-        throw new Error(result.error || 'Authentication failed');
+      // Verify authentication succeeded by checking service state
+      const isAuthenticated = web3AuthService.isAuthenticated();
+      const currentAccount = web3AuthService.getCurrentAccount();
+      
+      if (!isAuthenticated || !currentAccount) {
+        throw new Error('Authentication not completed. Please try connecting again.');
       }
+      
+      // Verify account matches
+      if (currentAccount.address !== account.address) {
+        throw new Error('Account mismatch. Please select the correct account.');
+      }
+      
+      console.log('Store: Authentication verified, updating state');
+      set({
+        isConnected: true,
+        selectedAccount: account,
+        selectedWallet: account.source,
+        isConnecting: false,
+        error: null
+      });
+      
+      console.log('Store: ✅ State updated successfully');
     } catch (error) {
-      console.error('Store: Authentication error:', error);
+      console.error('Store: ❌ State update error:', error);
       
-      let errorMessage = 'Authentication failed';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-        
-        // Add more detailed error information
-        if (error.message.includes('signRaw') || error.message.includes('sign')) {
-          errorMessage = `Wallet signing failed: ${error.message}. Please check your wallet extension and try again.`;
-        }
-      }
-      
+      // This should rarely happen since modal handles authentication
+      // But if it does, set error state
+      const errorMessage = error instanceof Error ? error.message : 'Failed to update connection state';
       set({
         isConnecting: false,
         error: errorMessage
       });
+      
+      // Re-throw so modal can handle it
+      throw error;
     }
   },
 
@@ -139,35 +142,49 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
 
   checkWalletStatus: async () => {
     try {
-      const walletStatus = await web3AuthService.checkWalletAvailability();
+      // Ensure extensions are enabled first
+      const accounts = await web3AuthService.enableWeb3();
       
-      if (walletStatus.available && !walletStatus.locked) {
-        // Get accounts
-        const accounts = await web3AuthService.getAvailableAccounts();
+      if (accounts.length > 0) {
+        // No need to call checkWalletAvailability - we already have accounts
+        
+        // Group accounts by source (extension name)
+        const accountsBySource = new Map<string, WalletAccount[]>();
+        accounts.forEach(account => {
+          const source = account.source || 'unknown';
+          if (!accountsBySource.has(source)) {
+            accountsBySource.set(source, []);
+          }
+          accountsBySource.get(source)!.push(account);
+        });
         
         // Transform accounts to wallet info structure
-        const walletInfo = walletStatus.extensions?.map(extensionName => ({
+        const walletInfo = Array.from(accountsBySource.entries()).map(([extensionName, extensionAccounts]) => ({
           name: extensionName,
           version: '1.0.0',
-          accounts: accounts.filter(account => account.source === extensionName),
+          accounts: extensionAccounts,
           installed: true,
           connected: true
-        })) || [];
+        }));
         
         set({ 
           availableWallets: walletInfo,
           error: null
         });
-      } else if (walletStatus.locked) {
-        set({
-          error: `Wallet extensions are locked. Please unlock them and try again.`,
-          availableWallets: []
-        });
       } else {
-        set({
-          error: `Failed to connect to wallet: ${walletStatus.error || 'Unknown error'}`,
-          availableWallets: []
-        });
+        // Check if extensions are locked
+        const walletStatus = await web3AuthService.checkWalletAvailability();
+        if (walletStatus.locked) {
+          set({
+            error: `Wallet extensions are locked. Please unlock them and try again.`,
+            availableWallets: []
+          });
+        } else {
+          set({
+            error: `Failed to connect to wallet: ${walletStatus.error || 'No accounts found'}`,
+            availableWallets: []
+          });
+        }
       }
     } catch (error) {
       set({

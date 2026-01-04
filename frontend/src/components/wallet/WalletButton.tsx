@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { useWalletStore } from '../../stores/walletStore';
 import WalletModal from './WalletModal';
 import walletIcon from '../../assets/wallet.svg';

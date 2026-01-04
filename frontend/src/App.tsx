@@ -1,18 +1,24 @@
+/**
+ * DotBot Frontend - Out of the Box Integration
+ * 
+ * This demonstrates how simple the lib is to use.
+ * Total integration code: ~20 lines
+ */
+
 import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ThemeProvider } from './contexts/ThemeContext';
 import CollapsibleSidebar from './components/layout/CollapsibleSidebar';
 import MainContent from './components/layout/MainContent';
-import { createSubsystemLogger, Subsystem } from './lib';
-import { AgentCommunicationService } from './services/agentCommunication';
-import { AgentRequest } from './types/agents';
+import ExecutionFlow from './components/execution/ExecutionFlow';
+import { DotBot, ExecutionArrayState, ConversationMessage } from './lib';
+import { useWalletStore } from './stores/walletStore';
+import { ASIOneService } from './lib/services/asiOneService';
+import { SigningRequest, BatchSigningRequest } from './lib';
+import { createRelayChainManager, createAssetHubManager, RpcManager } from './lib/rpcManager';
 import './styles/globals.css';
-import { logSystemPrompt } from './lib/prompts/system/utils';
+import './styles/execution-flow.css';
 
-// Initialize logger for the main App
-const logger = createSubsystemLogger(Subsystem.APP);
-
-// React Query client
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -31,158 +37,209 @@ interface Message {
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
-  const [agentService] = useState(() => new AgentCommunicationService());
+  const [signingRequest, setSigningRequest] = useState<SigningRequest | BatchSigningRequest | null>(null);
+  const [executionArrayState, setExecutionArrayState] = useState<ExecutionArrayState | null>(null);
+  const [autoApprovePending, setAutoApprovePending] = useState(false);
+  const [simulationStatus, setSimulationStatus] = useState<{
+    phase: string;
+    message: string;
+    progress?: number;
+    details?: string;
+    chain?: string;
+    result?: {
+      success: boolean;
+      estimatedFee?: string;
+      validationMethod?: 'chopsticks' | 'paymentInfo';
+      balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+      runtimeInfo?: Record<string, any>;
+      error?: string;
+      wouldSucceed?: boolean;
+    };
+  } | null>(null);
+  
+  // DotBot integration
+  const [dotbot, setDotbot] = useState<DotBot | null>(null);
+  const [asiOne] = useState(() => new ASIOneService());
+  const [isInitializing, setIsInitializing] = useState(false);
+  
+  const [relayChainManager] = useState<RpcManager>(() => createRelayChainManager());
+  const [assetHubManager] = useState<RpcManager>(() => createAssetHubManager());
+  
+  const { isConnected, selectedAccount } = useWalletStore();
 
-  // Initialize app
   useEffect(() => {
-    initializeApp();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    Promise.all([
+      relayChainManager.getReadApi(),
+      assetHubManager.getReadApi()
+    ]).catch(() => {
+      // Ignore pre-connection errors - will retry when needed
+    });
+  }, []);
 
-  const initializeApp = async () => {
-    logger.info("DotBot Frontend starting up - Hello World from logging system!");
-    
-    // Load test functionality in development
-    if (process.env.NODE_ENV === 'development') {
-      try {
-        const { runASIOneTests } = await import('./services/testASIOneIntegration');
-        (window as any).runASIOneTests = runASIOneTests;
-        console.log('🧪 ASI-One Integration Tester loaded. Run runASIOneTests() in console to test.');
-      } catch (error) {
-        console.warn('Failed to load ASI-One test functionality:', error);
-      }
+  // Initialize DotBot when wallet connects
+  useEffect(() => {
+    if (isConnected && selectedAccount && !dotbot && !isInitializing) {
+      initializeDotBot();
+    }
+  }, [isConnected, selectedAccount]);
+
+  useEffect(() => {
+    if (!dotbot) return;
+
+    const unsubscribe = dotbot.onExecutionArrayUpdate((state) => {
+      setExecutionArrayState(state);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [dotbot]);
+
+  useEffect(() => {
+    if (autoApprovePending && signingRequest) {
+      signingRequest.resolve(true);
+      setSigningRequest(null);
+      setAutoApprovePending(false);
+    }
+  }, [signingRequest, autoApprovePending]);
+
+  const initializeDotBot = async () => {
+    setIsInitializing(true);
+    try {
+      const dotbotInstance = await DotBot.create({
+        wallet: selectedAccount!,
+        relayChainManager,
+        assetHubManager,
+        onSigningRequest: (request) => setSigningRequest(request),
+        onBatchSigningRequest: (request) => setSigningRequest(request),
+        onSimulationStatus: (status) => {
+          setSimulationStatus(status);
+          // Clear status after 3 seconds if complete or error
+          if (status.phase === 'complete' || status.phase === 'error') {
+            setTimeout(() => setSimulationStatus(null), 3000);
+          }
+        }
+      });
+      
+      setDotbot(dotbotInstance);
+      
+      const botMessage: Message = {
+        id: Date.now().toString(),
+        type: 'bot',
+        content: `Hello! I'm DotBot. Your wallet is connected (${selectedAccount!.address.slice(0, 8)}...). I can help you with Polkadot operations!`,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error('Failed to initialize DotBot:', error);
+      
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: 'bot',
+        content: 'Failed to connect to Polkadot network. Please check your connection and try again.',
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsInitializing(false);
     }
   };
 
-  // Handler functions
-  const handleNewChat = () => {
-    console.log('New Chat clicked');
-    setMessages([]);
-    setShowWelcomeScreen(true);
-    agentService.startNewConversation();
-  };
-
-  const handleSearchChat = () => {
-    console.log('Search Chat clicked');
-    // TODO: Implement search chat functionality
-  };
-
-  const handleTransactions = () => {
-    console.log('Transactions clicked');
-    // TODO: Implement transactions view
-  };
-
-  const handleCheckBalance = () => {
-    const message = "Please check my DOT balance";
-    handleSendMessage(message);
-  };
-
-  const handleTransfer = () => {
-    const message = "I want to transfer some DOT";
-    handleSendMessage(message);
-  };
-
-  const handleStatus = () => {
-    const message = "Show me my transaction status";
-    handleSendMessage(message);
-  };
-
+  /**
+   * Send message - Simple!
+   */
   const handleSendMessage = async (message: string) => {
-    console.log('Message sent:', message);
-    
-    // Hide welcome screen when first message is sent
     if (showWelcomeScreen) {
       setShowWelcomeScreen(false);
     }
 
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       type: 'user',
       content: message,
       timestamp: Date.now()
     };
-
     setMessages(prev => [...prev, userMessage]);
     setIsTyping(true);
 
     try {
-      // Route message to appropriate agent
-      const agentId = agentService.routeMessage(message);
-      
-      // Create agent request
-      const agentRequest: AgentRequest = {
-        agentId,
-        message,
-        context: {
-          conversationId: agentService.getASIOneService().getConversationId(),
-          previousMessages: messages.slice(-5).map(m => m.content), // Last 5 messages for context
-          userWallet: undefined, // TODO: Get from wallet service
-          network: 'Polkadot'
-        }
-      };
+      if (!dotbot) {
+        throw new Error('Please connect your wallet first');
+      }
 
-      // Send to agent via ASI-One
-      const agentResponse = await agentService.sendToAgent(agentRequest);
-      
-      // Add bot response
+      const result = await dotbot.chat(message, {
+        conversationHistory,
+        llm: async (msg, systemPrompt, llmContext) => {
+          const response = await asiOne.sendMessage(msg, {
+            systemPrompt,
+            ...llmContext,
+            walletAddress: selectedAccount?.address,
+            network: 'Polkadot'
+          });
+          return response;
+        }
+      });
+
+      setConversationHistory(prev => [
+        ...prev,
+        { role: 'user', content: message, timestamp: Date.now() },
+        { role: 'assistant', content: result.response, timestamp: Date.now() }
+      ]);
+
       const botMessage: Message = {
-        id: agentResponse.messageId,
+        id: Date.now().toString(),
         type: 'bot',
-        content: agentResponse.content,
-        timestamp: agentResponse.timestamp
-      };
-      
-      setMessages(prev => [...prev, botMessage]);
-      
-    } catch (error) {
-      console.error('Error sending message to agent:', error);
-      
-      // Fallback to simple response
-      const botMessage: Message = {
-        id: Date.now().toString() + '_bot',
-        type: 'bot',
-        content: getBotResponse(message),
+        content: result.response,
         timestamp: Date.now()
       };
-      
       setMessages(prev => [...prev, botMessage]);
+
+      if (result.executed) {
+        const statusMessage: Message = {
+          id: Date.now().toString() + '_status',
+          type: 'bot',
+          content: result.success 
+            ? `✅ Successfully executed ${result.completed} operation(s).`
+            : `⚠️ Completed ${result.completed}, failed ${result.failed} operation(s).`,
+          timestamp: Date.now()
+        };
+        setMessages(prev => [...prev, statusMessage]);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        type: 'bot',
+        content: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const getBotResponse = (userMessage: string): string => {
-    const message = userMessage.toLowerCase();
-    
-    if (message.includes('balance')) {
-      return "I can help you check your DOT balance! To get started, please connect your wallet using the button in the top right corner. Once connected, I'll be able to fetch your current DOT balance and other token balances.";
-    }
-    
-    if (message.includes('transfer')) {
-      return "I'd be happy to help you transfer DOT! To proceed with a transfer, I'll need to know:\n\n1. The recipient's address\n2. The amount you want to transfer\n3. Which network you'd like to use\n\nPlease make sure your wallet is connected first. Would you like to start by connecting your wallet?";
-    }
-    
-    if (message.includes('status')) {
-      return "I can help you track transaction status! To check your transaction status, please provide:\n\n1. The transaction hash, or\n2. Let me know if you want to see recent transactions\n\nOnce your wallet is connected, I can also show you pending transactions and recent activity.";
-    }
-    
-    if (message.includes('hello') || message.includes('hi')) {
-      return "Hello! I'm DotBot, your helpful assistant for the Polkadot ecosystem. I can help you with:\n\n• Checking balances\n• Making transfers\n• Tracking transactions\n• Navigating the Polkadot network\n\nWhat would you like to do today?";
-    }
-    
-    return `Thanks for your message: "${userMessage}". I'm DotBot, and I'm here to help you with Polkadot-related tasks like checking balances, making transfers, and tracking transactions. \n\nTo get started, try connecting your wallet or ask me about specific DOT operations you'd like to perform!`;
+  const handleNewChat = () => {
+    setMessages([]);
+    setConversationHistory([]); // Clear conversation history
+    setShowWelcomeScreen(true);
   };
 
-  logSystemPrompt();
+  const handleCheckBalance = () => handleSendMessage("Please check my DOT balance");
+  const handleTransfer = () => handleSendMessage("I want to transfer some DOT");
+  const handleStatus = () => handleSendMessage("Show me my transaction status");
+  const handleSearchChat = () => {};
+  const handleTransactions = () => {};
 
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <div className={`app-container ${isSidebarExpanded ? '' : 'sidebar-collapsed'}`}>
-          {/* Collapsible Sidebar */}
           <CollapsibleSidebar
             onNewChat={handleNewChat}
             onSearchChat={handleSearchChat}
@@ -191,7 +248,6 @@ const App: React.FC = () => {
             onToggle={setIsSidebarExpanded}
           />
 
-          {/* Main Content Area */}
           <MainContent
             onCheckBalance={handleCheckBalance}
             onTransfer={handleTransfer}
@@ -200,6 +256,58 @@ const App: React.FC = () => {
             messages={messages}
             isTyping={isTyping}
             showWelcomeScreen={showWelcomeScreen}
+            disabled={!dotbot}
+            placeholder={
+              !isConnected 
+                ? "Connect your wallet to start chatting..."
+                : isInitializing
+                ? "Initializing DotBot (connecting to Polkadot networks)..."
+                : "Type your message..."
+            }
+            simulationStatus={simulationStatus}
+            executionFlow={
+              /* Execution Flow - Shows immediately with simulation status */
+              <ExecutionFlow
+                state={executionArrayState}
+                onAcceptAndStart={async () => {
+                  if (signingRequest) {
+                    signingRequest.resolve(true);
+                    setSigningRequest(null);
+                    setAutoApprovePending(false);
+                  } else {
+                    setAutoApprovePending(true);
+                  }
+
+                  if (dotbot && executionArrayState) {
+                    const executionArray = (dotbot as any).currentExecutionArray;
+                    if (executionArray && !executionArrayState.isExecuting) {
+                      try {
+                        const executionSystem = (dotbot as any).executionSystem;
+                        const executioner = (executionSystem as any).executioner;
+                        if (executioner) {
+                          executioner.execute(executionArray, { autoApprove: false }).catch(() => {
+                            setAutoApprovePending(false);
+                          });
+                        }
+                      } catch {
+                        setAutoApprovePending(false);
+                      }
+                    } else if (!executionArrayState.isExecuting) {
+                      setAutoApprovePending(false);
+                    }
+                  }
+            }}
+            onCancel={() => {
+              setAutoApprovePending(false);
+              if (signingRequest) {
+                signingRequest.resolve(false);
+                setSigningRequest(null);
+              }
+              setExecutionArrayState(null);
+            }}
+            show={!!executionArrayState && executionArrayState.items.length > 0}
+          />
+            }
           />
         </div>
       </ThemeProvider>

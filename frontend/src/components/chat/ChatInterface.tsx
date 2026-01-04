@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import voiceIcon from '../../assets/mingcute_voice-line.svg';
 import actionButtonIcon from '../../assets/action-button.svg';
+import SimulationStatus from '../simulation/SimulationStatus';
 
 interface Message {
   id: string;
@@ -13,12 +14,35 @@ interface ChatInterfaceProps {
   onSendMessage: (message: string) => void;
   messages: Message[];
   isTyping?: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+  executionFlow?: React.ReactNode;
+  simulationStatus?: {
+    phase: string;
+    message: string;
+    progress?: number;
+    details?: string;
+    chain?: string;
+    result?: {
+      success: boolean;
+      estimatedFee?: string;
+      validationMethod?: 'chopsticks' | 'paymentInfo';
+      balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+      runtimeInfo?: Record<string, any>;
+      error?: string;
+      wouldSucceed?: boolean;
+    };
+  } | null;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onSendMessage,
   messages,
-  isTyping = false
+  isTyping = false,
+  disabled = false,
+  placeholder = "Type your message...",
+  executionFlow,
+  simulationStatus
 }) => {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -80,6 +104,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
         ))}
         
+        {/* Simulation Status */}
+        {simulationStatus && (
+          <SimulationStatus
+            phase={simulationStatus.phase as any}
+            message={simulationStatus.message}
+            progress={simulationStatus.progress}
+            details={simulationStatus.details}
+            chain={simulationStatus.chain}
+          />
+        )}
+        
         {/* Typing indicator */}
         {isTyping && (
           <div className="message bot">
@@ -94,6 +129,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
         )}
         
+        {/* Execution Flow - appears after messages */}
+        {executionFlow}
+        
         <div ref={messagesEndRef} />
       </div>
 
@@ -106,21 +144,25 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type your message..."
+              placeholder={placeholder}
               rows={1}
+              disabled={disabled}
             />
             {!inputValue.trim() ? (
               <button
                 type="button"
                 className="input-action-btn mic"
                 title="Voice input"
+                disabled={disabled}
                 style={{ 
                   background: 'none', 
                   border: 'none', 
                   padding: '0',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer'
                 }}
               >
                 <img 
@@ -134,13 +176,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 type="submit"
                 className="action-button"
                 title="Send message"
+                disabled={disabled}
                 style={{
                   background: 'none',
                   border: 'none',
                   padding: '0',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  opacity: disabled ? 0.5 : 1,
+                  cursor: disabled ? 'not-allowed' : 'pointer'
                 }}
               >
                 <img 

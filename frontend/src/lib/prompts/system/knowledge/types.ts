@@ -115,6 +115,17 @@ export interface EcosystemChange {
 }
 
 export interface SafetyGuidelines {
+  /** Balance checking guidelines */
+  balanceChecking: {
+    warning: string;
+    bestPractice: string[];
+    locations: Record<string, {
+      endpoint: string;
+      checked: boolean;
+      note: string;
+    }>;
+  };
+  
   /** Asset verification warnings */
   assetVerification: {
     warning: string;

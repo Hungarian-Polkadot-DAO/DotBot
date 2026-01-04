@@ -1,12 +1,8 @@
 // Wallet-related types for DotBot frontend
 
-export interface WalletAccount {
-  address: string;
-  name?: string;
-  source: string;
-  type?: string;
-  genesisHash?: string | null;
-}
+// Import and re-export core wallet types from lib
+import type { WalletAccount } from '../lib/types/wallet';
+export type { WalletAccount };
 
 export interface WalletInfo {
   name: string;

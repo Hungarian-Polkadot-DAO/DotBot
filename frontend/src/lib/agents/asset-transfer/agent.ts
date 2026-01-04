@@ -5,13 +5,34 @@
  * Handles standard transfers, keep-alive transfers, and batch transfers.
  */
 
-import { BaseAgent } from '../base-agent';
+import { ApiPromise } from '@polkadot/api';
+import { BaseAgent } from '../baseAgent';
 import { AgentResult, AgentError } from '../types';
 import { TransferParams, BatchTransferParams } from './types';
-import { createTransferExtrinsic } from './extrinsics/transfer';
-import { createTransferKeepAliveExtrinsic } from './extrinsics/transfer-keep-alive';
-import { createBatchTransferExtrinsic } from './extrinsics/batch-transfer';
 import { BN } from '@polkadot/util';
+import {
+  detectTransferCapabilities,
+  validateMinimumCapabilities,
+  validateExistentialDeposit,
+  TransferCapabilities,
+} from './utils/transferCapabilities';
+import {
+  buildSafeTransferExtrinsic,
+  buildSafeBatchExtrinsic,
+} from './utils/safeExtrinsicBuilder';
+import {
+  validateTransferAddresses,
+  validateSenderAddress,
+  validateSenderAddressForSigning,
+} from './utils/addressValidation';
+import {
+  parseAndValidateAmountWithCapabilities,
+  formatAmount,
+} from './utils/amountParser';
+import {
+  validateBalance,
+  checkAccountReapingRisk,
+} from './utils/balanceValidator';
 
 /**
  * Agent for handling asset transfers
@@ -20,8 +41,8 @@ import { BN } from '@polkadot/util';
  * const agent = new AssetTransferAgent();
  * agent.initialize(api);
  * const result = await agent.transfer({
- *   address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
- *   recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+ *   address: '1A2B3C4D5E6F7G8H9I0J1K2L3M4N5O6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1',
+ *   recipient: '1Z9B8C7D6E5F4G3H2I1J0K9L8M7N6O5P4Q3R2S1T0U9V8W7X6Y5Z4A3B2C1',
  *   amount: '1.5', // 1.5 DOT (will be converted to Planck)
  * });
  */
@@ -38,131 +59,29 @@ export class AssetTransferAgent extends BaseAgent {
    */
   async transfer(params: TransferParams): Promise<AgentResult> {
     this.ensureInitialized();
-    const api = this.getApi();
-    const warnings: string[] = [];
+    
+    if (!this.api) {
+      throw new AgentError('API not initialized', 'API_NOT_INITIALIZED');
+    }
 
     try {
-      // Validate sender address
-      const senderValidation = this.validateAddress(params.address);
-      if (!senderValidation.valid) {
-        throw new AgentError(
-          `Invalid sender address: ${senderValidation.errors.join(', ')}`,
-          'INVALID_SENDER_ADDRESS',
-          { errors: senderValidation.errors }
-        );
-      }
-
-      // Validate recipient address
-      const recipientValidation = this.validateAddress(params.recipient);
-      if (!recipientValidation.valid) {
-        throw new AgentError(
-          `Invalid recipient address: ${recipientValidation.errors.join(', ')}`,
-          'INVALID_RECIPIENT_ADDRESS',
-          { errors: recipientValidation.errors }
-        );
-      }
-
-      // Check if sender and recipient are the same
-      if (params.address === params.recipient) {
-        throw new AgentError(
-          'Sender and recipient addresses cannot be the same',
-          'SAME_SENDER_RECIPIENT'
-        );
-      }
-
-      // Parse and validate amount
-      const amountBN = typeof params.amount === 'string' && params.amount.includes('.')
-        ? this.parseAmount(params.amount)
-        : new BN(params.amount);
-
-      if (amountBN.lte(new BN(0))) {
-        throw new AgentError(
-          'Transfer amount must be greater than zero',
-          'INVALID_AMOUNT'
-        );
-      }
-
-      // Validate balance if requested (default: true)
-      const validateBalance = params.validateBalance !== false;
-      if (validateBalance) {
-        const balanceCheck = await this.hasSufficientBalance(
-          params.address,
-          amountBN,
-          true // include fees
-        );
-
-        if (!balanceCheck.sufficient) {
-          throw new AgentError(
-            `Insufficient balance. Available: ${this.formatAmount(balanceCheck.available)} DOT, Required: ${this.formatAmount(balanceCheck.required)} DOT`,
-            'INSUFFICIENT_BALANCE',
-            {
-              available: balanceCheck.available,
-              required: balanceCheck.required,
-              shortfall: balanceCheck.shortfall,
-            }
-          );
-        }
-      }
-
-      // Create the appropriate extrinsic
-      const keepAlive = params.keepAlive === true;
-      const extrinsicParams = {
-        recipient: params.recipient,
-        amount: amountBN.toString(),
-      };
-      const extrinsic = keepAlive
-        ? createTransferKeepAliveExtrinsic(api, extrinsicParams)
-        : createTransferExtrinsic(api, extrinsicParams);
-
-      // Estimate fee
-      const estimatedFee = await this.estimateFee(extrinsic, params.address);
-
-      // Add warnings
-      if (keepAlive) {
-        warnings.push('Using transferKeepAlive - this ensures the sender account remains alive after transfer');
-      }
-
-      // Check if recipient account exists (optional warning)
-      try {
-        const recipientInfo = await api.query.system.account(params.recipient);
-        const recipientData = recipientInfo as any;
-        const recipientBalance = recipientData.data?.free?.toString() || '0';
-        if (recipientBalance === '0') {
-          warnings.push('Recipient account appears to be new or empty');
-        }
-      } catch {
-        // Ignore errors when checking recipient
-      }
-
-      const description = `Transfer ${this.formatAmount(amountBN)} DOT from ${params.address.slice(0, 8)}...${params.address.slice(-8)} to ${params.recipient.slice(0, 8)}...${params.recipient.slice(-8)}`;
-
-      return this.createResult(
-        description,
-        extrinsic,
-        {
-          estimatedFee,
-          warnings: warnings.length > 0 ? warnings : undefined,
-          metadata: {
-            amount: amountBN.toString(),
-            formattedAmount: this.formatAmount(amountBN),
-            recipient: params.recipient,
-            sender: params.address,
-            keepAlive,
-          },
-          resultType: 'extrinsic',
-          requiresConfirmation: true,
-          executionType: 'extrinsic',
-        }
-      );
+      validateTransferAddresses(params.address, params.recipient);
+      
+      const context = await this.prepareTransferContext(params);
+      const preconditions = await this.validateTransferPreconditions(params, context);
+      const extrinsicResult = this.buildTransferExtrinsic(params, context);
+      
+      return this.createTransferResult(params, extrinsicResult, {
+        ...context,
+        ...preconditions,
+      });
     } catch (error) {
-      if (error instanceof AgentError) {
-        throw error;
-      }
-      throw new AgentError(
-        `Transfer failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        'TRANSFER_ERROR',
-        { originalError: error instanceof Error ? error.message : String(error) }
-      );
+      console.error('[AssetTransferAgent] Transfer failed:', {
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof AgentError ? (error as AgentError).code : 'UNKNOWN',
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      return this.handleTransferError(error, 'Transfer');
     }
   }
 
@@ -174,135 +93,62 @@ export class AssetTransferAgent extends BaseAgent {
    */
   async batchTransfer(params: BatchTransferParams): Promise<AgentResult> {
     this.ensureInitialized();
-    const api = this.getApi();
-    const warnings: string[] = [];
+    
+    if (!this.api) {
+      throw new AgentError('API not initialized', 'API_NOT_INITIALIZED');
+    }
 
     try {
-      // Validate sender address
-      const senderValidation = this.validateAddress(params.address);
-      if (!senderValidation.valid) {
-        throw new AgentError(
-          `Invalid sender address: ${senderValidation.errors.join(', ')}`,
-          'INVALID_SENDER_ADDRESS',
-          { errors: senderValidation.errors }
-        );
-      }
+      validateSenderAddress(params.address);
+      this.validateTransfersArray(params.transfers);
 
-      // Validate transfers array
-      if (!params.transfers || params.transfers.length === 0) {
-        throw new AgentError(
-          'At least one transfer is required',
-          'NO_TRANSFERS'
-        );
-      }
+      const context = await this.prepareBatchContext(params);
+      const { validatedTransfers, totalAmount } = this.validateAndParseTransfersWithCapabilities(
+        params.address,
+        params.transfers,
+        context.capabilities
+      );
 
-      if (params.transfers.length > 100) {
-        throw new AgentError(
-          'Batch transfer cannot exceed 100 transfers',
-          'TOO_MANY_TRANSFERS'
-        );
-      }
+      await validateSenderAddressForSigning(params.address);
+      const senderAddress = params.address;
+      
+      const estimatedFeeBN = new BN('500000000');
+      const balanceResult = await validateBalance(
+        context.targetApi,
+        senderAddress,
+        totalAmount,
+        estimatedFeeBN,
+        context.capabilities,
+        params.validateBalance !== false
+      );
+      
+      const transfersWithBN = validatedTransfers.map(t => ({
+        recipient: t.recipient,
+        amount: new BN(t.amount),
+      }));
+      
+      const result = buildSafeBatchExtrinsic(
+        context.targetApi,
+        transfersWithBN,
+        context.capabilities,
+        true
+      );
 
-      // Validate each transfer
-      const totalAmount = new BN(0);
-      const validatedTransfers = params.transfers.map((transfer, index) => {
-        // Validate recipient
-        const recipientValidation = this.validateAddress(transfer.recipient);
-        if (!recipientValidation.valid) {
-          throw new AgentError(
-            `Invalid recipient address at index ${index}: ${recipientValidation.errors.join(', ')}`,
-            'INVALID_RECIPIENT_ADDRESS',
-            { index, errors: recipientValidation.errors }
-          );
-        }
-
-        // Check if sender and recipient are the same
-        if (params.address === transfer.recipient) {
-          throw new AgentError(
-            `Transfer ${index + 1}: Sender and recipient addresses cannot be the same`,
-            'SAME_SENDER_RECIPIENT',
-            { index }
-          );
-        }
-
-        // Parse and validate amount
-        const amountBN = typeof transfer.amount === 'string' && transfer.amount.includes('.')
-          ? this.parseAmount(transfer.amount)
-          : new BN(transfer.amount);
-
-        if (amountBN.lte(new BN(0))) {
-          throw new AgentError(
-            `Transfer ${index + 1}: Amount must be greater than zero`,
-            'INVALID_AMOUNT',
-            { index }
-          );
-        }
-
-        totalAmount.iadd(amountBN);
-
-        return {
-          recipient: transfer.recipient,
-          amount: amountBN.toString(),
-        };
-      });
-
-      // Validate balance if requested (default: true)
-      const validateBalance = params.validateBalance !== false;
-      if (validateBalance) {
-        const balanceCheck = await this.hasSufficientBalance(
-          params.address,
-          totalAmount,
-          true // include fees
-        );
-
-        if (!balanceCheck.sufficient) {
-          throw new AgentError(
-            `Insufficient balance for batch transfer. Available: ${this.formatAmount(balanceCheck.available)} DOT, Required: ${this.formatAmount(balanceCheck.required)} DOT`,
-            'INSUFFICIENT_BALANCE',
-            {
-              available: balanceCheck.available,
-              required: balanceCheck.required,
-              shortfall: balanceCheck.shortfall,
-            }
-          );
-        }
-      }
-
-      // Create batch extrinsic
-      const extrinsic = createBatchTransferExtrinsic(api, {
-        transfers: validatedTransfers.map(t => ({
-          recipient: t.recipient,
-          amount: t.amount,
-        })),
-      });
-
-      // Estimate fee
-      const estimatedFee = await this.estimateFee(extrinsic, params.address);
-
-      // Add warnings
-      warnings.push(`Batch transfer with ${params.transfers.length} recipients`);
-      if (params.transfers.length > 10) {
-        warnings.push('Large batch transfer - ensure all recipients are correct');
-      }
-
-      const description = `Batch transfer: ${params.transfers.length} transfers totaling ${this.formatAmount(totalAmount)} DOT from ${params.address.slice(0, 8)}...${params.address.slice(-8)}`;
+      const description = `Batch transfer: ${params.transfers.length} transfers totaling ${formatAmount(result.amountBN, context.capabilities.nativeDecimals)} ${context.capabilities.nativeTokenSymbol} from ${senderAddress.slice(0, 8)}...${senderAddress.slice(-8)} on ${context.chainName}`;
 
       return this.createResult(
         description,
-        extrinsic,
+        result.extrinsic,
         {
-          estimatedFee,
-          warnings: warnings.length > 0 ? warnings : undefined,
+          estimatedFee: estimatedFeeBN.toString(),
+          warnings: result.warnings.length > 0 ? result.warnings : undefined,
           metadata: {
+            method: result.method,
             transferCount: params.transfers.length,
-            totalAmount: totalAmount.toString(),
-            formattedTotalAmount: this.formatAmount(totalAmount),
-            sender: params.address,
-            transfers: validatedTransfers.map(t => ({
-              recipient: t.recipient,
-              amount: t.amount,
-              formattedAmount: this.formatAmount(new BN(t.amount)),
-            })),
+            chain: context.capabilities.chainName,
+            decimals: context.capabilities.nativeDecimals,
+            symbol: context.capabilities.nativeTokenSymbol,
+            enableSimulation: true,
           },
           resultType: 'extrinsic',
           requiresConfirmation: true,
@@ -310,15 +156,298 @@ export class AssetTransferAgent extends BaseAgent {
         }
       );
     } catch (error) {
-      if (error instanceof AgentError) {
-        throw error;
-      }
-      throw new AgentError(
-        `Batch transfer failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        'BATCH_TRANSFER_ERROR',
-        { originalError: error instanceof Error ? error.message : String(error) }
-      );
+      console.error('[AssetTransferAgent] Batch transfer failed:', {
+        error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof AgentError ? (error as AgentError).code : 'UNKNOWN',
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      return this.handleTransferError(error, 'Batch transfer');
     }
   }
-}
 
+  // ===== HELPER METHODS =====
+
+  private async prepareTransferContext(
+    params: TransferParams
+  ): Promise<{
+    targetApi: ApiPromise;
+    capabilities: TransferCapabilities;
+    amountBN: BN;
+    keepAlive: boolean;
+    targetChain: 'assetHub' | 'relay';
+    chainName: string;
+  }> {
+    const targetChain = params.chain || 'assetHub';
+    const chainName = targetChain === 'assetHub' ? 'Asset Hub' : 'Relay Chain';
+    const keepAlive = params.keepAlive === true;
+
+    const targetApi = await this.getApiForChain(targetChain);
+    if (!targetApi) {
+      throw new AgentError(
+        `Failed to get API for ${chainName}`,
+        'API_NOT_AVAILABLE',
+        { chain: targetChain }
+      );
+    }
+
+    await targetApi.isReady;
+
+    if (!targetApi.tx || !targetApi.tx.balances) {
+      throw new AgentError(
+        `Target chain (${chainName}) API does not have balances pallet. ` +
+        `This is required for native token transfers.`,
+        'INVALID_API_STATE',
+        { chain: targetChain, chainName }
+      );
+    }
+
+    const capabilities = await detectTransferCapabilities(targetApi);
+    const amountBN = parseAndValidateAmountWithCapabilities(params.amount, capabilities);
+
+    const isAssetHub =
+      capabilities.chainName.toLowerCase().includes('asset') ||
+      capabilities.chainName.toLowerCase().includes('statemint') ||
+      capabilities.specName.toLowerCase().includes('asset') ||
+      capabilities.specName.toLowerCase().includes('statemint');
+
+    if (targetChain === 'assetHub' && !isAssetHub) {
+      throw new AgentError(
+        `Chain type mismatch: Expected Asset Hub, but detected "${capabilities.chainName}" (${capabilities.specName}). ` +
+        `This may indicate a connection to the wrong chain.`,
+        'CHAIN_TYPE_MISMATCH',
+        {
+          expected: 'assetHub',
+          detected: capabilities.chainName,
+          specName: capabilities.specName,
+        }
+      );
+    }
+
+    validateMinimumCapabilities(capabilities);
+
+    return {
+      targetApi,
+      capabilities,
+      amountBN,
+      keepAlive,
+      targetChain,
+      chainName,
+    };
+  }
+
+  private async validateTransferPreconditions(
+    params: TransferParams,
+    context: {
+      targetApi: ApiPromise;
+      capabilities: TransferCapabilities;
+      amountBN: BN;
+      keepAlive: boolean;
+      chainName: string;
+    }
+  ): Promise<{
+    senderAddress: string;
+    warnings: string[];
+    estimatedFeeBN: BN;
+  }> {
+    await validateSenderAddressForSigning(params.address);
+    const senderAddress = params.address;
+
+    const warnings: string[] = [];
+    const edCheck = validateExistentialDeposit(context.amountBN, context.capabilities);
+    if (!edCheck.valid && edCheck.warning) {
+      warnings.push(edCheck.warning);
+    }
+
+    const estimatedFeeBN = new BN('200000000');
+    const balanceResult = await validateBalance(
+      context.targetApi,
+      senderAddress,
+      context.amountBN,
+      estimatedFeeBN,
+      context.capabilities,
+      params.validateBalance !== false
+    );
+
+    const edBN = new BN(context.capabilities.existentialDeposit);
+    const reapingWarning = checkAccountReapingRisk(
+      balanceResult.available,
+      context.amountBN,
+      estimatedFeeBN,
+      edBN,
+      context.keepAlive,
+      context.capabilities
+    );
+
+    if (reapingWarning) {
+      warnings.push(reapingWarning);
+    }
+
+    return {
+      senderAddress,
+      warnings,
+      estimatedFeeBN,
+    };
+  }
+
+  private buildTransferExtrinsic(
+    params: TransferParams,
+    context: {
+      targetApi: ApiPromise;
+      capabilities: TransferCapabilities;
+      amountBN: BN;
+      keepAlive: boolean;
+    }
+  ): {
+    extrinsic: any;
+    method: string;
+    recipientEncoded: string;
+    amountBN: BN;
+    warnings: string[];
+  } {
+    return buildSafeTransferExtrinsic(
+      context.targetApi,
+      {
+        recipient: params.recipient,
+        amount: context.amountBN,
+        keepAlive: context.keepAlive,
+      },
+      context.capabilities
+    );
+  }
+
+  private createTransferResult(
+    params: TransferParams,
+    extrinsicResult: {
+      extrinsic: any;
+      method: string;
+      recipientEncoded: string;
+      amountBN: BN;
+      warnings: string[];
+    },
+    context: {
+      capabilities: TransferCapabilities;
+      chainName: string;
+      senderAddress: string;
+      warnings: string[];
+      estimatedFeeBN: BN;
+    }
+  ): AgentResult {
+    const allWarnings = [...context.warnings, ...extrinsicResult.warnings];
+    const description = `Transfer ${formatAmount(extrinsicResult.amountBN, context.capabilities.nativeDecimals)} ${context.capabilities.nativeTokenSymbol} from ${context.senderAddress.slice(0, 8)}...${context.senderAddress.slice(-8)} to ${extrinsicResult.recipientEncoded.slice(0, 8)}...${extrinsicResult.recipientEncoded.slice(-8)} on ${context.chainName}`;
+
+    return this.createResult(
+      description,
+      extrinsicResult.extrinsic,
+      {
+        estimatedFee: context.estimatedFeeBN.toString(),
+        warnings: allWarnings.length > 0 ? allWarnings : undefined,
+        metadata: {
+          method: extrinsicResult.method,
+          chain: context.capabilities.chainName,
+          decimals: context.capabilities.nativeDecimals,
+          symbol: context.capabilities.nativeTokenSymbol,
+          enableSimulation: true,
+        },
+        resultType: 'extrinsic',
+        requiresConfirmation: true,
+        executionType: 'extrinsic',
+      }
+    );
+  }
+
+  private validateTransfersArray(transfers?: Array<{ recipient: string; amount: string | number }>): void {
+    if (!transfers || transfers.length === 0) {
+      throw new AgentError('At least one transfer is required', 'NO_TRANSFERS');
+    }
+    if (transfers.length > 100) {
+      throw new AgentError('Batch transfer cannot exceed 100 transfers', 'TOO_MANY_TRANSFERS');
+    }
+  }
+
+  private validateAndParseTransfersWithCapabilities(
+    senderAddress: string,
+    transfers: Array<{ recipient: string; amount: string | number }>,
+    capabilities: TransferCapabilities
+  ): { validatedTransfers: Array<{ recipient: string; amount: string }>; totalAmount: BN } {
+    const totalAmount = new BN(0);
+    const validatedTransfers = transfers.map((transfer, index) => {
+      const recipientValidation = this.validateAddress(transfer.recipient);
+      if (!recipientValidation.valid) {
+        throw new AgentError(
+          `Invalid recipient address at index ${index}: ${recipientValidation.errors.join(', ')}`,
+          'INVALID_RECIPIENT_ADDRESS',
+          { index, errors: recipientValidation.errors }
+        );
+      }
+
+      if (senderAddress === transfer.recipient) {
+        throw new AgentError(
+          `Transfer ${index + 1}: Sender and recipient addresses cannot be the same`,
+          'SAME_SENDER_RECIPIENT',
+          { index }
+        );
+      }
+
+      const amountBN = parseAndValidateAmountWithCapabilities(transfer.amount, capabilities, index);
+      totalAmount.iadd(amountBN);
+
+      return {
+        recipient: transfer.recipient,
+        amount: amountBN.toString(),
+      };
+    });
+
+    return { validatedTransfers, totalAmount };
+  }
+
+  private async prepareBatchContext(
+    params: BatchTransferParams
+  ): Promise<{
+    targetApi: ApiPromise;
+    capabilities: TransferCapabilities;
+    targetChain: 'assetHub' | 'relay';
+    chainName: string;
+  }> {
+    const targetChain = params.chain || 'assetHub';
+    const chainName = targetChain === 'assetHub' ? 'Asset Hub' : 'Relay Chain';
+
+    const targetApi = await this.getApiForChain(targetChain);
+    if (!targetApi) {
+      throw new AgentError(
+        `Failed to get API for ${chainName}`,
+        'API_NOT_AVAILABLE',
+        { chain: targetChain }
+      );
+    }
+
+    await targetApi.isReady;
+    const capabilities = await detectTransferCapabilities(targetApi);
+    validateMinimumCapabilities(capabilities);
+
+    if (!capabilities.hasUtility) {
+      throw new AgentError(
+        `Chain ${capabilities.chainName} does not support batch operations (no utility pallet)`,
+        'BATCH_NOT_SUPPORTED'
+      );
+    }
+
+    return {
+      targetApi,
+      capabilities,
+      targetChain,
+      chainName,
+    };
+  }
+
+
+  private handleTransferError(error: unknown, operation: string): never {
+    if (error instanceof AgentError) {
+      throw error;
+    }
+    throw new AgentError(
+      `${operation} failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      `${operation.toUpperCase().replace(' ', '_')}_ERROR`,
+      { originalError: error instanceof Error ? error.message : String(error) }
+    );
+  }
+}

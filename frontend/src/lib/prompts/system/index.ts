@@ -10,6 +10,13 @@ export { logSystemPrompt, logSystemPromptAsync, getSystemPromptString, logSystem
 export { BASE_SYSTEM_PROMPT } from './base';
 export { EXECUTION_ARRAY_INSTRUCTIONS } from './execution/instructions';
 export {
+  detectSystemQueries, 
+  loadKnowledgeFile, 
+  processSystemQueries, 
+  areSystemQueriesEnabled 
+} from './systemQuery';
+export type { SystemQuery } from './systemQuery';
+export {
   formatPolkadotKnowledgeBase,
   buildKnowledgeBase,
   fetchLiveParachainData,
@@ -18,7 +25,7 @@ export {
   COMMON_PATTERNS,
   ECOSYSTEM_CHANGES,
   SAFETY_GUIDELINES,
-} from './knowledge/dot-knowledge';
+} from './knowledge/dotKnowledge';
 export type {
   ParachainInfo,
   TokenInfo,

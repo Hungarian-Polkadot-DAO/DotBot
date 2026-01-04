@@ -38,14 +38,40 @@ export interface AgentResult {
 }
 
 /**
+ * Status update callback for visual feedback during simulation
+ */
+export type SimulationStatusCallback = (status: {
+  phase: 'validating' | 'simulating' | 'analyzing' | 'retrying' | 'complete' | 'initializing' | 'forking' | 'executing' | 'error';
+  message: string;
+  attempt?: number;
+  maxAttempts?: number;
+  chain?: string;
+  adjustments?: string[];
+  progress?: number;
+  details?: string;
+  result?: {
+    success: boolean;
+    estimatedFee?: string;
+    validationMethod?: 'chopsticks' | 'paymentInfo';
+    balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+    runtimeInfo?: Record<string, any>;
+    error?: string;
+    wouldSucceed?: boolean;
+  };
+}) => void;
+
+/**
  * Base parameters that all agent functions might need
  */
 export interface BaseAgentParams {
-  /** Account address (sender/actor) */
+  /** Account address (sender/actor) - must be SS58 format */
   address: string;
   
   /** Network/chain identifier */
   network?: 'polkadot' | 'kusama' | string;
+  
+  /** Optional callback for simulation status updates */
+  onSimulationStatus?: SimulationStatusCallback;
 }
 
 /**
@@ -79,5 +105,34 @@ export interface BalanceInfo {
   reserved: string;
   frozen: string;
   available: string; // free - frozen
+}
+
+/**
+ * Dry-run result for extrinsic validation
+ */
+export interface DryRunResult {
+  /** Whether the dry-run succeeded */
+  success: boolean;
+  
+  /** Error message if failed */
+  error?: string;
+  
+  /** Estimated fee in Planck */
+  estimatedFee: string;
+  
+  /** Whether the transaction would succeed on-chain */
+  wouldSucceed: boolean;
+  
+  /** Validation method used */
+  validationMethod?: 'chopsticks' | 'paymentInfo';
+  
+  /** Additional runtime information */
+  runtimeInfo?: Record<string, any>;
+  
+  /** Balance changes (from Chopsticks simulation) */
+  balanceChanges?: Array<{
+    value: string;
+    change: 'send' | 'receive';
+  }>;
 }
 

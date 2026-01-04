@@ -131,10 +131,17 @@ export function logSystemPromptWithMockContext(): void {
       rpcEndpoint: 'wss://rpc.polkadot.io',
     },
     balance: {
-      total: '100.5',
-      free: '100.5',
+      relayChain: {
+        free: '75000000000000',
+        reserved: '0',
+        frozen: '0',
+      },
+      assetHub: {
+        free: '25500000000000',
       reserved: '0',
       frozen: '0',
+      },
+      total: '100500000000000',
       symbol: 'DOT',
     },
   };

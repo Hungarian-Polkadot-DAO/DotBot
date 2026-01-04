@@ -13,7 +13,7 @@
 
 import { AgentDefinition, AgentRegistry } from './types';
 // Import agent definitions as they are created
-import { ASSET_TRANSFER_AGENT } from './asset-transfer';
+import { ASSET_TRANSFER_AGENT } from './assetTransfer';
 // import { ASSET_SWAP_AGENT } from './asset-swap';
 // import { GOVERNANCE_AGENT } from './governance';
 // import { MULTISIG_AGENT } from './multisig';

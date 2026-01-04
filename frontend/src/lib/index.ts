@@ -5,6 +5,24 @@
  * This library provides agents, system prompts, and execution capabilities.
  */
 
+// ============================================================================
+// OUT OF THE BOX INTERFACE - Start here!
+// ============================================================================
+export { DotBot } from './dotbot';
+export type { DotBotConfig, ChatResult, ChatOptions, ConversationMessage } from './dotbot';
+
+// RPC Manager - For advanced endpoint management
+export { 
+  RpcManager, 
+  createRelayChainManager, 
+  createAssetHubManager,
+  RpcEndpoints 
+} from './rpcManager';
+
+// ============================================================================
+// Advanced/Modular Exports (for custom implementations)
+// ============================================================================
+
 // Export agents (runtime agent classes and registry)
 export * from './agents';
 export type { AgentClass, AgentRegistryEntry } from './agents';
@@ -39,7 +57,7 @@ export {
   COMMON_PATTERNS,
   ECOSYSTEM_CHANGES,
   SAFETY_GUIDELINES,
-} from './prompts/system/knowledge/dot-knowledge';
+} from './prompts/system/knowledge/dotKnowledge';
 export type {
   ParachainInfo,
   TokenInfo,
@@ -88,24 +106,20 @@ export type {
   BalanceContext,
 } from './prompts/system/context/types';
 
-// Export types and enums (must export enums as values, not just types)
-export { Subsystem, ErrorType } from './types/logging';
-export type { Subsystem as SubsystemType, ErrorType as ErrorTypeType } from './types/logging';
-
-// Export execution array (runtime execution system)
+// Export execution engine (runtime execution system)
 export {
   ExecutionArray,
   Executioner,
   ExecutionOrchestrator,
-  ExecutionSystem, // Recommended: Turnkey solution
+  ExecutionSystem, // Advanced: For executing ExecutionPlans directly (use DotBot for turnkey)
   BrowserWalletSigner, // For browser environments
   KeyringSigner, // For terminal/backend/tests
-} from './execution-array';
+} from './executionEngine';
 export {
   mapPromptStatusToRuntimeStatus,
   mapRuntimeStatusToPromptStatus,
   createExecutionItemFromAgentResult,
-} from './execution-array/utils';
+} from './executionEngine/utils';
 export type {
   ExecutionItem,
   ExecutionArrayState,
@@ -123,8 +137,5 @@ export type {
   OrchestrationOptions,
   Signer, // Pluggable signer interface
   SignerOptions,
-} from './execution-array';
-
-// Export config
-export { createSubsystemLogger, logError, logger } from './config/logger';
+} from './executionEngine';
 

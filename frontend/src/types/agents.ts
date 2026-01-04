@@ -30,8 +30,11 @@ export interface AgentRequest {
   agentId: string;
   message: string;
   context?: {
-    conversationId: string;
-    previousMessages: string[];
+    conversationHistory?: Array<{
+      role: 'user' | 'assistant' | 'system';
+      content: string;
+      timestamp?: number;
+    }>;
     userWallet?: string;
     network?: string;
   };

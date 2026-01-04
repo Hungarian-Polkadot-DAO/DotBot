@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { X, AlertCircle, RefreshCw } from 'lucide-react';
 import { useWalletStore } from '../../stores/walletStore';
 import { WalletAccount } from '../../types/wallet';
+import { web3AuthService } from '../../lib/services/web3AuthService';
 import walletIcon from '../../assets/wallet.svg';
 
 interface WalletModalProps {
@@ -52,18 +53,35 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
 
   const handleConnectAccount = async (account: WalletAccount) => {
     console.log('Modal: Connecting to account:', account);
-    await connectAccount(account);
     
-    // Sync state after connection attempt
-    syncWithService();
-    
-    // Check if connection was successful
-    const store = useWalletStore.getState();
-    console.log('Modal: Post-connection state:', { isConnected: store.isConnected, error: store.error });
-    
-    if (store.isConnected && !store.error) {
-      console.log('Modal: Connection successful, closing modal');
-      onClose();
+    try {
+      // CRITICAL: Authenticate first (this prompts user to sign)
+      console.log('Modal: Calling web3AuthService.authenticate()...');
+      const authResult = await web3AuthService.authenticate(account);
+      
+      if (!authResult.success) {
+        throw new Error(authResult.error || 'Authentication failed');
+      }
+      
+      console.log('Modal: Authentication result:', authResult);
+      
+      // Now update store state (store will verify authentication succeeded)
+      await connectAccount(account);
+      
+      // Sync state after connection
+      syncWithService();
+      
+      // Check if connection was successful
+      const store = useWalletStore.getState();
+      console.log('Modal: Post-connection state:', { isConnected: store.isConnected, error: store.error });
+      
+      if (store.isConnected && !store.error) {
+        console.log('Modal: Connection successful, closing modal');
+        onClose();
+      }
+    } catch (error) {
+      console.error('Modal: Connection error:', error);
+      // Error is already set in the store by connectAccount
     }
   };
 
