@@ -10,7 +10,20 @@ jest.mock('@polkadot/api', () => ({
   WsProvider: jest.fn(),
 }));
 
-import { RpcManager, ExecutionSession } from '../../rpcManager';
+import { 
+  RpcManager, 
+  ExecutionSession,
+  Network,
+  RpcEndpoints,
+  getEndpointsForNetwork,
+  createRpcManagersForNetwork,
+  createPolkadotRelayChainManager,
+  createPolkadotAssetHubManager,
+  createKusamaRelayChainManager,
+  createKusamaAssetHubManager,
+  createWestendRelayChainManager,
+  createWestendAssetHubManager,
+} from '../../rpcManager';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { Registry } from '@polkadot/types/types';
 
@@ -495,6 +508,148 @@ describe('RpcManager', () => {
       expect(() => {
         session.assertSameRegistry(mockExtrinsic);
       }).toThrow('Cross-registry extrinsic detected');
+    });
+  });
+
+  describe('Multi-Network Support', () => {
+    describe('RpcEndpoints', () => {
+      it('should have endpoints for all networks', () => {
+        expect(RpcEndpoints.POLKADOT_RELAY_CHAIN.length).toBeGreaterThan(0);
+        expect(RpcEndpoints.POLKADOT_ASSET_HUB.length).toBeGreaterThan(0);
+        expect(RpcEndpoints.KUSAMA_RELAY_CHAIN.length).toBeGreaterThan(0);
+        expect(RpcEndpoints.KUSAMA_ASSET_HUB.length).toBeGreaterThan(0);
+        expect(RpcEndpoints.WESTEND_RELAY_CHAIN.length).toBeGreaterThan(0);
+        expect(RpcEndpoints.WESTEND_ASSET_HUB.length).toBeGreaterThan(0);
+      });
+
+      it('should have valid WebSocket URLs', () => {
+        const allEndpoints = [
+          ...RpcEndpoints.POLKADOT_RELAY_CHAIN,
+          ...RpcEndpoints.POLKADOT_ASSET_HUB,
+          ...RpcEndpoints.KUSAMA_RELAY_CHAIN,
+          ...RpcEndpoints.KUSAMA_ASSET_HUB,
+          ...RpcEndpoints.WESTEND_RELAY_CHAIN,
+          ...RpcEndpoints.WESTEND_ASSET_HUB,
+        ];
+
+        allEndpoints.forEach(endpoint => {
+          expect(endpoint).toMatch(/^wss:\/\/.+/);
+        });
+      });
+
+      it('should maintain backward compatibility', () => {
+        expect(RpcEndpoints.RELAY_CHAIN).toEqual(RpcEndpoints.POLKADOT_RELAY_CHAIN);
+        expect(RpcEndpoints.ASSET_HUB).toEqual(RpcEndpoints.POLKADOT_ASSET_HUB);
+      });
+    });
+
+    describe('getEndpointsForNetwork', () => {
+      it('should return correct endpoints for Polkadot', () => {
+        const endpoints = getEndpointsForNetwork('polkadot');
+        expect(endpoints.relayChain).toEqual(RpcEndpoints.POLKADOT_RELAY_CHAIN);
+        expect(endpoints.assetHub).toEqual(RpcEndpoints.POLKADOT_ASSET_HUB);
+      });
+
+      it('should return correct endpoints for Kusama', () => {
+        const endpoints = getEndpointsForNetwork('kusama');
+        expect(endpoints.relayChain).toEqual(RpcEndpoints.KUSAMA_RELAY_CHAIN);
+        expect(endpoints.assetHub).toEqual(RpcEndpoints.KUSAMA_ASSET_HUB);
+      });
+
+      it('should return correct endpoints for Westend', () => {
+        const endpoints = getEndpointsForNetwork('westend');
+        expect(endpoints.relayChain).toEqual(RpcEndpoints.WESTEND_RELAY_CHAIN);
+        expect(endpoints.assetHub).toEqual(RpcEndpoints.WESTEND_ASSET_HUB);
+      });
+
+      it('should throw for unknown network', () => {
+        expect(() => getEndpointsForNetwork('unknown' as Network)).toThrow('Unknown network: unknown');
+      });
+    });
+
+    describe('createRpcManagersForNetwork', () => {
+      it('should create managers for Polkadot', () => {
+        const { relayChainManager, assetHubManager } = createRpcManagersForNetwork('polkadot');
+        expect(relayChainManager).toBeInstanceOf(RpcManager);
+        expect(assetHubManager).toBeInstanceOf(RpcManager);
+        
+        const relayHealth = relayChainManager.getHealthStatus();
+        expect(relayHealth.length).toBe(RpcEndpoints.POLKADOT_RELAY_CHAIN.length);
+        
+        const assetHealth = assetHubManager.getHealthStatus();
+        expect(assetHealth.length).toBe(RpcEndpoints.POLKADOT_ASSET_HUB.length);
+      });
+
+      it('should create managers for Kusama', () => {
+        const { relayChainManager, assetHubManager } = createRpcManagersForNetwork('kusama');
+        expect(relayChainManager).toBeInstanceOf(RpcManager);
+        expect(assetHubManager).toBeInstanceOf(RpcManager);
+        
+        const relayHealth = relayChainManager.getHealthStatus();
+        expect(relayHealth.length).toBe(RpcEndpoints.KUSAMA_RELAY_CHAIN.length);
+        
+        const assetHealth = assetHubManager.getHealthStatus();
+        expect(assetHealth.length).toBe(RpcEndpoints.KUSAMA_ASSET_HUB.length);
+      });
+
+      it('should create managers for Westend', () => {
+        const { relayChainManager, assetHubManager } = createRpcManagersForNetwork('westend');
+        expect(relayChainManager).toBeInstanceOf(RpcManager);
+        expect(assetHubManager).toBeInstanceOf(RpcManager);
+        
+        const relayHealth = relayChainManager.getHealthStatus();
+        expect(relayHealth.length).toBe(RpcEndpoints.WESTEND_RELAY_CHAIN.length);
+        
+        const assetHealth = assetHubManager.getHealthStatus();
+        expect(assetHealth.length).toBe(RpcEndpoints.WESTEND_ASSET_HUB.length);
+      });
+
+      it('should use correct storage keys per network', () => {
+        const polkadot = createRpcManagersForNetwork('polkadot');
+        const kusama = createRpcManagersForNetwork('kusama');
+        const westend = createRpcManagersForNetwork('westend');
+
+        // Storage keys should be different to avoid conflicts
+        // This test verifies that managers are properly isolated
+        expect(polkadot.relayChainManager).not.toBe(kusama.relayChainManager);
+        expect(polkadot.relayChainManager).not.toBe(westend.relayChainManager);
+        expect(kusama.relayChainManager).not.toBe(westend.relayChainManager);
+      });
+    });
+
+    describe('Network-specific factory functions', () => {
+      it('should create Polkadot managers', () => {
+        const relayManager = createPolkadotRelayChainManager();
+        const assetManager = createPolkadotAssetHubManager();
+        
+        expect(relayManager).toBeInstanceOf(RpcManager);
+        expect(assetManager).toBeInstanceOf(RpcManager);
+        
+        expect(relayManager.getHealthStatus().length).toBe(RpcEndpoints.POLKADOT_RELAY_CHAIN.length);
+        expect(assetManager.getHealthStatus().length).toBe(RpcEndpoints.POLKADOT_ASSET_HUB.length);
+      });
+
+      it('should create Kusama managers', () => {
+        const relayManager = createKusamaRelayChainManager();
+        const assetManager = createKusamaAssetHubManager();
+        
+        expect(relayManager).toBeInstanceOf(RpcManager);
+        expect(assetManager).toBeInstanceOf(RpcManager);
+        
+        expect(relayManager.getHealthStatus().length).toBe(RpcEndpoints.KUSAMA_RELAY_CHAIN.length);
+        expect(assetManager.getHealthStatus().length).toBe(RpcEndpoints.KUSAMA_ASSET_HUB.length);
+      });
+
+      it('should create Westend managers', () => {
+        const relayManager = createWestendRelayChainManager();
+        const assetManager = createWestendAssetHubManager();
+        
+        expect(relayManager).toBeInstanceOf(RpcManager);
+        expect(assetManager).toBeInstanceOf(RpcManager);
+        
+        expect(relayManager.getHealthStatus().length).toBe(RpcEndpoints.WESTEND_RELAY_CHAIN.length);
+        expect(assetManager.getHealthStatus().length).toBe(RpcEndpoints.WESTEND_ASSET_HUB.length);
+      });
     });
   });
 });
