@@ -26,7 +26,7 @@ jest.mock('@polkadot/util-crypto', () => ({
     return new Uint8Array(32);
   },
   encodeAddress: (publicKey: Uint8Array, ss58Format?: number) => {
-    return '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+    return '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
   },
   isAddress: (address: string) => {
     return address && address.length > 0 && address.startsWith('5');
@@ -100,7 +100,7 @@ describe('DotBot', () => {
 
     // Create mock wallet
     mockWallet = {
-      address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      address: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
       name: 'Test Account',
       source: 'polkadot-js',
     };
@@ -357,7 +357,7 @@ describe('DotBot', () => {
             functionName: 'transfer',
             parameters: {
               address: mockWallet.address,
-              recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+              recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
               amount: '20000000000',
             },
             executionType: 'extrinsic',

@@ -50,7 +50,7 @@ describe('Balance Validator Utilities', () => {
 
   describe('validateBalance()', () => {
     it('should validate sufficient balance', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const amount = new BN('1000000000000'); // 1 DOT
       const fee = new BN('1000000000'); // 0.001 DOT
 
@@ -79,7 +79,7 @@ describe('Balance Validator Utilities', () => {
     });
 
     it('should throw error for insufficient balance', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const amount = new BN('2000000000000'); // 2 DOT
       const fee = new BN('1000000000'); // 0.001 DOT
 
@@ -100,7 +100,7 @@ describe('Balance Validator Utilities', () => {
     });
 
     it('should throw error for non-existent account', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const amount = new BN('1000000000000');
       const fee = new BN('1000000000');
 
@@ -121,7 +121,7 @@ describe('Balance Validator Utilities', () => {
     });
 
     it('should skip balance validation if validateBalance is false', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const amount = new BN('2000000000000');
       const fee = new BN('1000000000');
 
@@ -151,7 +151,7 @@ describe('Balance Validator Utilities', () => {
 
   describe('checkAccountExists()', () => {
     it('should return true if account has balance', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       const mockAccountData = {
         data: {
@@ -168,7 +168,7 @@ describe('Balance Validator Utilities', () => {
     });
 
     it('should return true if account has nonce', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       const mockAccountData = {
         data: {
@@ -185,7 +185,7 @@ describe('Balance Validator Utilities', () => {
     });
 
     it('should return false if account has no balance and no nonce', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       const mockAccountData = {
         data: {

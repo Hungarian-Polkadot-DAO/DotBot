@@ -95,7 +95,7 @@ describe('Safe Extrinsic Builder', () => {
     (validateMinimumCapabilities as jest.Mock).mockImplementation(() => {});
     (getBestTransferMethod as jest.Mock).mockReturnValue('transferAllowDeath');
     (validateExistentialDeposit as jest.Mock).mockReturnValue({ valid: true });
-    (encodeRecipientAddress as jest.Mock).mockReturnValue('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+    (encodeRecipientAddress as jest.Mock).mockReturnValue('15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5');
     (normalizeAmountToBN as jest.Mock).mockReturnValue(new BN('1000000000000'));
     (detectChainType as jest.Mock).mockReturnValue({
       isAssetHub: false,
@@ -107,7 +107,7 @@ describe('Safe Extrinsic Builder', () => {
   describe('buildSafeTransferExtrinsic()', () => {
     it('should build transfer extrinsic with validation', () => {
       const params = {
-        recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         amount: '1',
       };
 
@@ -123,7 +123,7 @@ describe('Safe Extrinsic Builder', () => {
 
     it('should use keepAlive when specified', () => {
       const params = {
-        recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         amount: '1',
         keepAlive: true,
       };
@@ -138,7 +138,7 @@ describe('Safe Extrinsic Builder', () => {
 
     it('should include warnings for ED validation', () => {
       const params = {
-        recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         amount: '1',
       };
 
@@ -158,7 +158,7 @@ describe('Safe Extrinsic Builder', () => {
       } as any;
 
       const params = {
-        recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         amount: '1',
       };
 
@@ -169,7 +169,7 @@ describe('Safe Extrinsic Builder', () => {
 
     it('should throw error for zero amount', () => {
       const params = {
-        recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         amount: '0',
       };
 
@@ -182,7 +182,7 @@ describe('Safe Extrinsic Builder', () => {
 
     it('should throw error if method does not exist', () => {
       const params = {
-        recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         amount: '1',
       };
 
@@ -202,8 +202,8 @@ describe('Safe Extrinsic Builder', () => {
   describe('buildSafeBatchExtrinsic()', () => {
     it('should build batch transfer extrinsic', () => {
       const transfers = [
-        { recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', amount: '1' },
-        { recipient: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY', amount: '2' },
+        { recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3', amount: '1' },
+        { recipient: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5', amount: '2' },
       ];
 
       const result = buildSafeBatchExtrinsic(mockApi as ApiPromise, transfers, mockCapabilities);
@@ -214,7 +214,7 @@ describe('Safe Extrinsic Builder', () => {
 
     it('should use batch instead of batchAll when useAtomicBatch is false', () => {
       const transfers = [
-        { recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', amount: '1' },
+        { recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3', amount: '1' },
       ];
 
       const result = buildSafeBatchExtrinsic(
@@ -237,7 +237,7 @@ describe('Safe Extrinsic Builder', () => {
       };
 
       const transfers = [
-        { recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', amount: '1' },
+        { recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3', amount: '1' },
       ];
 
       expect(() => {

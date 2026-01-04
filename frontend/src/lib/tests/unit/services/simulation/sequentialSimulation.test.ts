@@ -107,7 +107,7 @@ describe('Sequential Transaction Simulation', () => {
     } as any;
 
     (decodeAddress as jest.Mock).mockReturnValue(new Uint8Array([1, 2, 3]));
-    (encodeAddress as jest.Mock).mockReturnValue('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+    (encodeAddress as jest.Mock).mockReturnValue('15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5');
   });
 
   describe('simulateSequentialTransactions()', () => {
@@ -116,12 +116,12 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
         {
           extrinsic: mockExtrinsics[1],
           description: 'Stake 50 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 
@@ -164,12 +164,12 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
         {
           extrinsic: mockExtrinsics[1],
           description: 'Stake 50 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 
@@ -191,12 +191,12 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
         {
           extrinsic: mockExtrinsics[1],
           description: 'Stake 50 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 
@@ -214,7 +214,7 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 
@@ -236,7 +236,7 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 
@@ -255,7 +255,7 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 
@@ -279,7 +279,7 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 
@@ -299,12 +299,12 @@ describe('Sequential Transaction Simulation', () => {
         {
           extrinsic: mockExtrinsics[0],
           description: 'Transfer 100 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
         {
           extrinsic: mockExtrinsics[1],
           description: 'Stake 50 DOT',
-          senderAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+          senderAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         },
       ];
 

@@ -27,7 +27,7 @@ describe('Address Validation Utilities', () => {
 
   describe('validateAddress()', () => {
     it('should validate correct address', () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       isAddress.mockReturnValue(true);
       decodeAddress.mockReturnValue(new Uint8Array([1, 2, 3]));
 
@@ -64,7 +64,7 @@ describe('Address Validation Utilities', () => {
     });
 
     it('should handle decodeAddress errors', () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       (isAddress as jest.Mock).mockReturnValue(true);
       decodeAddress.mockImplementation(() => {
         throw new Error('Invalid checksum');
@@ -80,8 +80,8 @@ describe('Address Validation Utilities', () => {
 
   describe('validateTransferAddresses()', () => {
     it('should validate both sender and recipient', () => {
-      const sender = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
-      const recipient = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
+      const sender = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
+      const recipient = '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3';
       
       isAddress.mockReturnValue(true);
       decodeAddress.mockReturnValue(new Uint8Array([1, 2, 3]));
@@ -103,7 +103,7 @@ describe('Address Validation Utilities', () => {
     });
 
     it('should throw error for invalid recipient', () => {
-      const sender = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const sender = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const recipient = 'invalid-recipient';
       
       isAddress
@@ -117,7 +117,7 @@ describe('Address Validation Utilities', () => {
     });
 
     it('should throw error if sender and recipient are the same', () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       
       isAddress.mockReturnValue(true);
       decodeAddress.mockReturnValue(new Uint8Array([1, 2, 3]));
@@ -130,7 +130,7 @@ describe('Address Validation Utilities', () => {
 
   describe('validateSenderAddress()', () => {
     it('should validate correct sender address', () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       isAddress.mockReturnValue(true);
       decodeAddress.mockReturnValue(new Uint8Array([1, 2, 3]));
 
@@ -151,7 +151,7 @@ describe('Address Validation Utilities', () => {
 
   describe('validateSenderAddressForSigning()', () => {
     it('should validate decodable address', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       // Configure the existing mock to succeed
       decodeAddress.mockReturnValue(new Uint8Array([1, 2, 3]));
 

@@ -47,7 +47,7 @@ describe('ExecutionSystem', () => {
 
     // Create mock account
     mockAccount = {
-      address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      address: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
       name: 'Test Account',
       source: 'polkadot-js',
     };
@@ -222,7 +222,7 @@ describe('ExecutionSystem', () => {
         stepNumber: 1,
         agentClassName: 'AssetTransferAgent',
         functionName: 'transfer',
-        parameters: { recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', amount: '1' },
+        parameters: { recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3', amount: '1' },
         executionType: 'extrinsic',
         status: 'pending',
         description: 'Transfer 1 DOT',
@@ -235,7 +235,7 @@ describe('ExecutionSystem', () => {
         stepNumber: 2,
         agentClassName: 'AssetTransferAgent',
         functionName: 'transfer',
-        parameters: { recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', amount: '2' },
+        parameters: { recipient: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3', amount: '2' },
         executionType: 'extrinsic',
         status: 'pending',
         description: 'Transfer 2 DOT',

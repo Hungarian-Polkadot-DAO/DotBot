@@ -9,6 +9,6 @@ export const decodeAddress = jest.fn((address: string) => {
 });
 
 export const encodeAddress = jest.fn((key: Uint8Array) => 
-  '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+  '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5'
 );
 

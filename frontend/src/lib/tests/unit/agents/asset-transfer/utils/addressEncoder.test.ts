@@ -49,9 +49,9 @@ describe('Address Encoder Utilities', () => {
 
   describe('encodeRecipientAddress()', () => {
     it('should encode address to chain SS58 format', () => {
-      const address = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
+      const address = '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3';
       const publicKey = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]);
-      const encodedAddress = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const encodedAddress = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       decodeAddress.mockReturnValue(publicKey);
       encodeAddress.mockReturnValue(encodedAddress);
@@ -64,7 +64,7 @@ describe('Address Encoder Utilities', () => {
     });
 
     it('should use correct SS58 prefix from capabilities', () => {
-      const address = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
+      const address = '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3';
       const publicKey = new Uint8Array([1, 2, 3]);
       const capabilitiesWithPrefix = {
         ...mockCapabilities,
@@ -93,7 +93,7 @@ describe('Address Encoder Utilities', () => {
 
   describe('validateAddressFormat()', () => {
     it('should return true for valid address', () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       (decodeAddress as jest.Mock).mockReturnValue(new Uint8Array([1, 2, 3]));
 
       const result = validateAddressFormat(address);

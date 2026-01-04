@@ -123,7 +123,7 @@ describe('Execution Simulator', () => {
     // Create mock context
     mockContext = {
       api: mockApi as ApiPromise,
-      accountAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+      accountAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
       assetHubManager: mockAssetHubManager,
       relayChainManager: mockRelayChainManager,
       onStatusUpdate: jest.fn(),

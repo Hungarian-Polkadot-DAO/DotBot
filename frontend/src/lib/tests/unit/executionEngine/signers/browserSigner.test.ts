@@ -91,7 +91,7 @@ describe('BrowserWalletSigner', () => {
   });
 
   describe('signExtrinsic()', () => {
-    const testAddress = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+    const testAddress = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
     it('should sign extrinsic using browser wallet extension', async () => {
       const signedExtrinsic = await signer.signExtrinsic(mockExtrinsic, testAddress);
@@ -133,7 +133,7 @@ describe('BrowserWalletSigner', () => {
         estimatedFee: '0.01 DOT',
         warnings: [],
         metadata: {},
-        accountAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+        accountAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         resolve: jest.fn(),
       };
     });
@@ -201,7 +201,7 @@ describe('BrowserWalletSigner', () => {
         estimatedFee: '0.02 DOT',
         warnings: ['Low balance warning'],
         metadata: { chain: 'polkadot' },
-        accountAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        accountAddress: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         resolve: jest.fn(),
       };
 
@@ -214,7 +214,7 @@ describe('BrowserWalletSigner', () => {
       expect(handlerCall.estimatedFee).toBe('0.02 DOT');
       expect(handlerCall.warnings).toEqual(['Low balance warning']);
       expect(handlerCall.metadata).toEqual({ chain: 'polkadot' });
-      expect(handlerCall.accountAddress).toBe('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty');
+      expect(handlerCall.accountAddress).toBe('14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3');
       expect(typeof handlerCall.resolve).toBe('function');
 
       // Resolve to complete test
@@ -233,7 +233,7 @@ describe('BrowserWalletSigner', () => {
         descriptions: ['Transfer 1 DOT', 'Transfer 2 DOT'],
         estimatedFee: '0.03 DOT',
         warnings: [],
-        accountAddress: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+        accountAddress: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5',
         resolve: jest.fn(),
       };
     });
@@ -314,7 +314,7 @@ describe('BrowserWalletSigner', () => {
         descriptions: ['Transfer 1 DOT', 'Transfer 2 DOT', 'Transfer 3 DOT'],
         estimatedFee: '0.05 DOT',
         warnings: ['Batch warning'],
-        accountAddress: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
+        accountAddress: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3',
         resolve: jest.fn(),
       };
 
@@ -326,7 +326,7 @@ describe('BrowserWalletSigner', () => {
       expect(handlerCall.descriptions).toEqual(['Transfer 1 DOT', 'Transfer 2 DOT', 'Transfer 3 DOT']);
       expect(handlerCall.estimatedFee).toBe('0.05 DOT');
       expect(handlerCall.warnings).toEqual(['Batch warning']);
-      expect(handlerCall.accountAddress).toBe('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty');
+      expect(handlerCall.accountAddress).toBe('14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3');
       expect(typeof handlerCall.resolve).toBe('function');
 
       // Resolve to complete test

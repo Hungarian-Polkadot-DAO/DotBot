@@ -154,7 +154,7 @@ describe('BaseAgent', () => {
     });
 
     it('should validate correct Polkadot address', () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       (isAddress as jest.Mock).mockReturnValue(true);
       (decodeAddress as jest.Mock).mockReturnValue(new Uint8Array([1, 2, 3]));
 
@@ -184,7 +184,7 @@ describe('BaseAgent', () => {
     });
 
     it('should handle decodeAddress errors', () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       (isAddress as jest.Mock).mockReturnValue(true);
       (decodeAddress as jest.Mock).mockImplementation(() => {
         throw new Error('Invalid address');
@@ -203,7 +203,7 @@ describe('BaseAgent', () => {
     });
 
     it('should fetch balance from Relay Chain', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '1000000000000' },
@@ -223,7 +223,7 @@ describe('BaseAgent', () => {
     });
 
     it('should calculate available balance correctly', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '1000000000000' },
@@ -240,7 +240,7 @@ describe('BaseAgent', () => {
     });
 
     it('should handle missing balance data gracefully', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {},
       };
@@ -260,7 +260,7 @@ describe('BaseAgent', () => {
     });
 
     it('should fetch balance from Asset Hub when API is available', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '500000000000' },
@@ -280,7 +280,7 @@ describe('BaseAgent', () => {
     it('should return null when Asset Hub API is not available', async () => {
       agent.initialize(mockApi as ApiPromise, null);
 
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       const balance = await agent['getAssetHubBalance'](address);
 
@@ -289,7 +289,7 @@ describe('BaseAgent', () => {
 
     it('should reconnect using manager if API is null', async () => {
       agent.initialize(mockApi as ApiPromise, null, null, null, mockAssetHubManager);
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       const mockAccountData = {
         data: {
@@ -316,7 +316,7 @@ describe('BaseAgent', () => {
 
     it('should return null if reconnection fails', async () => {
       agent.initialize(mockApi as ApiPromise, null, null, null, mockAssetHubManager);
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       (mockAssetHubManager.getReadApi as jest.Mock).mockRejectedValue(new Error('Connection failed'));
 
@@ -332,7 +332,7 @@ describe('BaseAgent', () => {
     });
 
     it('should get balance from Relay Chain', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '1000000000000' },
@@ -349,7 +349,7 @@ describe('BaseAgent', () => {
     });
 
     it('should get balance from Asset Hub', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '500000000000' },
@@ -367,7 +367,7 @@ describe('BaseAgent', () => {
 
     it('should throw error if Asset Hub balance cannot be fetched', async () => {
       agent.initialize(mockApi as ApiPromise, null);
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
 
       await expect(
         agent['getBalanceOnChain']('assetHub', address)
@@ -381,7 +381,7 @@ describe('BaseAgent', () => {
     });
 
     it('should return sufficient when balance is enough', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '10000000000000' }, // 10 DOT
@@ -399,7 +399,7 @@ describe('BaseAgent', () => {
     });
 
     it('should return insufficient when balance is too low', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '1000000000000' }, // 1 DOT
@@ -417,7 +417,7 @@ describe('BaseAgent', () => {
     });
 
     it('should include fee buffer when includeFees is true', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '1000000000000' },
@@ -435,7 +435,7 @@ describe('BaseAgent', () => {
     });
 
     it('should not include fee buffer when includeFees is false', async () => {
-      const address = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+      const address = '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5';
       const mockAccountData = {
         data: {
           free: { toString: () => '1000000000000' },
@@ -465,7 +465,7 @@ describe('BaseAgent', () => {
         }),
       } as any;
 
-      const fee = await agent['estimateFee'](mockExtrinsic, '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+      const fee = await agent['estimateFee'](mockExtrinsic, '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5');
 
       expect(fee).toBe('1000000000');
       expect(mockExtrinsic.paymentInfo).toHaveBeenCalled();
@@ -476,7 +476,7 @@ describe('BaseAgent', () => {
         paymentInfo: jest.fn().mockRejectedValue(new Error('Fee estimation failed')),
       } as any;
 
-      const fee = await agent['estimateFee'](mockExtrinsic, '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+      const fee = await agent['estimateFee'](mockExtrinsic, '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5');
 
       expect(fee).toBe('1000000000'); // 0.001 DOT
     });
@@ -583,16 +583,16 @@ describe('BaseAgent', () => {
 
   describe('ensurePolkadotAddress()', () => {
     it('should convert address to Polkadot SS58 format', () => {
-      const address = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
+      const address = '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3';
       const decodedBytes = new Uint8Array([1, 2, 3, 4]);
       (decodeAddress as jest.Mock).mockReturnValue(decodedBytes);
-      (encodeAddress as jest.Mock).mockReturnValue('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+      (encodeAddress as jest.Mock).mockReturnValue('15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5');
 
       const result = agent['ensurePolkadotAddress'](address);
 
       expect(decodeAddress).toHaveBeenCalledWith(address);
       expect(encodeAddress).toHaveBeenCalledWith(decodedBytes, 0);
-      expect(result).toBe('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+      expect(result).toBe('15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5');
     });
 
     it('should return address as-is if decode fails', () => {
@@ -692,7 +692,7 @@ describe('BaseAgent', () => {
       const result = await agent['dryRunExtrinsic'](
         mockApi as ApiPromise,
         mockExtrinsic,
-        '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+        '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5'
       );
 
       expect(result.success).toBe(true);
@@ -719,7 +719,7 @@ describe('BaseAgent', () => {
       const result = await agent['dryRunExtrinsic'](
         mockApi as ApiPromise,
         mockExtrinsic,
-        '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+        '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5'
       );
 
       expect(result.success).toBe(true);
@@ -746,7 +746,7 @@ describe('BaseAgent', () => {
       const result = await agent['dryRunExtrinsic'](
         mockApi as ApiPromise,
         mockExtrinsic,
-        '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+        '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5'
       );
 
       expect(result.success).toBe(false);
@@ -774,7 +774,7 @@ describe('BaseAgent', () => {
       await agent['dryRunExtrinsic'](
         mockApi as ApiPromise,
         mockExtrinsic,
-        '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+        '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5'
       );
 
       expect(mockOnStatusUpdate).toHaveBeenCalled();
@@ -789,7 +789,7 @@ describe('BaseAgent', () => {
         agent['dryRunExtrinsic'](
           mockApi as ApiPromise,
           mockExtrinsic,
-          '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY'
+          '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5'
         )
       ).rejects.toThrow('Invalid extrinsic: missing method information');
     });
