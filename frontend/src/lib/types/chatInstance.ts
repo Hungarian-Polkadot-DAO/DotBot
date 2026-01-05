@@ -83,8 +83,17 @@ export interface TextMessage extends BaseChatMessage {
  */
 export interface ExecutionMessage extends BaseChatMessage {
   type: 'execution';
+  
+  /** Unique execution ID (matches ExecutionArrayState.id) */
+  executionId: string;
+  
+  /** Serialized execution state */
   executionArray: ExecutionArrayState;
+  
+  /** High-level status */
   status: 'pending' | 'executing' | 'completed' | 'failed' | 'cancelled';
+  
+  /** Final result (after execution completes) */
   result?: {
     success: boolean;
     blockHash?: string;
@@ -198,12 +207,18 @@ export interface SearchResponseMessage extends BaseChatMessage {
 }
 
 /**
- * Union of all message types
+ * Union of all conversation item types
  * 
- * Includes core types (user, bot, execution, system) and
- * future AI ask pattern types (knowledge-request, knowledge-response, etc.)
+ * Represents items in the temporal conversation sequence.
+ * Items can be text messages (user/bot), execution flows, system notifications,
+ * or future AI-ask-pattern messages (knowledge requests/responses, search, etc.)
+ * 
+ * This mixed array allows rendering different UI components based on type:
+ * - TextMessage → Message bubble
+ * - ExecutionMessage → ExecutionFlow component
+ * - SystemMessage → System notification
  */
-export type ChatMessage = 
+export type ConversationItem = 
   | TextMessage 
   | ExecutionMessage 
   | SystemMessage
@@ -213,15 +228,29 @@ export type ChatMessage =
   | SearchResponseMessage;
 
 /**
- * Chat instance - represents a single conversation
+ * @deprecated Use ConversationItem instead
+ * Kept for backward compatibility during migration
+ */
+export type ChatMessage = ConversationItem;
+
+/**
+ * Chat instance data - represents a single conversation (serializable)
  * 
  * Key properties:
  * - Bound to an environment (cannot be changed)
  * - Contains network (can be changed within same environment)
- * - Stores all messages in temporal order
+ * - Stores all conversation items in temporal order (text messages + execution flows)
  * - Includes wallet address for context
+ * 
+ * The messages array is a mixed temporal sequence of:
+ * - Text messages (user/bot)
+ * - Execution flows (interactive transaction UIs)
+ * - System notifications
+ * - Future: knowledge requests/responses, search, etc.
+ * 
+ * Note: This is the data structure. The ChatInstance class wraps this with behavior.
  */
-export interface ChatInstance {
+export interface ChatInstanceData {
   id: string;
   createdAt: number;
   updatedAt: number;
@@ -235,8 +264,8 @@ export interface ChatInstance {
   // Wallet context
   walletAddress?: string;
   
-  // Messages in temporal order
-  messages: ChatMessage[];
+  // Conversation items in temporal order (mixed: text + execution + system)
+  messages: ConversationItem[];
   
   // Optional metadata
   title?: string;  // Auto-generated or user-provided
@@ -290,12 +319,12 @@ export interface ValidationResult {
 // ============================================================================
 
 /**
- * Convert ChatMessage to ConversationMessage for LLM context
+ * Convert ConversationItem to ConversationMessage for LLM context
  * 
  * This bridges our chat instance system with DotBot's conversation history.
  * Filters out execution/knowledge messages and strips unnecessary fields to minimize prompt size.
  */
-export function toConversationMessage(message: ChatMessage): ConversationMessage | null {
+export function toConversationMessage(message: ConversationItem): ConversationMessage | null {
   switch (message.type) {
     case 'user':
       return {

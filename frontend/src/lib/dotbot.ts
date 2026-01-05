@@ -178,18 +178,24 @@ export class DotBot {
   }
   
   /**
-   * Subscribe to execution array state changes
+   * REMOVED: onExecutionArrayUpdate
    * 
-   * Delegates to currentChat for actual management
+   * Replacement: Use dotbot.currentChat.onExecutionUpdate(executionId, callback)
+   * This allows subscribing to specific execution flows by their ID.
+   * 
+   * Example:
+   * ```typescript
+   * const executionMessage = dotbot.currentChat.getDisplayMessages()
+   *   .find(m => m.type === 'execution');
+   * 
+   * if (executionMessage?.type === 'execution') {
+   *   const unsubscribe = dotbot.currentChat.onExecutionUpdate(
+   *     executionMessage.executionId,
+   *     (state) => console.log('Execution updated:', state)
+   *   );
+   * }
+   * ```
    */
-  onExecutionArrayUpdate(callback: (state: ExecutionArrayState) => void): () => void {
-    if (this.currentChat) {
-      return this.currentChat.onExecutionUpdate(callback);
-    }
-    
-    // No chat - return no-op unsubscribe
-    return () => {};
-  }
   
   /**
    * Get current execution array state
@@ -459,6 +465,29 @@ export class DotBot {
   }
   
   /**
+   * Start execution of a specific execution array
+   * 
+   * This is called when user clicks "Accept & Start" in the UI.
+   * Requires that prepareExecution() was already called (happens automatically after LLM response).
+   * 
+   * @param executionId The unique ID of the execution to start (from ExecutionMessage.executionId)
+   * @param options Execution options (autoApprove, etc.)
+   */
+  async startExecution(executionId: string, options?: ExecutionOptions): Promise<void> {
+    if (!this.currentChat) {
+      throw new Error('No active chat. Cannot start execution.');
+    }
+    
+    const executionArray = this.currentChat.getExecutionArray(executionId);
+    if (!executionArray) {
+      throw new Error(`Execution ${executionId} not found. It may not have been prepared yet.`);
+    }
+    
+    const executioner = this.executionSystem.getExecutioner();
+    await executioner.execute(executionArray, options);
+  }
+  
+  /**
    * Chat with DotBot - Natural language to blockchain operations
    * 
    * This is the main method. Pass a message, get results.
@@ -527,12 +556,12 @@ export class DotBot {
     if (this.currentChat) {
       this.currentChat.setExecution(null);
     }
-    
-    const cleanedResponse = llmResponse
-      .replace(/```json\s*/g, '')
-      .replace(/```\s*/g, '')
-      .trim();
-    
+      
+      const cleanedResponse = llmResponse
+        .replace(/```json\s*/g, '')
+        .replace(/```\s*/g, '')
+        .trim();
+      
     // Save bot response
     if (this.currentChat) {
       await this.currentChat.addBotMessage(cleanedResponse);
@@ -543,15 +572,15 @@ export class DotBot {
       }
     }
     
-    return {
-      response: cleanedResponse,
-      executed: false,
-      success: true,
-      completed: 0,
-      failed: 0
-    };
-  }
-  
+      return {
+        response: cleanedResponse,
+        executed: false,
+        success: true,
+        completed: 0,
+        failed: 0
+      };
+    }
+    
   /**
    * Handle execution response (blockchain operations)
    */
@@ -560,23 +589,10 @@ export class DotBot {
     plan: ExecutionPlan,
     options?: ChatOptions
   ): Promise<ChatResult> {
-    let completed = 0;
-    let failed = 0;
-    let success = true;
-    
-    // Execute the plan
+    // Prepare execution (orchestrate + add to chat)
+    // Do NOT auto-execute - wait for user approval in UI!
     try {
-      await this.executeWithArrayTracking(
-        plan,
-        options?.executionOptions,
-        {
-          onComplete: (s, c, f) => {
-            success = s;
-            completed = c;
-            failed = f;
-          }
-        }
-      );
+      await this.prepareExecution(plan);
     } catch (error) {
       console.error('Execution preparation failed:', error);
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -591,19 +607,12 @@ export class DotBot {
       };
     }
     
-    // Generate friendly message
-    const friendlyMessage = this.generateFriendlyMessage(plan, completed, failed);
+    // Generate friendly message (pre-execution)
+    const friendlyMessage = `I've prepared a transaction flow with ${plan.steps.length} step${plan.steps.length !== 1 ? 's' : ''}. Review the details below and click "Accept and Start" when ready.`;
     
-    // Save messages
+    // Save bot message
     if (this.currentChat) {
       await this.currentChat.addBotMessage(friendlyMessage);
-      
-      const statusVariant = success ? 'success' : 'warning';
-      const statusContent = success 
-        ? `✅ Successfully executed ${completed} operation(s).`
-        : `⚠️ Completed ${completed}, failed ${failed} operation(s).`;
-      
-      await this.currentChat.addSystemMessage(statusContent, statusVariant);
       
       // Auto-generate title if needed
       if (!this.currentChat.title || this.currentChat.title.startsWith('Chat -')) {
@@ -611,24 +620,23 @@ export class DotBot {
       }
     }
     
+    // Return immediately - execution happens when user clicks "Accept & Start"
     return {
       response: friendlyMessage,
       plan,
-      executed: true,
-      success,
-      completed,
-      failed
+      executed: false,  // Not executed yet!
+      success: true,
+      completed: 0,
+      failed: 0
     };
   }
   
-  private async executeWithArrayTracking(
-    plan: ExecutionPlan,
-    options?: ExecutionOptions,
-    callbacks?: {
-      onComplete?: (success: boolean, completed: number, failed: number) => void;
-    }
-  ): Promise<void> {
-    const orchestrator = (this.executionSystem as any).orchestrator;
+  /**
+   * Prepare execution (orchestrate + add to chat)
+   * Does NOT auto-execute - waits for user approval
+   */
+  private async prepareExecution(plan: ExecutionPlan): Promise<void> {
+    const orchestrator = this.executionSystem.getOrchestrator();
     
     let orchestrationResult;
     try {
@@ -645,34 +653,50 @@ export class DotBot {
       throw new Error(`Failed to prepare transaction:\n\n${errorMessages}`);
     }
     
-    // Set execution on current chat (execution belongs to conversation!)
+    // Add ExecutionMessage to conversation timeline (so UI can render it!)
     if (this.currentChat) {
-      this.currentChat.setExecution(executionArray);
-    }
-    
-    const unsubscribe = executionArray.onStatusUpdate(() => {
-      // Chat instance handles callbacks now
-      if (this.currentChat) {
-        this.currentChat.setExecution(executionArray);
-      }
-    });
-    
-    try {
-      const executioner = (this.executionSystem as any).executioner;
-      await executioner.execute(executionArray, options);
+      const state = executionArray.getState();
+      const execMessage = await this.currentChat.addExecutionMessage(state);
+      this.currentChat.setExecutionArray(state.id, executionArray);
       
-      const finalState = executionArray.getState();
-      if (callbacks?.onComplete) {
-        callbacks.onComplete(
-          finalState.failedItems === 0,
-          finalState.completedItems,
-          finalState.failedItems
-        );
-      }
-    } finally {
-      unsubscribe();
+      // Subscribe to updates to keep ExecutionMessage in sync
+      executionArray.onStatusUpdate(() => {
+        if (this.currentChat) {
+          this.currentChat.updateExecutionMessage(execMessage.id, {
+            executionArray: executionArray.getState(),
+          }).catch(err => console.error('Failed to update execution message:', err));
+        }
+      });
     }
+    
+    // DO NOT EXECUTE HERE - wait for user to click "Accept & Start" in UI!
   }
+
+  /**
+   * REMOVED: executeWithArrayTracking
+   * 
+   * This method was replaced by a two-step process for better UX:
+   * 
+   * 1. **prepareExecution(plan)** - Orchestrates the plan, adds ExecutionMessage to chat
+   *    (but does NOT execute). This allows the UI to display the flow for user review.
+   * 
+   * 2. **startExecution(executionId, options)** - Executes when user clicks "Accept & Start".
+   * 
+   * For programmatic/CLI usage (auto-execute without UI approval), use ExecutionSystem directly:
+   * 
+   * ```typescript
+   * import { ExecutionSystem, KeyringSigner } from '@dotbot/lib';
+   * 
+   * const system = new ExecutionSystem();
+   * const signer = KeyringSigner.fromMnemonic("your seed phrase");
+   * await system.initialize(api, account, signer);
+   * 
+   * const result = await system.execute(executionPlan, { autoApprove: true });
+   * console.log('Execution completed:', result);
+   * ```
+   * 
+   * See: frontend/src/lib/executionEngine/index.ts for more CLI/backend examples.
+   */
   
   /**
    * Get account balance from both Relay Chain and Asset Hub

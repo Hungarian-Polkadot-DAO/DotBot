@@ -10,7 +10,7 @@
  */
 
 import { ChatInstanceManager } from './chatInstanceManager';
-import type { ChatInstance } from './types/chatInstance';
+import type { ChatInstanceData } from './types/chatInstance';
 
 /**
  * All localStorage keys used by DotBot
@@ -48,7 +48,7 @@ export interface DataExport {
   version: string;
   
   /** All chat instances */
-  chatInstances: ChatInstance[];
+  chatInstances: ChatInstanceData[];
   
   /** RPC health data */
   rpcHealth: Record<string, any>;

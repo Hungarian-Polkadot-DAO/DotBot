@@ -441,7 +441,7 @@ import type {
         output += ')\n';
         if (token.note) {
           output += `    ⚠️ ${token.note}\n`;
-        }
+  }
       });
       if (chain.notes) {
         output += `- Note: ${chain.notes}\n`;

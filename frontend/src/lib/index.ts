@@ -161,7 +161,7 @@ export { ChatInstanceManager } from './chatInstanceManager';
 export type { ChatInstanceManagerConfig } from './chatInstanceManager';
 export type {
   Environment,
-  ChatMessage,
+  ConversationItem,      // Primary: Mixed array of text messages + execution flows
   ChatMessageType,
   TextMessage,
   ExecutionMessage,

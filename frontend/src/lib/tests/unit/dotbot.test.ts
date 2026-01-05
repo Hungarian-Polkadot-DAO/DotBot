@@ -498,7 +498,7 @@ describe('DotBot', () => {
       );
     });
 
-    it('should extract and execute ExecutionPlan from LLM response', async () => {
+    it('should extract and prepare ExecutionPlan from LLM response', async () => {
       const executionPlan = {
         id: 'test-plan-1',
         originalRequest: 'Send 2 DOT to Bob',
@@ -532,8 +532,15 @@ describe('DotBot', () => {
       const mockExecutionArray = {
         onStatusUpdate: jest.fn().mockReturnValue(() => {}),
         getState: jest.fn().mockReturnValue({
+          id: 'exec_test_' + Date.now(),
+          totalItems: 1,
           completedItems: 1,
           failedItems: 0,
+          cancelledItems: 0,
+          currentIndex: -1,
+          isExecuting: false,
+          isPaused: false,
+          items: [],
         }),
       };
 
@@ -550,21 +557,23 @@ describe('DotBot', () => {
       };
 
       (dotbot as any).executionSystem = {
-        orchestrator: mockOrchestrator,
-        executioner: mockExecutioner,
+        getOrchestrator: jest.fn().mockReturnValue(mockOrchestrator),
+        getExecutioner: jest.fn().mockReturnValue(mockExecutioner),
       };
 
       const result = await dotbot.chat('Send 2 DOT to Bob', {
         llm: mockCustomLLM,
       });
 
-      expect(result.executed).toBe(true);
+      // chat() now only PREPARES execution (does not auto-execute)
       expect(result.plan).toBeDefined();
       expect(result.plan?.id).toBe('test-plan-1');
-      expect(result.success).toBe(true);
-      expect(result.completed).toBe(1);
-      expect(result.failed).toBe(0);
       expect(mockOrchestrator.orchestrate).toHaveBeenCalledWith(executionPlan);
+      
+      // Verify ExecutionMessage was added to chat
+      const messages = dotbot.currentChat?.getDisplayMessages() || [];
+      const executionMessage = messages.find(m => m.type === 'execution');
+      expect(executionMessage).toBeDefined();
     });
 
     it('should pass conversation history to LLM', async () => {
@@ -633,8 +642,15 @@ describe('DotBot', () => {
       const mockExecutionArray = {
         onStatusUpdate: jest.fn().mockReturnValue(() => {}),
         getState: jest.fn().mockReturnValue({
+          id: 'exec_test_formats_' + Date.now(),
+          totalItems: 1,
           completedItems: 1,
           failedItems: 0,
+          cancelledItems: 0,
+          currentIndex: -1,
+          isExecuting: false,
+          isPaused: false,
+          items: [],
         }),
       };
 
@@ -651,8 +667,8 @@ describe('DotBot', () => {
       };
 
       (dotbot as any).executionSystem = {
-        orchestrator: mockOrchestrator,
-        executioner: mockExecutioner,
+        getOrchestrator: jest.fn().mockReturnValue(mockOrchestrator),
+        getExecutioner: jest.fn().mockReturnValue(mockExecutioner),
       };
 
       // Test JSON in code block
@@ -672,11 +688,10 @@ describe('DotBot', () => {
 
         expect(result.plan).toBeDefined();
         expect(result.plan?.id).toBe('test-plan');
-        expect(result.executed).toBe(true);
       }
     });
 
-    it('should handle execution failure gracefully', async () => {
+    it('should handle orchestration/preparation failure gracefully', async () => {
       const executionPlan = {
         id: 'test-plan',
         originalRequest: 'Test',
@@ -708,7 +723,7 @@ describe('DotBot', () => {
       };
 
       (dotbot as any).executionSystem = {
-        orchestrator: mockOrchestrator,
+        getOrchestrator: jest.fn().mockReturnValue(mockOrchestrator),
       };
 
       const result = await dotbot.chat('Test', {
@@ -1013,156 +1028,14 @@ describe('DotBot', () => {
     });
   });
 
-  describe('onExecutionArrayUpdate()', () => {
-    let dotbot: DotBot;
-
-    beforeEach(async () => {
-      const config: DotBotConfig = {
-        wallet: mockWallet,
-      };
-
-      dotbot = await DotBot.create(config);
-    });
-
-    it('should register callback and return unsubscribe function', () => {
-      const callback = jest.fn();
-      const unsubscribe = dotbot.onExecutionArrayUpdate(callback);
-
-      expect(typeof unsubscribe).toBe('function');
-      expect(callback).not.toHaveBeenCalled(); // No execution array yet
-    });
-
-    it('should call callback immediately if execution array exists', () => {
-      const mockState = {
-        totalItems: 1,
-        completedItems: 0,
-        failedItems: 0,
-        cancelledItems: 0,
-        currentIndex: -1,
-        isExecuting: false,
-        isPaused: false,
-        items: [],
-      };
-
-      const mockExecutionArray = {
-        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
-        getState: jest.fn().mockReturnValue(mockState),
-      };
-
-      // Set execution on current chat instance
-      if (dotbot.currentChat) {
-        dotbot.currentChat.currentExecution = mockExecutionArray as any;
-      }
-
-      const callback = jest.fn();
-      dotbot.onExecutionArrayUpdate(callback);
-
-      // Should be called immediately with current state
-      expect(callback).toHaveBeenCalledWith(mockState);
-      expect(mockExecutionArray.getState).toHaveBeenCalled();
-    });
-
-    it('should subscribe to execution array updates', () => {
-      const mockState = {
-        totalItems: 1,
-        completedItems: 0,
-        failedItems: 0,
-        pendingItems: 1,
-        items: [],
-      };
-
-      const mockUnsubscribe = jest.fn();
-      const mockExecutionArray = {
-        onStatusUpdate: jest.fn().mockReturnValue(mockUnsubscribe),
-        getState: jest.fn().mockReturnValue(mockState),
-      };
-
-      // Set execution on current chat instance
-      if (dotbot.currentChat) {
-        dotbot.currentChat.currentExecution = mockExecutionArray as any;
-      }
-
-      const callback = jest.fn();
-      const unsubscribe = dotbot.onExecutionArrayUpdate(callback);
-
-      expect(mockExecutionArray.onStatusUpdate).toHaveBeenCalled();
-    });
-
-    it('should notify all callbacks when execution array updates', () => {
-      const mockState = {
-        totalItems: 1,
-        completedItems: 1,
-        failedItems: 0,
-        cancelledItems: 0,
-        currentIndex: 0,
-        isExecuting: false,
-        isPaused: false,
-        items: [],
-      };
-
-      const mockExecutionArray = {
-        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
-        getState: jest.fn().mockReturnValue(mockState),
-      };
-
-      // Set execution on current chat instance
-      if (dotbot.currentChat) {
-        dotbot.currentChat.currentExecution = mockExecutionArray as any;
-      }
-
-      const callback1 = jest.fn();
-      const callback2 = jest.fn();
-
-      dotbot.onExecutionArrayUpdate(callback1);
-      dotbot.onExecutionArrayUpdate(callback2);
-
-      // Get the callback that was registered with onStatusUpdate
-      const registeredCallback = (mockExecutionArray.onStatusUpdate as jest.Mock).mock.calls[0][0];
-      
-      // Simulate execution array update - the callback receives an ExecutionItem
-      // but the implementation calls getState() inside
-      registeredCallback({ id: 'test-item' } as any);
-
-      // Both callbacks should be notified (once immediately, once on update)
-      expect(callback1).toHaveBeenCalledTimes(2);
-      expect(callback2).toHaveBeenCalledTimes(2);
-      // Both should receive the state
-      expect(callback1).toHaveBeenCalledWith(mockState);
-      expect(callback2).toHaveBeenCalledWith(mockState);
-    });
-
-    it('should remove callback when unsubscribe is called', () => {
-      const mockState = {
-        totalItems: 0,
-        completedItems: 0,
-        failedItems: 0,
-        pendingItems: 0,
-        items: [],
-      };
-
-      const mockUnsubscribe = jest.fn();
-      const mockExecutionArray = {
-        onStatusUpdate: jest.fn().mockReturnValue(mockUnsubscribe),
-        getState: jest.fn().mockReturnValue(mockState),
-      };
-
-      // Set execution on current chat instance
-      if (dotbot.currentChat) {
-        dotbot.currentChat.currentExecution = mockExecutionArray as any;
-      }
-
-      const callback = jest.fn();
-      const unsubscribe = dotbot.onExecutionArrayUpdate(callback);
-
-      // Unsubscribe
-      unsubscribe();
-
-      // Callback should be removed from callbacks set
-      // (We can't directly test the Set, but we can verify unsubscribe was called)
-      expect(mockUnsubscribe).toHaveBeenCalled();
-    });
-  });
-
+  /**
+   * REMOVED: onExecutionArrayUpdate() tests
+   * 
+   * The method has been removed. Use dotbot.currentChat.onExecutionUpdate(executionId, callback) instead.
+   * 
+   * See ChatInstance tests for execution update subscription tests.
+   */
+  
   describe('getRpcHealth()', () => {
     let dotbot: DotBot;
 
@@ -1671,185 +1544,14 @@ describe('DotBot', () => {
     });
   });
 
-  describe('executeWithArrayTracking()', () => {
-    let dotbot: DotBot;
-
-    beforeEach(async () => {
-      const config: DotBotConfig = {
-        wallet: mockWallet,
-      };
-
-      dotbot = await DotBot.create(config);
-    });
-
-    it('should orchestrate plan and execute with tracking', async () => {
-      const executionPlan = {
-        id: 'test-plan',
-        originalRequest: 'Test',
-        steps: [
-          {
-            id: 'step-1',
-            stepNumber: 1,
-            agentClassName: 'AssetTransferAgent',
-            functionName: 'transfer',
-            parameters: {},
-            executionType: 'extrinsic',
-            status: 'pending',
-            description: 'Test step',
-            requiresConfirmation: true,
-            createdAt: Date.now(),
-          },
-        ],
-        status: 'pending',
-        requiresApproval: true,
-        createdAt: Date.now(),
-      };
-
-      const mockState = {
-        totalItems: 1,
-        completedItems: 1,
-        failedItems: 0,
-        cancelledItems: 0,
-        currentIndex: 0,
-        isExecuting: false,
-        isPaused: false,
-        items: [],
-      };
-
-      const mockExecutionArray = {
-        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
-        getState: jest.fn().mockReturnValue(mockState),
-      };
-
-      const mockOrchestrator = {
-        orchestrate: jest.fn().mockResolvedValue({
-          success: true,
-          executionArray: mockExecutionArray,
-          errors: [],
-        }),
-      };
-
-      const mockExecutioner = {
-        execute: jest.fn().mockResolvedValue(undefined),
-      };
-
-      (dotbot as any).executionSystem = {
-        orchestrator: mockOrchestrator,
-        executioner: mockExecutioner,
-      };
-
-      const onComplete = jest.fn();
-
-      await (dotbot as any).executeWithArrayTracking(executionPlan, undefined, { onComplete });
-
-      expect(mockOrchestrator.orchestrate).toHaveBeenCalledWith(executionPlan);
-      expect(mockExecutioner.execute).toHaveBeenCalledWith(mockExecutionArray, undefined);
-      expect(onComplete).toHaveBeenCalledWith(true, 1, 0);
-      expect(dotbot.currentChat?.currentExecution).toBe(mockExecutionArray);
-    });
-
-    it('should throw error if orchestration fails', async () => {
-      const executionPlan = {
-        id: 'test-plan',
-        originalRequest: 'Test',
-        steps: [],
-        status: 'pending',
-        requiresApproval: false,
-        createdAt: Date.now(),
-      };
-
-      const mockOrchestrator = {
-        orchestrate: jest.fn().mockRejectedValue(new Error('Orchestration failed')),
-      };
-
-      (dotbot as any).executionSystem = {
-        orchestrator: mockOrchestrator,
-      };
-
-      await expect(
-        (dotbot as any).executeWithArrayTracking(executionPlan)
-      ).rejects.toThrow('Orchestration failed');
-    });
-
-    it('should throw error if orchestration has errors', async () => {
-      const executionPlan = {
-        id: 'test-plan',
-        originalRequest: 'Test',
-        steps: [],
-        status: 'pending',
-        requiresApproval: false,
-        createdAt: Date.now(),
-      };
-
-      const mockExecutionArray = {
-        onStatusUpdate: jest.fn().mockReturnValue(() => {}),
-        getState: jest.fn(),
-      };
-
-      const mockOrchestrator = {
-        orchestrate: jest.fn().mockResolvedValue({
-          success: false,
-          executionArray: mockExecutionArray,
-          errors: [{ error: 'Step 1 failed' }, { error: 'Step 2 failed' }],
-        }),
-      };
-
-      (dotbot as any).executionSystem = {
-        orchestrator: mockOrchestrator,
-      };
-
-      await expect(
-        (dotbot as any).executeWithArrayTracking(executionPlan)
-      ).rejects.toThrow('Failed to prepare transaction');
-    });
-
-    it('should unsubscribe from updates after execution', async () => {
-      const executionPlan = {
-        id: 'test-plan',
-        originalRequest: 'Test',
-        steps: [],
-        status: 'pending',
-        requiresApproval: false,
-        createdAt: Date.now(),
-      };
-
-      const mockUnsubscribe = jest.fn();
-      const mockExecutionArray = {
-        onStatusUpdate: jest.fn().mockReturnValue(mockUnsubscribe),
-        getState: jest.fn().mockReturnValue({
-          totalItems: 0,
-          completedItems: 0,
-          failedItems: 0,
-          cancelledItems: 0,
-          currentIndex: -1,
-          isExecuting: false,
-          isPaused: false,
-          items: [],
-        }),
-      };
-
-      const mockOrchestrator = {
-        orchestrate: jest.fn().mockResolvedValue({
-          success: true,
-          executionArray: mockExecutionArray,
-          errors: [],
-        }),
-      };
-
-      const mockExecutioner = {
-        execute: jest.fn().mockResolvedValue(undefined),
-      };
-
-      (dotbot as any).executionSystem = {
-        orchestrator: mockOrchestrator,
-        executioner: mockExecutioner,
-      };
-
-      await (dotbot as any).executeWithArrayTracking(executionPlan);
-
-      // Unsubscribe should be called (though we can't verify it directly, we can verify onStatusUpdate was called)
-      expect(mockExecutionArray.onStatusUpdate).toHaveBeenCalled();
-    });
-  });
+  /**
+   * REMOVED: executeWithArrayTracking() tests
+   * 
+   * The method has been replaced by prepareExecution() and startExecution().
+   * 
+   * See tests for:
+   * - prepareExecution() - orchestrates and adds to chat
+   * - startExecution() - executes when user approves
+   */
 });
 

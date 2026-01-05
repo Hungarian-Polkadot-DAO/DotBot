@@ -11,14 +11,14 @@
  */
 
 import type {
-  ChatInstance,
-  ChatMessage,
+  ChatInstanceData,
   Environment,
   CreateChatInstanceParams,
   UpdateChatInstanceParams,
   ChatInstanceFilter,
   ValidationResult,
-  ExecutionMessage
+  ExecutionMessage,
+  ConversationItem
 } from './types/chatInstance';
 import { ENVIRONMENT_NETWORKS } from './types/chatInstance';
 import type { Network } from './rpcManager';
@@ -53,7 +53,7 @@ export class ChatInstanceManager {
   /**
    * Create a new chat instance
    */
-  async createInstance(params: CreateChatInstanceParams): Promise<ChatInstance> {
+  async createInstance(params: CreateChatInstanceParams): Promise<ChatInstanceData> {
     // Validate network is valid for environment
     const validation = this.validateNetworkForEnvironment(
       params.network,
@@ -64,7 +64,7 @@ export class ChatInstanceManager {
       throw new Error(validation.error || 'Invalid network for environment');
     }
 
-    const instance: ChatInstance = {
+    const instance: ChatInstanceData = {
       id: this.idGenerator(),
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -82,28 +82,28 @@ export class ChatInstanceManager {
   /**
    * Load all chat instances from storage
    */
-  async loadInstances(): Promise<ChatInstance[]> {
+  async loadInstances(): Promise<ChatInstanceData[]> {
     return await this.storage.loadAll();
   }
 
   /**
    * Load a specific chat instance by ID
    */
-  async loadInstance(id: string): Promise<ChatInstance | null> {
+  async loadInstance(id: string): Promise<ChatInstanceData | null> {
     return await this.storage.load(id);
   }
 
   /**
    * Save or update a chat instance
    */
-  async saveInstance(instance: ChatInstance): Promise<void> {
+  async saveInstance(instance: ChatInstanceData): Promise<void> {
     await this.storage.save(instance);
   }
 
   /**
    * Update a chat instance (only mutable fields)
    */
-  async updateInstance(id: string, updates: UpdateChatInstanceParams): Promise<ChatInstance> {
+  async updateInstance(id: string, updates: UpdateChatInstanceParams): Promise<ChatInstanceData> {
     const instance = await this.loadInstance(id);
     if (!instance) {
       throw new Error(`Chat instance ${id} not found`);
@@ -122,7 +122,7 @@ export class ChatInstanceManager {
     }
 
     // Apply updates (only mutable fields)
-    const updated: ChatInstance = {
+    const updated: ChatInstanceData = {
       ...instance,
       network: updates.network ?? instance.network,
       walletAddress: updates.walletAddress ?? instance.walletAddress,
@@ -145,7 +145,7 @@ export class ChatInstanceManager {
   /**
    * Add a message to a chat instance
    */
-  async addMessage(instanceId: string, message: ChatMessage): Promise<void> {
+  async addMessage(instanceId: string, message: ConversationItem): Promise<void> {
     const instance = await this.loadInstance(instanceId);
     if (!instance) {
       throw new Error(`Chat instance ${instanceId} not found`);
@@ -181,7 +181,7 @@ export class ChatInstanceManager {
   /**
    * Query chat instances with filters
    */
-  async queryInstances(filter?: ChatInstanceFilter): Promise<ChatInstance[]> {
+  async queryInstances(filter?: ChatInstanceFilter): Promise<ChatInstanceData[]> {
     let instances = await this.loadInstances();
 
     if (!filter) return instances;
@@ -216,7 +216,7 @@ export class ChatInstanceManager {
   /**
    * Get chat instances grouped by environment
    */
-  async getInstancesByEnvironment(): Promise<Record<Environment, ChatInstance[]>> {
+  async getInstancesByEnvironment(): Promise<Record<Environment, ChatInstanceData[]>> {
     const instances = await this.loadInstances();
     
     return {
@@ -228,7 +228,7 @@ export class ChatInstanceManager {
   /**
    * Generate a title from the first user message
    */
-  generateTitle(messages: ChatMessage[]): string {
+  generateTitle(messages: ConversationItem[]): string {
     const firstUserMessage = messages.find(m => m.type === 'user');
     
     if (!firstUserMessage || firstUserMessage.type !== 'user') {
@@ -285,7 +285,7 @@ export class ChatInstanceManager {
    * Check if switching to a network requires a new chat instance
    */
   requiresNewInstance(
-    currentInstance: ChatInstance,
+    currentInstance: ChatInstanceData,
     targetNetwork: Network
   ): boolean {
     const currentEnv = currentInstance.environment;
@@ -329,7 +329,7 @@ export class ChatInstanceManager {
    */
   async importInstances(jsonData: string): Promise<void> {
     try {
-      const instances = JSON.parse(jsonData) as ChatInstance[];
+      const instances = JSON.parse(jsonData) as ChatInstanceData[];
       
       // Validate structure
       if (!Array.isArray(instances)) {

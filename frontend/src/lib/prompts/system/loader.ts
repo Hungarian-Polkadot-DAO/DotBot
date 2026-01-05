@@ -296,7 +296,7 @@ Generate ONLY a JSON ExecutionPlan (no surrounding text) when the user gives:
   if (context?.network?.network) {
     prompt += formatKnowledgeBaseForNetwork(context.network.network);
   } else {
-    prompt += formatPolkadotKnowledgeBase();
+  prompt += formatPolkadotKnowledgeBase();
   }
   
   // Add agent definitions

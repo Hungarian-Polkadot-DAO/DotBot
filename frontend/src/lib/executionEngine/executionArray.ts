@@ -22,6 +22,7 @@ import {
  * Manages execution queue and provides status tracking.
  */
 export class ExecutionArray {
+  private id: string;
   private items: ExecutionItem[] = [];
   private currentIndex: number = -1;
   private isExecuting: boolean = false;
@@ -32,6 +33,10 @@ export class ExecutionArray {
   private progressCallbacks: Set<ProgressCallback> = new Set();
   private errorCallbacks: Set<ErrorCallback> = new Set();
   private completionCallbacks: Set<CompletionCallback> = new Set();
+  
+  constructor(id?: string) {
+    this.id = id || `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
   
   /**
    * Add an agent result to the execution array
@@ -98,6 +103,7 @@ export class ExecutionArray {
     ).length;
     
     return {
+      id: this.id,
       items: [...this.items],
       currentIndex: this.currentIndex,
       isExecuting: this.isExecuting,

@@ -8,8 +8,9 @@
  */
 
 import type {
-  ChatInstance as ChatInstanceData,
-  ChatMessage,
+  ChatInstanceData,
+  ConversationItem,
+  ExecutionMessage,
   Environment,
   CreateChatInstanceParams,
 } from './types/chatInstance';
@@ -22,17 +23,29 @@ import type { ExecutionArrayState } from './executionEngine/types';
 /**
  * ChatInstance - A conversation with built-in methods and execution state
  * 
- * This wraps the data type with behavior, making it easy for
+ * This wraps the ChatInstanceData type with behavior, making it easy for
  * React components to work with chats.
+ * 
+ * Manages multiple ExecutionArrays (one per ExecutionMessage in the conversation).
  */
 export class ChatInstance {
   private data: ChatInstanceData;
   private manager: ChatInstanceManager;
   private persistenceEnabled: boolean;
   
-  // Execution state (part of the conversation!)
-  public currentExecution: ExecutionArray | null = null;
-  private executionCallbacks: Set<(state: ExecutionArrayState) => void> = new Set();
+  // Track multiple ExecutionArrays by their ID
+  private executionArrays: Map<string, ExecutionArray> = new Map();
+  private executionCallbacks: Map<string, Set<(state: ExecutionArrayState) => void>> = new Map();
+  
+  // Legacy: most recent execution (for backward compatibility)
+  public get currentExecution(): ExecutionArray | null {
+    // Return the most recent ExecutionArray
+    const executionMessages = this.data.messages.filter(m => m.type === 'execution') as ExecutionMessage[];
+    if (executionMessages.length === 0) return null;
+    
+    const lastExecution = executionMessages[executionMessages.length - 1];
+    return this.executionArrays.get(lastExecution.executionId) || null;
+  }
 
   constructor(
     data: ChatInstanceData,
@@ -82,14 +95,14 @@ export class ChatInstance {
   /**
    * Get all messages
    */
-  get messages(): ChatMessage[] {
+  get messages(): ConversationItem[] {
     return this.data.messages;
   }
 
   /**
    * Add a message to this conversation
    */
-  async addMessage(message: ChatMessage): Promise<void> {
+  async addMessage(message: ConversationItem): Promise<void> {
     this.data.messages.push(message);
     
     if (this.persistenceEnabled) {
@@ -101,8 +114,8 @@ export class ChatInstance {
   /**
    * Add a user message (convenience method)
    */
-  async addUserMessage(content: string): Promise<ChatMessage> {
-    const message: ChatMessage = {
+  async addUserMessage(content: string): Promise<ConversationItem> {
+    const message: ConversationItem = {
       id: this.generateMessageId(),
       type: 'user',
       content,
@@ -116,8 +129,8 @@ export class ChatInstance {
   /**
    * Add a bot message (convenience method)
    */
-  async addBotMessage(content: string): Promise<ChatMessage> {
-    const message: ChatMessage = {
+  async addBotMessage(content: string): Promise<ConversationItem> {
+    const message: ConversationItem = {
       id: this.generateMessageId(),
       type: 'bot',
       content,
@@ -134,8 +147,8 @@ export class ChatInstance {
   async addSystemMessage(
     content: string,
     variant?: 'info' | 'warning' | 'error' | 'success'
-  ): Promise<ChatMessage> {
-    const message: ChatMessage = {
+  ): Promise<ConversationItem> {
+    const message: ConversationItem = {
       id: this.generateMessageId(),
       type: 'system',
       content,
@@ -148,6 +161,66 @@ export class ChatInstance {
   }
 
   /**
+   * Add execution message to conversation
+   */
+  async addExecutionMessage(executionArrayState: ExecutionArrayState): Promise<ExecutionMessage> {
+    const message: ExecutionMessage = {
+      id: `exec_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      type: 'execution',
+      timestamp: Date.now(),
+      executionId: executionArrayState.id,
+      executionArray: executionArrayState,
+      status: 'pending',
+    };
+    
+    await this.addMessage(message);
+    return message;
+  }
+  
+  /**
+   * Set ExecutionArray instance for a specific execution ID
+   */
+  setExecutionArray(executionId: string, executionArray: ExecutionArray): void {
+    this.executionArrays.set(executionId, executionArray);
+  }
+  
+  /**
+   * Get ExecutionArray instance by execution ID
+   */
+  getExecutionArray(executionId: string): ExecutionArray | undefined {
+    return this.executionArrays.get(executionId);
+  }
+  
+  /**
+   * Get all ExecutionArray instances
+   */
+  getAllExecutionArrays(): Map<string, ExecutionArray> {
+    return this.executionArrays;
+  }
+
+  /**
+   * Update an execution message (e.g., when execution state changes)
+   */
+  async updateExecutionMessage(messageId: string, updates: Partial<any>): Promise<void> {
+    if (!this.persistenceEnabled) {
+      // Just update in memory
+      const message = this.data.messages.find(m => m.id === messageId);
+      if (message) {
+        Object.assign(message, updates);
+      }
+      return;
+    }
+
+    await this.manager.updateExecutionMessage(this.data.id, messageId, updates);
+    
+    // Reload to sync
+    const updated = await this.manager.loadInstance(this.data.id);
+    if (updated) {
+      this.data = updated;
+    }
+  }
+
+  /**
    * Get conversation history (for LLM context)
    */
   getHistory(): ConversationMessage[] {
@@ -157,14 +230,30 @@ export class ChatInstance {
   /**
    * Get messages filtered by type
    */
-  getMessagesByType(type: ChatMessage['type']): ChatMessage[] {
+  getMessagesByType(type: ConversationItem['type']): ConversationItem[] {
     return this.data.messages.filter(msg => msg.type === type);
   }
 
   /**
-   * Get UI-friendly messages (only user/bot/system with content)
+   * Get all conversation items for rendering (temporal sequence)
+   * 
+   * Returns the full mixed array of text messages + execution flows + system messages.
+   * Each item should be rendered as its own component based on type:
+   * - TextMessage → Message bubble
+   * - ExecutionMessage → ExecutionFlow component (independent, interactive)
+   * - SystemMessage → System notification
+   * 
+   * Multiple ExecutionFlows can exist in the conversation, each with its own state.
    */
-  getDisplayMessages(): Array<{ id: string; type: 'user' | 'bot'; content: string; timestamp: number }> {
+  getDisplayMessages(): ConversationItem[] {
+    return this.data.messages;
+  }
+
+  /**
+   * @deprecated Use getDisplayMessages() instead
+   * Get only text messages (user/bot) for simple message list rendering
+   */
+  getTextMessages(): Array<{ id: string; type: 'user' | 'bot'; content: string; timestamp: number }> {
     return this.data.messages
       .filter(msg => (msg.type === 'user' || msg.type === 'bot' || msg.type === 'system') && 'content' in msg)
       .map(msg => {
@@ -363,40 +452,59 @@ export class ChatInstance {
   /**
    * Set current execution array (called by DotBot internally)
    */
+  /**
+   * Set ExecutionArray (legacy method - use setExecutionArray instead)
+   * @deprecated Use setExecutionArray(executionId, executionArray)
+   */
   setExecution(execution: ExecutionArray | null): void {
-    this.currentExecution = execution;
+    if (!execution) return;
     
-    // Notify subscribers
-    if (execution) {
-      const state = execution.getState();
-      this.executionCallbacks.forEach(cb => cb(state));
+    const state = execution.getState();
+    this.setExecutionArray(state.id, execution);
+    
+    // Notify subscribers for this execution
+    const callbacks = this.executionCallbacks.get(state.id);
+    if (callbacks) {
+      callbacks.forEach(cb => cb(state));
     }
   }
 
   /**
-   * Subscribe to execution state changes
+   * Subscribe to execution state changes for a specific execution
    */
-  onExecutionUpdate(callback: (state: ExecutionArrayState) => void): () => void {
-    this.executionCallbacks.add(callback);
+  onExecutionUpdate(executionId: string, callback: (state: ExecutionArrayState) => void): () => void {
+    // Get or create callback set for this execution
+    if (!this.executionCallbacks.has(executionId)) {
+      this.executionCallbacks.set(executionId, new Set());
+    }
+    const callbacks = this.executionCallbacks.get(executionId)!;
+    callbacks.add(callback);
 
     // Subscribe to execution array if it exists
-    if (this.currentExecution) {
-      const unsubscribe = this.currentExecution.onStatusUpdate(() => {
-        const state = this.currentExecution!.getState();
-        this.executionCallbacks.forEach(cb => cb(state));
+    const executionArray = this.executionArrays.get(executionId);
+    if (executionArray) {
+      const unsubscribe = executionArray.onStatusUpdate(() => {
+        const state = executionArray.getState();
+        callbacks.forEach(cb => cb(state));
       });
 
       // Call immediately with current state
-      callback(this.currentExecution.getState());
+      callback(executionArray.getState());
 
       return () => {
-        this.executionCallbacks.delete(callback);
+        callbacks.delete(callback);
+        if (callbacks.size === 0) {
+          this.executionCallbacks.delete(executionId);
+        }
         unsubscribe();
       };
     }
 
     return () => {
-      this.executionCallbacks.delete(callback);
+      callbacks.delete(callback);
+      if (callbacks.size === 0) {
+        this.executionCallbacks.delete(executionId);
+      }
     };
   }
 }

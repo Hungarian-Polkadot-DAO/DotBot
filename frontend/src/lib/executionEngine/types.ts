@@ -137,6 +137,9 @@ export interface ExecutionOptions {
  * Execution array state
  */
 export interface ExecutionArrayState {
+  /** Unique execution ID (for tracking multiple executions) */
+  id: string;
+  
   /** All execution items */
   items: ExecutionItem[];
   

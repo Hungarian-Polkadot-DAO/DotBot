@@ -6,9 +6,9 @@
 
 import { ChatInstanceManager } from '../../chatInstanceManager';
 import type {
-  ChatInstance,
+  ChatInstanceData,
   Environment,
-  ChatMessage,
+  ConversationItem,
   ExecutionMessage
 } from '../../types/chatInstance';
 import type { ExecutionArrayState } from '../../executionEngine/types';
@@ -318,7 +318,7 @@ describe('ChatInstanceManager', () => {
         network: 'polkadot',
       });
 
-      const message: ChatMessage = {
+      const message: ConversationItem = {
         id: 'msg1',
         type: 'user',
         content: 'Hello',
@@ -333,7 +333,7 @@ describe('ChatInstanceManager', () => {
     });
 
     it('should throw for non-existent instance', async () => {
-      const message: ChatMessage = {
+      const message: ConversationItem = {
         id: 'msg1',
         type: 'user',
         content: 'Hello',
@@ -380,6 +380,7 @@ describe('ChatInstanceManager', () => {
       });
 
       const executionArrayState: ExecutionArrayState = {
+        id: 'exec1',
         items: [],
         currentIndex: 0,
         isExecuting: false,
@@ -392,6 +393,7 @@ describe('ChatInstanceManager', () => {
 
       const executionMessage: ExecutionMessage = {
         id: 'exec1',
+        executionId: 'exec1',
         type: 'execution',
         timestamp: Date.now(),
         status: 'pending',
@@ -571,7 +573,7 @@ describe('ChatInstanceManager', () => {
 
   describe('generateTitle()', () => {
     it('should generate title from first user message', () => {
-      const messages: ChatMessage[] = [
+      const messages: ConversationItem[] = [
         {
           id: 'msg1',
           type: 'user',
@@ -586,7 +588,7 @@ describe('ChatInstanceManager', () => {
 
     it('should truncate long messages', () => {
       const longMessage = 'A'.repeat(100);
-      const messages: ChatMessage[] = [
+      const messages: ConversationItem[] = [
         {
           id: 'msg1',
           type: 'user',
@@ -606,7 +608,7 @@ describe('ChatInstanceManager', () => {
     });
 
     it('should return "New Chat" when no user messages exist', () => {
-      const messages: ChatMessage[] = [
+      const messages: ConversationItem[] = [
         {
           id: 'msg1',
           type: 'bot',

@@ -9,7 +9,7 @@
  * - Hybrid (local cache + backend sync)
  */
 
-import type { ChatInstance } from '../types/chatInstance';
+import type { ChatInstanceData } from '../types/chatInstance';
 
 /**
  * Storage interface that all implementations must follow
@@ -18,17 +18,17 @@ export interface IChatStorage {
   /**
    * Load all chat instances
    */
-  loadAll(): Promise<ChatInstance[]>;
+  loadAll(): Promise<ChatInstanceData[]>;
 
   /**
    * Load a specific chat instance by ID
    */
-  load(id: string): Promise<ChatInstance | null>;
+  load(id: string): Promise<ChatInstanceData | null>;
 
   /**
    * Save or update a chat instance
    */
-  save(instance: ChatInstance): Promise<void>;
+  save(instance: ChatInstanceData): Promise<void>;
 
   /**
    * Delete a chat instance
@@ -59,12 +59,12 @@ export interface IChatStorage {
 export class LocalStorageChatStorage implements IChatStorage {
   private storageKey = 'dotbot_chat_instances';
 
-  async loadAll(): Promise<ChatInstance[]> {
+  async loadAll(): Promise<ChatInstanceData[]> {
     try {
       const stored = localStorage.getItem(this.storageKey);
       if (!stored) return [];
 
-      const instances = JSON.parse(stored) as ChatInstance[];
+      const instances = JSON.parse(stored) as ChatInstanceData[];
 
       // Sort by updatedAt descending (most recent first)
       return instances.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -74,12 +74,12 @@ export class LocalStorageChatStorage implements IChatStorage {
     }
   }
 
-  async load(id: string): Promise<ChatInstance | null> {
+  async load(id: string): Promise<ChatInstanceData | null> {
     const instances = await this.loadAll();
     return instances.find(i => i.id === id) || null;
   }
 
-  async save(instance: ChatInstance): Promise<void> {
+  async save(instance: ChatInstanceData): Promise<void> {
     const instances = await this.loadAll();
     const index = instances.findIndex(i => i.id === instance.id);
 
@@ -152,7 +152,7 @@ export class ApiChatStorage implements IChatStorage {
     this.authToken = authToken;
   }
 
-  async loadAll(): Promise<ChatInstance[]> {
+  async loadAll(): Promise<ChatInstanceData[]> {
     try {
       const response = await fetch(`${this.apiUrl}/chat-instances`, {
         headers: this.getHeaders(),
@@ -170,7 +170,7 @@ export class ApiChatStorage implements IChatStorage {
     }
   }
 
-  async load(id: string): Promise<ChatInstance | null> {
+  async load(id: string): Promise<ChatInstanceData | null> {
     try {
       const response = await fetch(`${this.apiUrl}/chat-instances/${id}`, {
         headers: this.getHeaders(),
@@ -191,7 +191,7 @@ export class ApiChatStorage implements IChatStorage {
     }
   }
 
-  async save(instance: ChatInstance): Promise<void> {
+  async save(instance: ChatInstanceData): Promise<void> {
     try {
       const response = await fetch(`${this.apiUrl}/chat-instances/${instance.id}`, {
         method: 'PUT',
@@ -284,7 +284,7 @@ export class HybridChatStorage implements IChatStorage {
     this.remote = new ApiChatStorage(apiUrl, authToken);
   }
 
-  async loadAll(): Promise<ChatInstance[]> {
+  async loadAll(): Promise<ChatInstanceData[]> {
     // Try remote first for freshest data
     try {
       const instances = await this.remote.loadAll();
@@ -302,7 +302,7 @@ export class HybridChatStorage implements IChatStorage {
     }
   }
 
-  async load(id: string): Promise<ChatInstance | null> {
+  async load(id: string): Promise<ChatInstanceData | null> {
     // Try local first (fast)
     const localInstance = await this.local.load(id);
     
@@ -318,7 +318,7 @@ export class HybridChatStorage implements IChatStorage {
     return localInstance;
   }
 
-  async save(instance: ChatInstance): Promise<void> {
+  async save(instance: ChatInstanceData): Promise<void> {
     // Always save locally first (fast, offline-capable)
     await this.local.save(instance);
     

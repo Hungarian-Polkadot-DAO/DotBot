@@ -91,6 +91,20 @@ export class ExecutionSystem {
   }
   
   /**
+   * Get orchestrator instance (for advanced usage)
+   */
+  getOrchestrator(): ExecutionOrchestrator {
+    return this.orchestrator;
+  }
+  
+  /**
+   * Get executioner instance (for advanced usage)
+   */
+  getExecutioner(): Executioner {
+    return this.executioner;
+  }
+  
+  /**
    * Execute LLM plan - complete flow from plan to blockchain
    * 
    * This is the main entry point. Pass LLM output and everything is handled:
