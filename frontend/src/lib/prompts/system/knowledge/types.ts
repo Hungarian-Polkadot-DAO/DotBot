@@ -1,7 +1,46 @@
 /**
  * Types for Polkadot Knowledge Base
+ * 
+ * Supports multi-network ecosystem (Polkadot, Kusama, Westend)
  */
 
+/**
+ * Network types supported by DotBot
+ */
+export type Network = 'polkadot' | 'kusama' | 'westend';
+
+/**
+ * Network metadata and configuration
+ */
+export interface NetworkMetadata {
+  /** Network identifier */
+  network: Network;
+  
+  /** Native token symbol (DOT, KSM, WND) */
+  nativeToken: string;
+  
+  /** Token decimals (10 for DOT, 12 for KSM/WND) */
+  decimals: number;
+  
+  /** SS58 address format (0 for Polkadot, 2 for Kusama, 42 for Westend) */
+  ss58Format: number;
+  
+  /** Whether this is a testnet */
+  isTestnet: boolean;
+  
+  /** Genesis hash */
+  genesisHash?: string;
+  
+  /** Primary RPC endpoints */
+  rpcEndpoints: {
+    relay: string[];
+    assetHub: string[];
+  };
+}
+
+/**
+ * Token information with network context
+ */
 export interface TokenInfo {
   /** Token symbol */
   symbol: string;
@@ -66,6 +105,9 @@ export interface DEXInfo {
   
   /** DEX type */
   type: 'AMM' | 'OrderBook' | 'Hybrid';
+  
+  /** Additional notes about the DEX (optional) */
+  notes?: string;
 }
 
 export interface FeeStructure {
@@ -135,15 +177,34 @@ export interface SafetyGuidelines {
 }
 
 export interface XCMPattern {
+  /** Description of the XCM pattern */
   description: string;
+  
+  /** Example usage */
   example: string;
+  
+  /** Requirements for using this pattern */
   requirements: string[];
+  
+  /** Benefits of this approach (optional) */
   benefits?: string[];
+  
+  /** Typical use cases (optional) */
+  useCases?: string[];
 }
 
 export interface OperationPattern {
+  /** Description of the operation */
   description: string;
+  
+  /** Step-by-step instructions */
   steps: string[];
+  
+  /** Estimated complexity (optional) */
+  complexity?: 'low' | 'medium' | 'high';
+  
+  /** Prerequisites (optional) */
+  prerequisites?: string[];
 }
 
 export interface PolkadotKnowledge {
@@ -171,4 +232,79 @@ export interface PolkadotKnowledge {
   /** Safety guidelines */
   safetyGuidelines: SafetyGuidelines;
 }
+
+/**
+ * Network-specific knowledge base
+ * Extends base PolkadotKnowledge with network metadata
+ */
+export interface NetworkKnowledge extends PolkadotKnowledge {
+  /** Network metadata */
+  network: NetworkMetadata;
+}
+
+/**
+ * Helper type for network-specific knowledge getters
+ */
+export type KnowledgeGetter = (network: Network) => PolkadotKnowledge | NetworkKnowledge;
+
+/**
+ * Network configuration mapping
+ */
+export const NETWORK_CONFIG: Record<Network, NetworkMetadata> = {
+  polkadot: {
+    network: 'polkadot',
+    nativeToken: 'DOT',
+    decimals: 10,
+    ss58Format: 0,
+    isTestnet: false,
+    rpcEndpoints: {
+      relay: [
+        'wss://polkadot.api.onfinality.io/public-ws',
+        'wss://polkadot-rpc.dwellir.com',
+        'wss://rpc.polkadot.io',
+      ],
+      assetHub: [
+        'wss://statemint.api.onfinality.io/public-ws',
+        'wss://statemint-rpc.dwellir.com',
+        'wss://polkadot-asset-hub-rpc.polkadot.io',
+      ],
+    },
+  },
+  kusama: {
+    network: 'kusama',
+    nativeToken: 'KSM',
+    decimals: 12,
+    ss58Format: 2,
+    isTestnet: false,
+    rpcEndpoints: {
+      relay: [
+        'wss://kusama.api.onfinality.io/public-ws',
+        'wss://kusama-rpc.dwellir.com',
+        'wss://kusama-rpc.polkadot.io',
+      ],
+      assetHub: [
+        'wss://statemine.api.onfinality.io/public-ws',
+        'wss://kusama-asset-hub-rpc.polkadot.io',
+      ],
+    },
+  },
+  westend: {
+    network: 'westend',
+    nativeToken: 'WND',
+    decimals: 12,
+    ss58Format: 42,
+    isTestnet: true,
+    rpcEndpoints: {
+      relay: [
+        'wss://westend-rpc.polkadot.io',
+        'wss://westend-rpc.dwellir.com',
+        'wss://westend.api.onfinality.io/public-ws',
+      ],
+      assetHub: [
+        'wss://westend-asset-hub-rpc.polkadot.io',
+        'wss://westmint-rpc.dwellir.com',
+      ],
+    },
+  },
+};
 

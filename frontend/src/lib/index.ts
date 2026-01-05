@@ -13,11 +13,25 @@ export type { DotBotConfig, ChatResult, ChatOptions, ConversationMessage } from 
 
 // RPC Manager - For advanced endpoint management
 export { 
-  RpcManager, 
-  createRelayChainManager, 
+  RpcManager,
+  RpcEndpoints,
+  // Generic factory
+  createRpcManagersForNetwork,
+  getEndpointsForNetwork,
+  // Polkadot factories
+  createPolkadotRelayChainManager,
+  createPolkadotAssetHubManager,
+  // Kusama factories
+  createKusamaRelayChainManager,
+  createKusamaAssetHubManager,
+  // Westend factories
+  createWestendRelayChainManager,
+  createWestendAssetHubManager,
+  // Legacy factories (backward compatibility)
+  createRelayChainManager,
   createAssetHubManager,
-  RpcEndpoints 
 } from './rpcManager';
+export type { Network } from './rpcManager';
 
 // ============================================================================
 // Advanced/Modular Exports (for custom implementations)

@@ -177,8 +177,58 @@ executionEngine/
 **Purpose**: Core infrastructure services.
 
 **Key Services:**
-- **RpcManager**: Multi-endpoint management with health monitoring and failover
-- **Chopsticks**: Runtime simulation for pre-execution validation
+- **RpcManager**: Multi-endpoint management with health monitoring, failover, and **network-awareness**
+- **Chopsticks**: Runtime simulation for pre-execution validation (network-configurable)
+
+**RpcManager Network Features:**
+- Network-scoped storage keys (health tracking isolated per network)
+- Factory functions for easy network-specific instantiation
+- Pre-configured endpoint lists for Polkadot, Kusama, and Westend
+
+---
+
+### Network System (`frontend/src/lib/prompts/system/knowledge/`)
+
+**Purpose**: Provide network-aware configuration and LLM context for multi-network support.
+
+**Structure:**
+```
+prompts/system/knowledge/
+├── types.ts                    # Network types and metadata
+├── networkUtils.ts             # Network utility functions (20+)
+├── index.ts                    # Centralized exports
+├── dotKnowledge.ts             # Polkadot-specific information
+└── westendKnowledge.ts         # Westend testnet information
+```
+
+**Key Types:**
+- **Network**: Type-safe union (`'polkadot' | 'kusama' | 'westend'`)
+- **NetworkMetadata**: Centralized network configuration (tokens, decimals, SS58, RPC endpoints, colors)
+- **NETWORK_CONFIG**: Complete metadata for all supported networks
+
+**Current Support:**
+- ✅ Polkadot: Full support (knowledge base + infrastructure)
+- ✅ Westend: Full support (knowledge base + infrastructure)
+- ⚠️ Kusama: Partial support (infrastructure only, knowledge base TODO)
+
+**Key Functions:**
+- `getNetworkMetadata(network)` - Get all configuration for a network
+- `detectNetworkFromChainName(chainName)` - Auto-detect network from chain info
+- `getNetworkTokenSymbol(network)` - Get native token symbol (DOT/KSM/WND)
+- `isTestnet(network)` - Check if network is testnet
+- `getRelayChainEndpoints(network)` - Get Relay Chain RPC endpoints
+- `getAssetHubEndpoints(network)` - Get Asset Hub RPC endpoints
+- `getKnowledgeBaseForNetwork(network)` - Load network-specific knowledge
+- `formatKnowledgeBaseForNetwork(network)` - Format knowledge for LLM context
+
+**Responsibilities:**
+- Provide type-safe network identifiers
+- Centralize network configuration
+- Supply network-specific knowledge to LLM
+- Enable network detection from chain metadata
+- Support future network additions (Kusama, etc.)
+
+**Design Principle**: Networks are first-class concepts with dedicated configuration, not just string identifiers.
 
 ---
 
@@ -472,6 +522,177 @@ class CustomSigner implements Signer { ... }
 
 ---
 
+### Decision 6: Multi-Network Architecture
+
+**Context:**
+- DotBot initially focused solely on Polkadot mainnet
+- Users need testnet (Westend) support for safe experimentation
+- Kusama support desired for complete ecosystem coverage
+- Different networks have different characteristics (tokens, parachains, DEXes)
+- LLM needs network-specific context to provide accurate responses
+
+**Decision:**
+Implement a comprehensive multi-network infrastructure with:
+1. Type-safe network identifiers (`Network` type)
+2. Centralized network metadata (`NETWORK_CONFIG`)
+3. Network-aware RPC management
+4. Network-specific knowledge bases for LLM context
+5. Utility functions for network operations
+
+**Rationale:**
+
+1. **Type Safety**: Union type `'polkadot' | 'kusama' | 'westend'` provides compile-time safety
+2. **Centralized Configuration**: Single source of truth for network properties
+3. **LLM Context Quality**: Network-specific knowledge improves response accuracy
+4. **Maintainability**: Easy to add new networks or update existing ones
+5. **User Experience**: Seamless switching between networks with correct context
+
+**Architecture Layers:**
+
+**Layer 1: Type System**
+```typescript
+// Core network type
+export type Network = 'polkadot' | 'kusama' | 'westend';
+
+// Comprehensive network metadata
+export interface NetworkMetadata {
+  name: string;
+  network: Network;
+  token: string;
+  decimals: number;
+  ss58Format: number;
+  relayChainEndpoints: string[];
+  assetHubEndpoints: string[];
+  isTestnet: boolean;
+  color: string;
+}
+
+// Centralized configuration
+export const NETWORK_CONFIG: Record<Network, NetworkMetadata> = {
+  polkadot: { name: 'Polkadot', token: 'DOT', decimals: 10, ... },
+  kusama: { name: 'Kusama', token: 'KSM', decimals: 12, ... },
+  westend: { name: 'Westend', token: 'WND', decimals: 12, isTestnet: true, ... }
+};
+```
+
+**Layer 2: RPC Management**
+- Network-specific RPC managers via factory functions
+- Storage isolation per network (health tracking)
+- Pre-configured endpoint lists
+
+```typescript
+// Factory function for network-specific managers
+const managers = createRpcManagersForNetwork('westend');
+// Returns: { relayChainManager, assetHubManager }
+
+// Network-specific factories
+const relayManager = createWestendRelayChainManager();
+const assetHubManager = createWestendAssetHubManager();
+```
+
+**Layer 3: Knowledge Base System**
+- Separate knowledge files per network (e.g., `dotKnowledge.ts`, `westendKnowledge.ts`)
+- Network-specific information (parachains, DEXes, tokens, fees)
+- Dynamic loading based on selected network
+- Formatted for LLM context injection
+
+```typescript
+const knowledge = getKnowledgeBaseForNetwork('westend');
+const formatted = formatKnowledgeBaseForNetwork('westend');
+// Returns: String formatted for LLM system prompt
+```
+
+**Layer 4: DotBot Core Integration**
+```typescript
+const dotbot = await DotBot.create({
+  wallet: account,
+  network: 'westend',  // Network parameter
+  relayChainManager,
+  assetHubManager
+});
+
+// DotBot automatically:
+// - Uses correct token symbol (WND)
+// - Includes Westend knowledge in LLM context
+// - Sets testnet flag in system prompt
+```
+
+**Alternatives Considered:**
+
+1. ❌ **String-based network IDs without types**
+   - Problem: No compile-time safety
+   - Problem: Typos cause runtime errors
+   - Problem: No IDE autocomplete
+
+2. ❌ **Scattered configuration across codebase**
+   - Problem: Hard to maintain
+   - Problem: Inconsistencies
+   - Problem: Difficult to add new networks
+
+3. ❌ **Single generic knowledge base for all networks**
+   - Problem: Bloated LLM context
+   - Problem: Inaccurate information (wrong parachains/DEXes)
+   - Problem: Confusing responses (mentions Kusama when on Westend)
+
+4. ✅ **Centralized, type-safe, network-specific system**
+   - Type safety prevents errors
+   - Easy to maintain and extend
+   - Optimal LLM context per network
+   - Clear separation of concerns
+
+**Consequences:**
+
+✅ **Benefits:**
+- Type-safe network handling throughout codebase
+- Single source of truth for network configuration
+- LLM receives accurate, network-specific context
+- Easy to add Kusama or future networks
+- Better user experience with correct symbols/balances
+- Comprehensive testing (600+ tests)
+
+⚠️ **Trade-offs:**
+- Additional abstraction layer (worth it for type safety)
+- More test coverage needed per network (already done)
+- Knowledge base files need maintenance (but centralized)
+
+**Testing Strategy:**
+- 30 tests for network utilities
+- 15 tests for multi-network RPC management
+- 13 tests for network-aware DotBot core
+- All scenarios tested across all networks
+
+**Future Extensions:**
+
+This architecture enables:
+1. **Environment-bound chat instances** (mainnet/testnet separation in UI)
+2. **Kusama full support** (add `kusamaKnowledge.ts` - infrastructure already complete)
+3. **Additional testnets** (Rococo, Paseo) with minimal changes
+4. **Network-specific features** (e.g., Kusama canary features)
+
+**Kusama Status:** Infrastructure is complete (RPC endpoints, factory functions, types), but `kusamaKnowledge.ts` needs to be created. Currently falls back to Polkadot knowledge.
+
+**Implementation Files:**
+- `frontend/src/lib/prompts/system/knowledge/types.ts` - Type definitions
+- `frontend/src/lib/prompts/system/knowledge/networkUtils.ts` - Utilities (20+ functions)
+- `frontend/src/lib/prompts/system/knowledge/dotKnowledge.ts` - Polkadot knowledge
+- `frontend/src/lib/prompts/system/knowledge/westendKnowledge.ts` - Westend knowledge
+- `frontend/src/lib/rpcManager.ts` - Network-aware RPC management
+- `frontend/src/lib/dotbot.ts` - Network parameter integration
+
+**Jest Configuration:**
+- CRACO setup required for Polkadot.js v14 static class blocks
+- Transform patterns configured for `@polkadot` and `@acala-network` packages
+- 600+ tests passing across all networks
+
+**Documentation:**
+- Complete API reference in `docs/API.md`
+- Network utilities documented with examples
+- Migration guide for existing integrations
+
+(Added: January 2026)
+
+---
+
 ## Data Flow
 
 ### Transfer Operation Flow
@@ -579,6 +800,41 @@ interface ExecutionResult {
   error?: string;
   errorCode?: string;
 }
+```
+
+### Network-Aware Data Flow
+
+**Network Selection Flow:**
+```
+1. Application initializes with network parameter ('polkadot', 'kusama', or 'westend')
+   ↓
+2. Factory creates network-specific RPC managers
+   ├─ createRpcManagersForNetwork(network)
+   ├─ Returns { relayChainManager, assetHubManager }
+   └─ Each manager has network-scoped storage
+   ↓
+3. DotBot.create() receives network parameter
+   ├─ Loads network-specific knowledge base
+   ├─ Formats knowledge for LLM context
+   └─ Sets network-aware flags (isTestnet, token symbol)
+   ↓
+4. During chat interactions
+   ├─ System prompt includes network-specific knowledge
+   ├─ Balance displays use correct token symbol
+   └─ Operations use correct RPC endpoints
+```
+
+**Network Detection Flow:**
+```
+Connected to unknown chain
+   ↓
+detectNetworkFromChainName(chainName)
+   ├─ Checks chain metadata
+   ├─ Matches against known patterns
+   └─ Returns Network type
+   ↓
+getNetworkMetadata(network)
+   └─ Provides all configuration
 ```
 
 ---

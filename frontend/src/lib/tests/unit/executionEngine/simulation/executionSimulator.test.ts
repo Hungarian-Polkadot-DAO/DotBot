@@ -337,8 +337,9 @@ describe('Execution Simulator', () => {
       const simulateCall = (simulateTransaction as jest.Mock).mock.calls[0];
       const endpoints = simulateCall[1];
       // When chainSS58 === 0 and no manager, uses Asset Hub defaults (isAssetHub = true)
+      // Uses first 2 endpoints from POLKADOT_ASSET_HUB
       expect(endpoints).toEqual([
-        'wss://polkadot-asset-hub-rpc.polkadot.io',
+        'wss://statemint.api.onfinality.io/public-ws',
         'wss://statemint-rpc.dwellir.com',
       ]);
     });

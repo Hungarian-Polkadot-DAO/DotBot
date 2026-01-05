@@ -16,11 +16,23 @@ export interface WalletContext {
   }>;
 }
 
+import type { Network, PolkadotKnowledge } from '../knowledge/types';
+
 export interface NetworkContext {
-  network: 'polkadot' | 'kusama' | string;
+  /** Current network */
+  network: Network;
+  
+  /** Current RPC endpoint */
   rpcEndpoint?: string;
+  
+  /** Chain/genesis hash */
   chainId?: string;
-  availableNetworks?: string[];
+  
+  /** Available networks for switching */
+  availableNetworks?: Network[];
+  
+  /** Whether current network is a testnet */
+  isTestnet?: boolean;
 }
 
 export interface BalanceContext {
@@ -43,5 +55,6 @@ export interface SystemContext {
   network: NetworkContext;
   balance?: BalanceContext;
   metadata?: Record<string, any>;
+  knowledgeBase?: PolkadotKnowledge;
 }
 

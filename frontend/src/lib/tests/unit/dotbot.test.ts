@@ -47,12 +47,30 @@ jest.mock('../../executionEngine/signers/browserSigner');
 jest.mock('../../prompts/system/loader', () => ({
   buildSystemPrompt: jest.fn().mockResolvedValue('Default system prompt'),
 }));
+jest.mock('../../prompts/system/knowledge', () => ({
+  detectNetworkFromChainName: jest.fn((chainName: string) => {
+    if (chainName.toLowerCase().includes('westend')) return 'westend';
+    if (chainName.toLowerCase().includes('kusama')) return 'kusama';
+    return 'polkadot';
+  }),
+  getKnowledgeBaseForNetwork: jest.fn().mockResolvedValue({ parachains: [] }),
+  formatKnowledgeBaseForNetwork: jest.fn().mockReturnValue('Formatted knowledge'),
+}));
 
 // Import mocked modules
-import { createRelayChainManager, createAssetHubManager } from '../../rpcManager';
+import { createRelayChainManager, createAssetHubManager, createRpcManagersForNetwork } from '../../rpcManager';
 import { ExecutionSystem as MockExecutionSystem } from '../../executionEngine/system';
 import { BrowserWalletSigner as MockBrowserWalletSigner } from '../../executionEngine/signers/browserSigner';
 import { buildSystemPrompt } from '../../prompts/system/loader';
+import { detectNetworkFromChainName } from '../../prompts/system/knowledge';
+
+// Mock createRpcManagersForNetwork
+jest.mock('../../rpcManager', () => ({
+  ...jest.requireActual('../../rpcManager'),
+  createRelayChainManager: jest.fn(),
+  createAssetHubManager: jest.fn(),
+  createRpcManagersForNetwork: jest.fn(),
+}));
 
 describe('DotBot', () => {
   let mockRelayChainApi: Partial<ApiPromise>;
@@ -72,7 +90,11 @@ describe('DotBot', () => {
       isConnected: true,
       disconnect: jest.fn().mockResolvedValue(undefined),
       query: {} as any,
-      rpc: {} as any,
+      rpc: {
+        system: {
+          chain: jest.fn().mockResolvedValue({ toString: () => 'Polkadot' }),
+        },
+      } as any,
       registry: {} as any,
     } as any;
 
@@ -119,6 +141,17 @@ describe('DotBot', () => {
     // Setup module mocks
     (createRelayChainManager as jest.Mock).mockReturnValue(mockRelayChainManager);
     (createAssetHubManager as jest.Mock).mockReturnValue(mockAssetHubManager);
+    (createRpcManagersForNetwork as jest.Mock).mockReturnValue({
+      relayChainManager: mockRelayChainManager,
+      assetHubManager: mockAssetHubManager,
+    });
+    // Setup default detectNetworkFromChainName mock - can be overridden in specific tests
+    (detectNetworkFromChainName as jest.Mock).mockImplementation((chainName: string) => {
+      const name = chainName.toLowerCase();
+      if (name.includes('westend')) return 'westend';
+      if (name.includes('kusama')) return 'kusama';
+      return 'polkadot';
+    });
     (MockExecutionSystem as jest.MockedClass<typeof ExecutionSystem>).mockImplementation(() => mockExecutionSystem);
     (MockBrowserWalletSigner as jest.MockedClass<typeof BrowserWalletSigner>).mockImplementation(() => mockSigner as any);
 
@@ -140,8 +173,8 @@ describe('DotBot', () => {
       const dotbot = await DotBot.create(config);
 
       expect(dotbot).toBeInstanceOf(DotBot);
-      expect(createRelayChainManager).toHaveBeenCalled();
-      expect(createAssetHubManager).toHaveBeenCalled();
+      // Should use createRpcManagersForNetwork (not legacy factory functions)
+      expect(createRpcManagersForNetwork).toHaveBeenCalled();
       expect(MockExecutionSystem).toHaveBeenCalled();
       expect(MockBrowserWalletSigner).toHaveBeenCalled();
     });
@@ -303,6 +336,121 @@ describe('DotBot', () => {
       );
 
       await expect(DotBot.create(config)).rejects.toThrow('Relay Chain connection failed');
+    });
+
+    describe('Network support', () => {
+      beforeEach(() => {
+        // Setup mock chain info for network detection
+        (mockRelayChainApi.rpc as any) = {
+          system: {
+            chain: jest.fn().mockResolvedValue({ toString: () => 'Polkadot' }),
+          },
+        };
+
+        // Mock createRpcManagersForNetwork to return our mock managers
+        (createRpcManagersForNetwork as jest.Mock).mockReturnValue({
+          relayChainManager: mockRelayChainManager,
+          assetHubManager: mockAssetHubManager,
+        });
+      });
+
+      it('should default to Polkadot network if not specified', async () => {
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+        };
+
+        const dotbot = await DotBot.create(config);
+
+        // Should create Polkadot managers
+        expect(createRpcManagersForNetwork).toHaveBeenCalledWith('polkadot');
+        expect(dotbot.getNetwork()).toBe('polkadot');
+      });
+
+      it('should accept network parameter for Westend', async () => {
+        // Mock Westend chain name
+        (mockRelayChainApi.rpc as any).system.chain.mockResolvedValue({ 
+          toString: () => 'Westend' 
+        });
+
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'westend',
+        };
+
+        const dotbot = await DotBot.create(config);
+
+        // Should create Westend managers
+        expect(createRpcManagersForNetwork).toHaveBeenCalledWith('westend');
+        expect(dotbot.getNetwork()).toBe('westend');
+      });
+
+      it('should accept network parameter for Kusama', async () => {
+        // Mock Kusama chain name
+        (mockRelayChainApi.rpc as any).system.chain.mockResolvedValue({ 
+          toString: () => 'Kusama' 
+        });
+
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'kusama',
+        };
+
+        const dotbot = await DotBot.create(config);
+
+        // Should create Kusama managers
+        expect(createRpcManagersForNetwork).toHaveBeenCalledWith('kusama');
+        expect(dotbot.getNetwork()).toBe('kusama');
+      });
+
+      it('should detect network from chain name', async () => {
+        // Mock Westend chain name
+        (mockRelayChainApi.rpc as any).system.chain.mockResolvedValue({ 
+          toString: () => 'Westend Development' 
+        });
+
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'polkadot', // Configured as Polkadot
+        };
+
+        await DotBot.create(config);
+
+        // Should detect Westend from chain name
+        expect(detectNetworkFromChainName).toHaveBeenCalledWith('Westend Development');
+      });
+
+      it('should use pre-initialized managers regardless of network param', async () => {
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'westend',
+          relayChainManager: mockRelayChainManager as RpcManager,
+          assetHubManager: mockAssetHubManager as RpcManager,
+        };
+
+        await DotBot.create(config);
+
+        // Should use provided managers, not create new ones
+        expect(createRpcManagersForNetwork).not.toHaveBeenCalled();
+        expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
+      });
+
+      it('should log network information', async () => {
+        (mockRelayChainApi.rpc as any).system.chain.mockResolvedValue({ 
+          toString: () => 'Westend' 
+        });
+
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'westend',
+        };
+
+        await DotBot.create(config);
+
+        // Should log network info
+        expect(console.info).toHaveBeenCalledWith(
+          expect.stringContaining('Network: westend')
+        );
+      });
     });
   });
 
@@ -1223,6 +1371,184 @@ describe('DotBot', () => {
       expect(buildSystemPrompt).toHaveBeenCalled();
       expect(typeof prompt).toBe('string');
       expect(prompt.length).toBeGreaterThan(0);
+    });
+
+    describe('Network-specific context', () => {
+      it('should use Westend token symbol for Westend network', async () => {
+        // Mock detectNetworkFromChainName for this specific test
+        (detectNetworkFromChainName as jest.Mock).mockReturnValue('westend');
+        
+        // Create Westend DotBot
+        (mockRelayChainApi.rpc as any) = {
+          system: {
+            chain: jest.fn().mockResolvedValue({ toString: () => 'Westend' }),
+          },
+        };
+
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'westend',
+        };
+
+        const westendDotbot = await DotBot.create(config);
+
+        // Verify network was set correctly
+        expect(westendDotbot.getNetwork()).toBe('westend');
+
+        const mockBalance = {
+          relayChain: { free: '1000000000000', reserved: '0', frozen: '0' },
+          assetHub: null,
+          total: '1000000000000',
+        };
+
+        const mockChainInfo = { chain: 'Westend', version: '0.9.42' };
+
+        jest.spyOn(westendDotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+        jest.spyOn(westendDotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+        (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://westend-rpc.polkadot.io');
+        (buildSystemPrompt as jest.Mock).mockClear();
+
+        await (westendDotbot as any).buildContextualSystemPrompt();
+
+        // Should be called with WND symbol
+        expect(buildSystemPrompt).toHaveBeenCalledWith(
+          expect.objectContaining({
+            balance: expect.objectContaining({
+              symbol: 'WND',
+            }),
+            network: expect.objectContaining({
+              network: 'westend',
+            }),
+          })
+        );
+      });
+
+      it('should use Kusama token symbol for Kusama network', async () => {
+        // Mock detectNetworkFromChainName for this specific test
+        (detectNetworkFromChainName as jest.Mock).mockReturnValue('kusama');
+        
+        // Create Kusama DotBot
+        (mockRelayChainApi.rpc as any) = {
+          system: {
+            chain: jest.fn().mockResolvedValue({ toString: () => 'Kusama' }),
+          },
+        };
+
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'kusama',
+        };
+
+        const kusamaDotbot = await DotBot.create(config);
+
+        // Verify network was set correctly
+        expect(kusamaDotbot.getNetwork()).toBe('kusama');
+
+        const mockBalance = {
+          relayChain: { free: '1000000000000', reserved: '0', frozen: '0' },
+          assetHub: null,
+          total: '1000000000000',
+        };
+
+        const mockChainInfo = { chain: 'Kusama', version: '0.9.40' };
+
+        jest.spyOn(kusamaDotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+        jest.spyOn(kusamaDotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+        (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://kusama-rpc.polkadot.io');
+        (buildSystemPrompt as jest.Mock).mockClear();
+
+        await (kusamaDotbot as any).buildContextualSystemPrompt();
+
+        // Should be called with KSM symbol
+        expect(buildSystemPrompt).toHaveBeenCalledWith(
+          expect.objectContaining({
+            balance: expect.objectContaining({
+              symbol: 'KSM',
+            }),
+            network: expect.objectContaining({
+              network: 'kusama',
+            }),
+          })
+        );
+      });
+
+      it('should set isTestnet flag for Westend', async () => {
+        // Mock detectNetworkFromChainName for this specific test
+        (detectNetworkFromChainName as jest.Mock).mockReturnValue('westend');
+        
+        // Create Westend DotBot
+        (mockRelayChainApi.rpc as any) = {
+          system: {
+            chain: jest.fn().mockResolvedValue({ toString: () => 'Westend' }),
+          },
+        };
+
+        const config: DotBotConfig = {
+          wallet: mockWallet,
+          network: 'westend',
+        };
+
+        const westendDotbot = await DotBot.create(config);
+
+        // Verify network was set correctly
+        expect(westendDotbot.getNetwork()).toBe('westend');
+
+        const mockBalance = {
+          relayChain: { free: '1000000000000', reserved: '0', frozen: '0' },
+          assetHub: null,
+          total: '1000000000000',
+        };
+
+        const mockChainInfo = { chain: 'Westend', version: '0.9.42' };
+
+        jest.spyOn(westendDotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+        jest.spyOn(westendDotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+        (buildSystemPrompt as jest.Mock).mockClear();
+
+        await (westendDotbot as any).buildContextualSystemPrompt();
+
+        // Should set isTestnet to true
+        expect(buildSystemPrompt).toHaveBeenCalledWith(
+          expect.objectContaining({
+            network: expect.objectContaining({
+              network: 'westend',
+              isTestnet: true,
+            }),
+          })
+        );
+      });
+
+      it('should not set isTestnet flag for Polkadot', async () => {
+        // Mock detectNetworkFromChainName for consistency
+        (detectNetworkFromChainName as jest.Mock).mockReturnValue('polkadot');
+        
+        // Verify network is polkadot
+        expect(dotbot.getNetwork()).toBe('polkadot');
+
+        const mockBalance = {
+          relayChain: { free: '1000000000000', reserved: '0', frozen: '0' },
+          assetHub: null,
+          total: '1000000000000',
+        };
+
+        const mockChainInfo = { chain: 'Polkadot', version: '0.9.42' };
+
+        jest.spyOn(dotbot, 'getBalance').mockResolvedValue(mockBalance as any);
+        jest.spyOn(dotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+        (buildSystemPrompt as jest.Mock).mockClear();
+
+        await (dotbot as any).buildContextualSystemPrompt();
+
+        // Should set isTestnet to false
+        expect(buildSystemPrompt).toHaveBeenCalledWith(
+          expect.objectContaining({
+            network: expect.objectContaining({
+              network: 'polkadot',
+              isTestnet: false,
+            }),
+          })
+        );
+      });
     });
   });
 

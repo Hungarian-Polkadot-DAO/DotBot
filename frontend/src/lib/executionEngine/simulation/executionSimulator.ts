@@ -8,7 +8,7 @@ import { ApiPromise } from '@polkadot/api';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { ExecutionItem, ExecutionResult } from '../types';
 import { ExecutionArray } from '../executionArray';
-import { RpcManager } from '../../rpcManager';
+import { RpcManager, RpcEndpoints } from '../../rpcManager';
 
 export interface SimulationContext {
   api: ApiPromise;
@@ -137,9 +137,10 @@ function getRpcEndpoints(manager: RpcManager | null, isAssetHub: boolean): strin
     return healthStatus.map(h => h.endpoint);
   }
 
+  // Fallback to Polkadot mainnet endpoints if no manager available
   return isAssetHub
-    ? ['wss://polkadot-asset-hub-rpc.polkadot.io', 'wss://statemint-rpc.dwellir.com']
-    : ['wss://rpc.polkadot.io', 'wss://polkadot-rpc.dwellir.com'];
+    ? RpcEndpoints.POLKADOT_ASSET_HUB.slice(0, 2)
+    : RpcEndpoints.POLKADOT_RELAY_CHAIN.slice(0, 2);
 }
 
 function handleSimulationError(

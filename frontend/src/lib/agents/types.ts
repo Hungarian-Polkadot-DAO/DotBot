@@ -3,6 +3,7 @@
  */
 
 import { SubmittableExtrinsic } from '@polkadot/api/types';
+import type { Network } from '../prompts/system/knowledge/types';
 
 /**
  * Result from an agent function call
@@ -68,7 +69,7 @@ export interface BaseAgentParams {
   address: string;
   
   /** Network/chain identifier */
-  network?: 'polkadot' | 'kusama' | string;
+  network?: Network;
   
   /** Optional callback for simulation status updates */
   onSimulationStatus?: SimulationStatusCallback;

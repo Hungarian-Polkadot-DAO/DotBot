@@ -26,12 +26,16 @@ import { ExecutionPlan } from './prompts/system/execution/types';
 import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executionEngine/types';
 import { WalletAccount } from '../types/wallet';
 import { processSystemQueries, areSystemQueriesEnabled } from './prompts/system/systemQuery';
-import { createRelayChainManager, createAssetHubManager, RpcManager } from './rpcManager';
+import { createRelayChainManager, createAssetHubManager, RpcManager, createRpcManagersForNetwork, Network } from './rpcManager';
 import { SimulationStatusCallback } from './agents/types';
+import { detectNetworkFromChainName } from './prompts/system/knowledge';
 
 export interface DotBotConfig {
   /** Wallet account */
   wallet: WalletAccount;
+  
+  /** Network to connect to (defaults to 'polkadot') */
+  network?: Network;
   
   /** LLM API endpoint (for custom LLM) */
   llmEndpoint?: string;
@@ -128,6 +132,7 @@ export class DotBot {
   private executionSystem: ExecutionSystem;
   private wallet: WalletAccount;
   private config: DotBotConfig;
+  private network: Network;
   private currentExecutionArray: ExecutionArray | null = null;
   private executionArrayCallbacks: Set<(state: ExecutionArrayState) => void> = new Set();
   private relayChainManager: RpcManager;
@@ -137,6 +142,7 @@ export class DotBot {
     api: ApiPromise, 
     executionSystem: ExecutionSystem, 
     config: DotBotConfig,
+    network: Network,
     relayChainManager: RpcManager,
     assetHubManager: RpcManager
   ) {
@@ -144,6 +150,7 @@ export class DotBot {
     this.executionSystem = executionSystem;
     this.wallet = config.wallet;
     this.config = config;
+    this.network = network;
     this.relayChainManager = relayChainManager;
     this.assetHubManager = assetHubManager;
   }
@@ -219,13 +226,33 @@ export class DotBot {
       throw new Error('Wallet is required. Please provide a wallet account in the config.');
     }
     
-    // Use pre-initialized RPC managers if provided, otherwise create new ones
-    const relayChainManager = config.relayChainManager || createRelayChainManager();
-    const assetHubManager = config.assetHubManager || createAssetHubManager();
+    // Determine network - use config.network or default to 'polkadot'
+    const configuredNetwork = config.network || 'polkadot';
     
-    const isPreConnected = !!config.relayChainManager;
+    // Use pre-initialized RPC managers if provided, otherwise create new ones for the specified network
+    let relayChainManager: RpcManager;
+    let assetHubManager: RpcManager;
+    
+    if (config.relayChainManager && config.assetHubManager) {
+      // Use pre-initialized managers
+      relayChainManager = config.relayChainManager;
+      assetHubManager = config.assetHubManager;
+    } else {
+      // Create managers for the specified network
+      const managers = createRpcManagersForNetwork(configuredNetwork);
+      relayChainManager = managers.relayChainManager;
+      assetHubManager = managers.assetHubManager;
+    }
+    
     const api = await relayChainManager.getReadApi();
     console.info(`Connected to Relay Chain via: ${relayChainManager.getCurrentEndpoint()}`);
+    
+    // Detect actual network from chain name (in case pre-initialized managers are for a different network)
+    const chainInfo = await api.rpc.system.chain();
+    const detectedNetwork = detectNetworkFromChainName(chainInfo.toString());
+    const actualNetwork = detectedNetwork;
+    
+    console.info(`Network: ${actualNetwork} (configured: ${configuredNetwork})`);
     
     // Create signer
     const signer = new BrowserWalletSigner({ 
@@ -243,7 +270,7 @@ export class DotBot {
     // Create execution system
     const executionSystem = new ExecutionSystem();
     
-    const dotbot = new DotBot(api, executionSystem, config, relayChainManager, assetHubManager);
+    const dotbot = new DotBot(api, executionSystem, config, actualNetwork, relayChainManager, assetHubManager);
     
     try {
       await dotbot.initializeAssetHub();
@@ -552,12 +579,24 @@ export class DotBot {
   }
 
   /**
+   * Get the current network
+   */
+  getNetwork(): Network {
+    return this.network;
+  }
+
+  /**
    * Build system prompt with current context
    */
   private async buildContextualSystemPrompt(): Promise<string> {
     try {
       const balance = await this.getBalance();
       const chainInfo = await this.getChainInfo();
+      
+      // Get network-specific token symbol
+      const tokenSymbol = this.network === 'westend' ? 'WND' 
+                        : this.network === 'kusama' ? 'KSM' 
+                        : 'DOT';
       
       const systemPrompt = buildSystemPrompt({
         wallet: {
@@ -566,8 +605,9 @@ export class DotBot {
           provider: this.wallet.source
         },
         network: {
-          network: chainInfo.chain.toLowerCase().includes('kusama') ? 'kusama' : 'polkadot',
-          rpcEndpoint: this.relayChainManager.getCurrentEndpoint() || 'wss://rpc.polkadot.io'
+          network: this.network,
+          rpcEndpoint: this.relayChainManager.getCurrentEndpoint() || '',
+          isTestnet: this.network === 'westend',
         },
         balance: {
           relayChain: {
@@ -581,8 +621,8 @@ export class DotBot {
             frozen: balance.assetHub.frozen
           } : null,
           total: balance.total,
-          symbol: 'DOT'
-        }
+          symbol: tokenSymbol
+        },
       });
       
       return systemPrompt;

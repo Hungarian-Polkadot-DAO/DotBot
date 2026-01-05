@@ -12,6 +12,7 @@ import { isAddress } from '@polkadot/util-crypto';
 import { BN } from '@polkadot/util';
 import { AgentResult, AgentError, ValidationResult, BalanceInfo, DryRunResult, SimulationStatusCallback } from './types';
 import type { RpcManager } from '../rpcManager';
+import { RpcEndpoints } from '../rpcManager';
 
 export abstract class BaseAgent {
   protected api: ApiPromise | null = null;
@@ -437,19 +438,12 @@ export abstract class BaseAgent {
    * Get default RPC endpoints (fallback when RPC manager not available)
    */
   private getDefaultRpcEndpoints(chain: 'assetHub' | 'relay'): string[] {
+    // Fallback to Polkadot mainnet endpoints if no manager available
     if (chain === 'assetHub') {
-      return [
-        'wss://sys.ibp.network/statemint',
-        'wss://sys.dotters.network/statemint',
-        'wss://polkadot-asset-hub-rpc.polkadot.io',
-      ];
+      return RpcEndpoints.POLKADOT_ASSET_HUB.slice(0, 3);
     }
     
-    return [
-      'wss://rpc.polkadot.io',
-      'wss://polkadot-rpc.dwellir.com',
-      'wss://polkadot.api.onfinality.io/public-ws',
-    ];
+    return RpcEndpoints.POLKADOT_RELAY_CHAIN.slice(0, 3);
   }
 
   /**

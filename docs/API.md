@@ -25,48 +25,128 @@ npm install @polkadot/api @polkadot/util @polkadot/util-crypto
 
 ### Basic Setup
 
+**Recommended: Use DotBot (High-Level API)**
+
 ```typescript
-import { ApiPromise, WsProvider } from '@polkadot/api';
+import { DotBot } from './lib/dotbot';
+import { createRpcManagersForNetwork } from './lib/rpcManager';
+import type { Network } from './lib/rpcManager';
+
+// 1. Select network
+const network: Network = 'polkadot'; // or 'kusama', 'westend'
+
+// 2. Create network-specific RPC managers
+const { relayChainManager, assetHubManager } = createRpcManagersForNetwork(network);
+
+// 3. Initialize DotBot (handles everything)
+const dotbot = await DotBot.create({
+  wallet: injectedAccount,  // From browser wallet
+  network,
+  relayChainManager,
+  assetHubManager,
+  onSigningRequest: (request) => {
+    // Handle transaction signing
+    console.log('Please sign:', request.description);
+  }
+});
+
+// 4. Use natural language!
+const response = await dotbot.chat("Send 5 DOT to Alice", {
+  llm: async (message, systemPrompt) => {
+    // Call your LLM service (OpenAI, ASI-One, etc.)
+    return await llmService.chat(message, systemPrompt);
+  }
+});
+
+console.log(response);  // "Transfer successful!"
+```
+
+**Why DotBot?**
+- 🎯 Natural language interface - just chat!
+- 🤖 Handles agents, orchestration, and execution automatically
+- 🔐 Manages signing requests and user confirmations
+- 📊 Provides execution status updates
+- ✨ Network-aware (correct tokens, knowledge, etc.)
+
+---
+
+### Advanced Setup (Low-Level API)
+
+If you need fine-grained control over agents and execution:
+
+```typescript
+import { ApiPromise } from '@polkadot/api';
 import { AssetTransferAgent } from './lib/agents/asset-transfer';
 import { Executioner } from './lib/executionEngine';
-import { RpcManager } from './lib/rpcManager';
+import { createRpcManagersForNetwork, Network } from './lib/rpcManager';
 
-// 1. Create RPC managers (optional but recommended)
-const relayManager = new RpcManager([
-  'wss://rpc.polkadot.io',
-  'wss://polkadot-rpc.dwellir.com',
-]);
+// 1. Select network
+const network: Network = 'polkadot'; // or 'kusama', 'westend'
 
-const assetHubManager = new RpcManager([
-  'wss://polkadot-asset-hub-rpc.polkadot.io',
-  'wss://sys.ibp.network/statemint',
-]);
+// 2. Create network-specific RPC managers
+const { relayChainManager, assetHubManager } = createRpcManagersForNetwork(network);
 
-// 2. Connect to APIs
-const relayApi = await relayManager.getReadApi();
+// 3. Connect to APIs
+const relayApi = await relayChainManager.getReadApi();
 const assetHubApi = await assetHubManager.getReadApi();
 
-// 3. Initialize agent
+// 4. Initialize agent manually
 const agent = new AssetTransferAgent();
 agent.initialize(
   relayApi,
   assetHubApi,
   null,  // status callback (optional)
-  relayManager,
+  relayChainManager,
   assetHubManager
 );
 
-// 4. Initialize executioner
+// 5. Initialize executioner manually
 const executioner = new Executioner();
 executioner.initialize(
   relayApi,
   accountInfo,
   signer,
   assetHubApi,
-  relayManager,
+  relayChainManager,
   assetHubManager
 );
+
+// 6. Use agents directly
+const result = await agent.transfer({
+  sender: accountInfo.address,
+  recipient: 'alice-address',
+  amount: '5',
+  chain: 'assetHub'
+});
+
+// 7. Execute manually
+const executionResult = await executioner.execute(result);
 ```
+
+**When to use Low-Level API:**
+- Building custom integrations
+- Need specific agent behavior
+- Bypassing natural language layer
+- Custom execution workflows
+```
+
+### Network Configuration
+
+DotBot has multi-network infrastructure:
+
+| Network | Token | Decimals | Type | Status | Use Case |
+|---------|-------|----------|------|--------|----------|
+| Polkadot | DOT | 10 | Mainnet | ✅ **Full Support** | Production operations |
+| Westend | WND | 12 | Testnet | ✅ **Full Support** | Safe testing |
+| Kusama | KSM | 12 | Canary | ⚠️ **Partial** | Kusama ecosystem (coming soon) |
+
+**Status Legend:**
+- ✅ **Full Support**: Complete knowledge base + RPC infrastructure
+- ⚠️ **Partial**: RPC infrastructure only (uses Polkadot knowledge as fallback)
+
+**Kusama Note:** Infrastructure is ready (RPC endpoints, factory functions), but Kusama-specific knowledge base is not yet implemented. Operations will work but LLM context will use Polkadot information (may mention wrong parachains/DEXes).
+
+**Version Added:** v0.2.0 (January 2026)
 
 ---
 
@@ -104,6 +184,369 @@ interface ExecutionResult {
   errorCode?: string;    // Machine-readable error code
 }
 ```
+
+---
+
+## Multi-Network Configuration
+
+### Network Type
+
+```typescript
+type Network = 'polkadot' | 'kusama' | 'westend';
+```
+
+Type-safe network identifier used throughout DotBot.
+
+**Note:** Kusama type is included for infrastructure purposes, but full support (knowledge base) is not yet implemented. See [Network Configuration](#network-configuration) for details.
+
+---
+
+### Network Metadata
+
+```typescript
+interface NetworkMetadata {
+  name: string;               // Display name
+  network: Network;           // Network identifier
+  token: string;              // Native token symbol
+  decimals: number;           // Token decimals
+  ss58Format: number;         // Address format
+  relayChainEndpoints: string[];  // Relay Chain RPC endpoints
+  assetHubEndpoints: string[];    // Asset Hub RPC endpoints
+  isTestnet: boolean;         // Testnet flag
+  color: string;              // UI color (hex)
+}
+```
+
+Complete configuration for a network.
+
+**Example:**
+```typescript
+import { NETWORK_CONFIG } from './lib/prompts/system/knowledge';
+
+const polkadotConfig = NETWORK_CONFIG.polkadot;
+console.log(polkadotConfig.token);  // 'DOT'
+console.log(polkadotConfig.decimals);  // 10
+console.log(polkadotConfig.isTestnet);  // false
+```
+
+---
+
+### Multi-Network Factory Functions
+
+#### `createRpcManagersForNetwork()`
+
+Create network-specific RPC managers with pre-configured endpoints.
+
+```typescript
+function createRpcManagersForNetwork(
+  network: Network
+): {
+  relayChainManager: RpcManager;
+  assetHubManager: RpcManager;
+}
+```
+
+**Parameters:**
+- `network` (Network): Network identifier ('polkadot', 'kusama', or 'westend')
+
+**Returns:**
+- Object containing:
+  - `relayChainManager`: RpcManager for Relay Chain
+  - `assetHubManager`: RpcManager for Asset Hub
+
+**Example:**
+```typescript
+// Create managers for Westend testnet
+const { relayChainManager, assetHubManager } = createRpcManagersForNetwork('westend');
+
+// Managers come pre-configured with best endpoints
+const relayApi = await relayChainManager.getReadApi();
+const assetHubApi = await assetHubManager.getReadApi();
+```
+
+**Storage Isolation:**
+Each network uses separate localStorage keys for health tracking:
+- Polkadot: `dotbot_rpc_health_polkadot_relay`, `dotbot_rpc_health_polkadot_assethub`
+- Kusama: `dotbot_rpc_health_kusama_relay`, `dotbot_rpc_health_kusama_assethub`
+- Westend: `dotbot_rpc_health_westend_relay`, `dotbot_rpc_health_westend_assethub`
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### Network-Specific Factory Functions
+
+Create RPC managers for individual chains:
+
+```typescript
+// Polkadot
+function createPolkadotRelayChainManager(): RpcManager
+function createPolkadotAssetHubManager(): RpcManager
+
+// Kusama
+function createKusamaRelayChainManager(): RpcManager
+function createKusamaAssetHubManager(): RpcManager
+
+// Westend
+function createWestendRelayChainManager(): RpcManager
+function createWestendAssetHubManager(): RpcManager
+```
+
+**Example:**
+```typescript
+import {
+  createWestendRelayChainManager,
+  createWestendAssetHubManager
+} from './lib/rpcManager';
+
+const relayManager = createWestendRelayChainManager();
+const assetHubManager = createWestendAssetHubManager();
+
+const relayApi = await relayManager.getReadApi();
+```
+
+**Use Case:** When you only need one chain or want fine-grained control.
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+### Network Utilities
+
+Comprehensive set of utility functions for network operations.
+
+#### `getNetworkMetadata()`
+
+Get complete configuration for a network.
+
+```typescript
+function getNetworkMetadata(network: Network): NetworkMetadata
+```
+
+**Example:**
+```typescript
+import { getNetworkMetadata } from './lib/prompts/system/knowledge';
+
+const metadata = getNetworkMetadata('westend');
+console.log(metadata.token);  // 'WND'
+console.log(metadata.decimals);  // 12
+console.log(metadata.isTestnet);  // true
+```
+
+---
+
+#### `detectNetworkFromChainName()`
+
+Auto-detect network from chain metadata.
+
+```typescript
+function detectNetworkFromChainName(
+  chainName: string
+): Network | null
+```
+
+**Example:**
+```typescript
+import { detectNetworkFromChainName } from './lib/prompts/system/knowledge';
+
+const api = await ApiPromise.create({ provider: wsProvider });
+const chainName = (await api.rpc.system.chain()).toString();
+
+const network = detectNetworkFromChainName(chainName);
+// Returns: 'polkadot', 'kusama', 'westend', or null
+```
+
+---
+
+#### `getNetworkTokenSymbol()`
+
+Get native token symbol for a network.
+
+```typescript
+function getNetworkTokenSymbol(network: Network): string
+```
+
+**Example:**
+```typescript
+getNetworkTokenSymbol('polkadot');  // 'DOT'
+getNetworkTokenSymbol('kusama');    // 'KSM'
+getNetworkTokenSymbol('westend');   // 'WND'
+```
+
+---
+
+#### `getNetworkDecimals()`
+
+Get token decimals for a network.
+
+```typescript
+function getNetworkDecimals(network: Network): number
+```
+
+**Example:**
+```typescript
+getNetworkDecimals('polkadot');  // 10
+getNetworkDecimals('westend');   // 12
+```
+
+---
+
+#### `isTestnet()`
+
+Check if a network is a testnet.
+
+```typescript
+function isTestnet(network: Network): boolean
+```
+
+**Example:**
+```typescript
+isTestnet('polkadot');  // false
+isTestnet('westend');   // true
+```
+
+---
+
+#### `getRelayChainEndpoints()`
+
+Get Relay Chain RPC endpoints for a network.
+
+```typescript
+function getRelayChainEndpoints(network: Network): string[]
+```
+
+**Returns:** Array of WebSocket RPC URLs, ordered by reliability.
+
+---
+
+#### `getAssetHubEndpoints()`
+
+Get Asset Hub RPC endpoints for a network.
+
+```typescript
+function getAssetHubEndpoints(network: Network): string[]
+```
+
+**Returns:** Array of WebSocket RPC URLs, ordered by reliability.
+
+---
+
+#### Additional Utilities
+
+```typescript
+// Network validation
+function isValidNetwork(network: string): network is Network
+function validateNetwork(network: Network): void  // throws if invalid
+
+// Network comparison
+function isSameNetwork(a: Network | string, b: Network | string): boolean
+
+// Network display
+function getNetworkDisplayName(network: Network): string
+function getNetworkDescription(network: Network): string
+
+// Address encoding
+function getNetworkSS58Format(network: Network): number
+function formatAddressForNetwork(address: string, network: Network): string
+
+// Knowledge base
+function getKnowledgeBaseForNetwork(network: Network): PolkadotKnowledge
+function formatKnowledgeBaseForNetwork(network: Network): string
+```
+
+**Full documentation:** See `frontend/src/lib/prompts/system/knowledge/networkUtils.ts`
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+### DotBot Core Multi-Network Support
+
+#### `DotBot.create()`
+
+**UPDATED** in v0.2.0 to support network parameter:
+
+```typescript
+interface DotBotConfig {
+  wallet: InjectedAccountWithMeta;
+  network?: Network;  // ← NEW in v0.2.0
+  relayChainManager: RpcManager;
+  assetHubManager: RpcManager;
+  onSigningRequest?: (request: SigningRequest) => void;
+  onBatchSigningRequest?: (request: BatchSigningRequest) => void;
+  onSimulationStatus?: (status: SimulationStatus) => void;
+}
+
+static async create(config: DotBotConfig): Promise<DotBot>
+```
+
+**Parameters:**
+- `network` (Network, optional): Network identifier. Default: `'polkadot'`. *Added in v0.2.0*
+
+**Behavior Changes in v0.2.0:**
+- System prompt includes network-specific knowledge
+- Balance displays use correct token symbol (DOT/KSM/WND)
+- Testnet flag set automatically for Westend
+- Network can be detected from connected chain if not specified
+
+**Example (v0.2.0+):**
+```typescript
+// Explicit network specification (recommended)
+const managers = createRpcManagersForNetwork('westend');
+
+const dotbot = await DotBot.create({
+  wallet: account,
+  network: 'westend',  // NEW parameter
+  relayChainManager: managers.relayChainManager,
+  assetHubManager: managers.assetHubManager,
+  onSigningRequest: (request) => handleSigning(request)
+});
+
+// DotBot automatically:
+// - Loads Westend knowledge base
+// - Uses WND as token symbol
+// - Sets isTestnet = true in context
+```
+
+**Example (backward compatible - defaults to Polkadot):**
+```typescript
+const dotbot = await DotBot.create({
+  wallet: account,
+  relayChainManager,  // Uses Polkadot endpoints
+  assetHubManager
+  // network parameter omitted → defaults to 'polkadot'
+});
+```
+
+**Breaking Changes:** None - fully backward compatible
+
+**Version History:**
+- v0.2.0 (January 2026): Added `network` parameter with default 'polkadot'
+- v0.1.0: Initial implementation
+
+---
+
+#### `DotBot.getNetwork()`
+
+**NEW** in v0.2.0: Get the current network.
+
+```typescript
+getNetwork(): Network
+```
+
+**Returns:** Current network identifier
+
+**Example:**
+```typescript
+const network = dotbot.getNetwork();
+console.log(network);  // 'westend'
+
+if (dotbot.getNetwork() === 'westend') {
+  console.log('Running on testnet - safe to experiment!');
+}
+```
+
+**Version Added:** v0.2.0 (January 2026)
 
 ---
 
@@ -485,14 +928,53 @@ Manages multiple RPC endpoints with health monitoring and failover.
 #### `constructor()`
 
 ```typescript
-constructor(endpoints: string[], options?: RpcManagerOptions)
+constructor(
+  endpoints: string[],
+  options?: RpcManagerOptions,
+  storageKey?: string  // ← NEW in v0.2.0
+)
 ```
 
 **Parameters:**
-- `endpoints` - Array of WebSocket RPC URLs
-- `options.healthCheckInterval` - Health check frequency in ms (default: 60000)
-- `options.connectionTimeout` - Connection timeout in ms (default: 10000)
-- `options.maxRetries` - Maximum connection retries (default: 3)
+- `endpoints` (string[]): Array of WebSocket RPC URLs
+- `options` (RpcManagerOptions, optional): Configuration options
+  - `healthCheckInterval` (number): Health check frequency in ms (default: 60000)
+  - `connectionTimeout` (number): Connection timeout in ms (default: 10000)
+  - `maxRetries` (number): Maximum connection retries (default: 3)
+- `storageKey` (string, optional): localStorage key for health data. Default: 'dotbot_rpc_health'. *Added in v0.2.0*
+
+**Network-Aware Usage:**
+
+Instead of manually creating RpcManagers, use factory functions for automatic network configuration:
+
+```typescript
+// ✅ RECOMMENDED: Use factory for network-specific configuration
+const { relayChainManager, assetHubManager } = createRpcManagersForNetwork('westend');
+// Storage keys automatically set:
+// - 'dotbot_rpc_health_westend_relay'
+// - 'dotbot_rpc_health_westend_assethub'
+
+// ⚠️ MANUAL: Only if you need custom endpoints
+const customManager = new RpcManager(
+  ['wss://custom-endpoint.com'],
+  { healthCheckInterval: 30000 },
+  'dotbot_rpc_health_custom'  // Provide unique key
+);
+```
+
+**Storage Isolation:**
+
+Each network uses separate storage keys to prevent health data conflicts:
+- Polkadot Relay: `dotbot_rpc_health_polkadot_relay`
+- Polkadot Asset Hub: `dotbot_rpc_health_polkadot_assethub`
+- Kusama Relay: `dotbot_rpc_health_kusama_relay`
+- Kusama Asset Hub: `dotbot_rpc_health_kusama_assethub`
+- Westend Relay: `dotbot_rpc_health_westend_relay`
+- Westend Asset Hub: `dotbot_rpc_health_westend_assethub`
+
+**Version History:**
+- v0.2.0 (January 2026): Added `storageKey` parameter for network isolation
+- v0.1.0: Initial implementation
 
 **Example:**
 ```typescript
@@ -506,7 +988,8 @@ const manager = new RpcManager(
     healthCheckInterval: 60000,
     connectionTimeout: 10000,
     maxRetries: 3
-  }
+  },
+  'dotbot_rpc_health_polkadot_relay'  // Unique storage key
 );
 ```
 

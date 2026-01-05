@@ -11,6 +11,7 @@ import { EXECUTION_ARRAY_INSTRUCTIONS } from './execution/instructions';
 import { SystemContext } from './context/types';
 import { createVersionedPrompt } from './version';
 import { formatPolkadotKnowledgeBase } from './knowledge/dotKnowledge';
+import { formatKnowledgeBaseForNetwork } from './knowledge';
 
 /**
  * Format agent definitions for inclusion in system prompt
@@ -168,31 +169,31 @@ function formatContext(context?: SystemContext): string {
     const totalDot = formatPlanckToDot(context.balance.total);
     prompt += `**Total Balance**: ${totalDot} ${context.balance.symbol}\n\n`;
     
-    // Relay Chain balance (convert from Planck to DOT)
-    prompt += `**Relay Chain** (${context.network.rpcEndpoint || 'wss://rpc.polkadot.io'}):\n`;
+    // Relay Chain balance (convert from Planck to native token units)
+    prompt += `**Relay Chain** (${context.network.rpcEndpoint || 'Connected'}):\n`;
     const relayFreeDot = formatPlanckToDot(context.balance.relayChain.free);
-    prompt += `  - Free: ${relayFreeDot} DOT\n`;
+    prompt += `  - Free: ${relayFreeDot} ${context.balance.symbol}\n`;
     if (context.balance.relayChain.reserved !== '0') {
       const relayReservedDot = formatPlanckToDot(context.balance.relayChain.reserved);
-      prompt += `  - Reserved: ${relayReservedDot} DOT\n`;
+      prompt += `  - Reserved: ${relayReservedDot} ${context.balance.symbol}\n`;
     }
     
-    // Asset Hub balance (convert from Planck to DOT)
+    // Asset Hub balance (convert from Planck to native token units)
     if (context.balance.assetHub) {
-      prompt += `\n**Asset Hub** (wss://polkadot-asset-hub-rpc.polkadot.io):\n`;
+      prompt += `\n**Asset Hub** (Connected):\n`;
       const assetHubFreeDot = formatPlanckToDot(context.balance.assetHub.free);
-      prompt += `  - Free: ${assetHubFreeDot} DOT\n`;
+      prompt += `  - Free: ${assetHubFreeDot} ${context.balance.symbol}\n`;
       if (context.balance.assetHub.reserved !== '0') {
         const assetHubReservedDot = formatPlanckToDot(context.balance.assetHub.reserved);
-        prompt += `  - Reserved: ${assetHubReservedDot} DOT\n`;
+        prompt += `  - Reserved: ${assetHubReservedDot} ${context.balance.symbol}\n`;
       }
     } else {
       prompt += `\n**Asset Hub**: Not connected (balance not available)\n`;
     }
     
-    prompt += `\n**CRITICAL**: All balance values above are in DOT denomination. NEVER show Planck values to users.\n`;
-    prompt += `**CRITICAL**: When displaying balances to users, ALWAYS use DOT (not Planck). Example: "12.5 DOT" not "125000000000".\n`;
-    prompt += `Note: After the Polkadot 2.0 migration, users can have DOT on both Relay Chain and Asset Hub.\n`;
+    prompt += `\n**CRITICAL**: All balance values above are in ${context.balance.symbol} denomination. NEVER show Planck values to users.\n`;
+    prompt += `**CRITICAL**: When displaying balances to users, ALWAYS use ${context.balance.symbol} (not Planck). Example: "12.5 ${context.balance.symbol}" not raw Planck values.\n`;
+    prompt += `Note: Users can have ${context.balance.symbol} on both Relay Chain and Asset Hub.\n`;
   }
   
   prompt += '\n';
@@ -291,8 +292,12 @@ Generate ONLY a JSON ExecutionPlan (no surrounding text) when the user gives:
   // Add context information
   prompt += formatContext(context);
   
-  // Add Polkadot Knowledge Base
-  prompt += formatPolkadotKnowledgeBase();
+  // Add Knowledge Base (network-specific)
+  if (context?.network?.network) {
+    prompt += formatKnowledgeBaseForNetwork(context.network.network);
+  } else {
+    prompt += formatPolkadotKnowledgeBase();
+  }
   
   // Add agent definitions
   prompt += formatAgentDefinitions();

@@ -605,10 +605,16 @@ export class RpcManager {
 }
 
 /**
- * Predefined RPC endpoints
+ * Network type for multi-network support
+ */
+export type Network = 'polkadot' | 'kusama' | 'westend';
+
+/**
+ * Predefined RPC endpoints organized by network
  */
 export const RpcEndpoints = {
-  RELAY_CHAIN: [
+  // Polkadot Mainnet
+  POLKADOT_RELAY_CHAIN: [
     'wss://polkadot.api.onfinality.io/public-ws',        // OnFinality (public)
     'wss://polkadot-rpc.dwellir.com',                    // Dwellir public WS
     'wss://polkadot-rpc-tn.dwellir.com',                 // Dwellir (Tunisia)
@@ -620,37 +626,215 @@ export const RpcEndpoints = {
     'wss://rockx-dot.w3node.com/polka-public-dot/ws',    // RockX public WS
     'wss://polkadot.rpc.subquery.network/public/ws',     // SubQuery network
   ],
-  ASSET_HUB: [
+  POLKADOT_ASSET_HUB: [
     'wss://statemint.api.onfinality.io/public-ws',       // OnFinality Asset Hub public WS
-    'wss://statemint-rpc.dwellir.com',                   // Dwellir Asset Hub WS (API key ideally)
+    'wss://statemint-rpc.dwellir.com',                   // Dwellir Asset Hub WS
     'wss://dot-rpc.stakeworld.io/assethub',              // Stakeworld Asset Hub
-    'wss://api-asset-hub-polkadot.n.dwellir.com/YOUR_API_KEY', // Dwellir hub (requires API key)
-    'wss://rpc.ibp.network/assethub',                    // IBP network Asset Hub
-  ]
+    'wss://sys.ibp.network/statemint',                   // IBP network Asset Hub
+    'wss://statemint-rpc-tn.dwellir.com',                // Dwellir Asset Hub (Tunisia)
+  ],
+
+  // Kusama Canary Network
+  KUSAMA_RELAY_CHAIN: [
+    'wss://kusama.api.onfinality.io/public-ws',          // OnFinality Kusama
+    'wss://kusama-rpc.dwellir.com',                      // Dwellir Kusama
+    'wss://kusama-rpc-tn.dwellir.com',                   // Dwellir Kusama (Tunisia)
+    'wss://rpc.ibp.network/kusama',                      // IBP network Kusama
+    'wss://kusama.dotters.network',                      // Dotters Kusama
+    'wss://ksm-rpc.stakeworld.io',                       // Stakeworld Kusama
+    'wss://kusama.public.curie.radiumblock.co/ws',       // RadiumBlock Kusama
+  ],
+  KUSAMA_ASSET_HUB: [
+    'wss://statemine.api.onfinality.io/public-ws',       // OnFinality Kusama Asset Hub
+    'wss://statemine-rpc.dwellir.com',                   // Dwellir Kusama Asset Hub
+    'wss://ksm-rpc.stakeworld.io/assethub',              // Stakeworld Kusama Asset Hub
+    'wss://sys.ibp.network/statemine',                   // IBP network Kusama Asset Hub
+  ],
+
+  // Westend Testnet
+  WESTEND_RELAY_CHAIN: [
+    'wss://westend-rpc.polkadot.io',                     // Parity Westend (official)
+    'wss://westend.api.onfinality.io/public-ws',         // OnFinality Westend
+    'wss://westend-rpc.dwellir.com',                     // Dwellir Westend
+    'wss://rpc.ibp.network/westend',                     // IBP network Westend
+    'wss://westend-rpc-tn.dwellir.com',                  // Dwellir Westend (Tunisia)
+  ],
+  WESTEND_ASSET_HUB: [
+    'wss://westend-asset-hub-rpc.polkadot.io',           // Parity Westend Asset Hub (official)
+    'wss://westmint.api.onfinality.io/public-ws',        // OnFinality Westend Asset Hub
+    'wss://sys.ibp.network/westmint',                    // IBP network Westend Asset Hub
+  ],
+
+  // Legacy aliases (backward compatibility)
+  RELAY_CHAIN: [] as string[],  // Will be set below
+  ASSET_HUB: [] as string[],    // Will be set below
 };
+
+// Set legacy aliases to Polkadot for backward compatibility
+RpcEndpoints.RELAY_CHAIN = RpcEndpoints.POLKADOT_RELAY_CHAIN;
+RpcEndpoints.ASSET_HUB = RpcEndpoints.POLKADOT_ASSET_HUB;
+
+/**
+ * Get RPC endpoints for a specific network
+ */
+export function getEndpointsForNetwork(network: Network): {
+  relayChain: string[];
+  assetHub: string[];
+} {
+  switch (network) {
+    case 'polkadot':
+      return {
+        relayChain: RpcEndpoints.POLKADOT_RELAY_CHAIN,
+        assetHub: RpcEndpoints.POLKADOT_ASSET_HUB,
+      };
+    case 'kusama':
+      return {
+        relayChain: RpcEndpoints.KUSAMA_RELAY_CHAIN,
+        assetHub: RpcEndpoints.KUSAMA_ASSET_HUB,
+      };
+    case 'westend':
+      return {
+        relayChain: RpcEndpoints.WESTEND_RELAY_CHAIN,
+        assetHub: RpcEndpoints.WESTEND_ASSET_HUB,
+      };
+    default:
+      throw new Error(`Unknown network: ${network}`);
+  }
+}
+
+/**
+ * Create RPC managers for a specific network
+ */
+export function createRpcManagersForNetwork(network: Network): {
+  relayChainManager: RpcManager;
+  assetHubManager: RpcManager;
+} {
+  const endpoints = getEndpointsForNetwork(network);
+  
+  return {
+    relayChainManager: new RpcManager({
+      endpoints: endpoints.relayChain,
+      failoverTimeout: 5 * 60 * 1000,
+      connectionTimeout: 10000,
+      storageKey: `dotbot_rpc_health_${network}_relay`,
+      healthDataMaxAge: 24 * 60 * 60 * 1000,
+    }),
+    assetHubManager: new RpcManager({
+      endpoints: endpoints.assetHub,
+      failoverTimeout: 5 * 60 * 1000,
+      connectionTimeout: 10000,
+      storageKey: `dotbot_rpc_health_${network}_asset_hub`,
+      healthDataMaxAge: 24 * 60 * 60 * 1000,
+    }),
+  };
+}
+
+// ============================================================================
+// Polkadot Factory Functions
+// ============================================================================
 
 /**
  * Create a RPC manager for Polkadot Relay Chain
  */
-export function createRelayChainManager(): RpcManager {
+export function createPolkadotRelayChainManager(): RpcManager {
   return new RpcManager({
-    endpoints: RpcEndpoints.RELAY_CHAIN,
-    failoverTimeout: 5 * 60 * 1000, // 5 minutes (300,000ms) - Time before retrying a failed endpoint
-    connectionTimeout: 10000, // 10 seconds - Timeout for each connection attempt
-    storageKey: 'dotbot_rpc_health_relay', // Persist health data in localStorage
-    healthDataMaxAge: 24 * 60 * 60 * 1000 // 24 hours (86,400,000ms) - Max age before invalidation
+    endpoints: RpcEndpoints.POLKADOT_RELAY_CHAIN,
+    failoverTimeout: 5 * 60 * 1000,
+    connectionTimeout: 10000,
+    storageKey: 'dotbot_rpc_health_polkadot_relay',
+    healthDataMaxAge: 24 * 60 * 60 * 1000,
   });
 }
 
 /**
  * Create a RPC manager for Polkadot Asset Hub
  */
-export function createAssetHubManager(): RpcManager {
+export function createPolkadotAssetHubManager(): RpcManager {
   return new RpcManager({
-    endpoints: RpcEndpoints.ASSET_HUB,
-    failoverTimeout: 5 * 60 * 1000, // 5 minutes (300,000ms) - Time before retrying a failed endpoint
-    connectionTimeout: 10000, // 10 seconds - Timeout for each connection attempt
-    storageKey: 'dotbot_rpc_health_asset_hub', // Persist health data in localStorage
-    healthDataMaxAge: 24 * 60 * 60 * 1000 // 24 hours (86,400,000ms) - Max age before invalidation
+    endpoints: RpcEndpoints.POLKADOT_ASSET_HUB,
+    failoverTimeout: 5 * 60 * 1000,
+    connectionTimeout: 10000,
+    storageKey: 'dotbot_rpc_health_polkadot_asset_hub',
+    healthDataMaxAge: 24 * 60 * 60 * 1000,
   });
+}
+
+// ============================================================================
+// Kusama Factory Functions
+// ============================================================================
+
+/**
+ * Create a RPC manager for Kusama Relay Chain
+ */
+export function createKusamaRelayChainManager(): RpcManager {
+  return new RpcManager({
+    endpoints: RpcEndpoints.KUSAMA_RELAY_CHAIN,
+    failoverTimeout: 5 * 60 * 1000,
+    connectionTimeout: 10000,
+    storageKey: 'dotbot_rpc_health_kusama_relay',
+    healthDataMaxAge: 24 * 60 * 60 * 1000,
+  });
+}
+
+/**
+ * Create a RPC manager for Kusama Asset Hub
+ */
+export function createKusamaAssetHubManager(): RpcManager {
+  return new RpcManager({
+    endpoints: RpcEndpoints.KUSAMA_ASSET_HUB,
+    failoverTimeout: 5 * 60 * 1000,
+    connectionTimeout: 10000,
+    storageKey: 'dotbot_rpc_health_kusama_asset_hub',
+    healthDataMaxAge: 24 * 60 * 60 * 1000,
+  });
+}
+
+// ============================================================================
+// Westend Factory Functions
+// ============================================================================
+
+/**
+ * Create a RPC manager for Westend Relay Chain
+ */
+export function createWestendRelayChainManager(): RpcManager {
+  return new RpcManager({
+    endpoints: RpcEndpoints.WESTEND_RELAY_CHAIN,
+    failoverTimeout: 5 * 60 * 1000,
+    connectionTimeout: 10000,
+    storageKey: 'dotbot_rpc_health_westend_relay',
+    healthDataMaxAge: 24 * 60 * 60 * 1000,
+  });
+}
+
+/**
+ * Create a RPC manager for Westend Asset Hub
+ */
+export function createWestendAssetHubManager(): RpcManager {
+  return new RpcManager({
+    endpoints: RpcEndpoints.WESTEND_ASSET_HUB,
+    failoverTimeout: 5 * 60 * 1000,
+    connectionTimeout: 10000,
+    storageKey: 'dotbot_rpc_health_westend_asset_hub',
+    healthDataMaxAge: 24 * 60 * 60 * 1000,
+  });
+}
+
+// ============================================================================
+// Legacy Factory Functions (backward compatibility)
+// ============================================================================
+
+/**
+ * Create a RPC manager for Relay Chain (defaults to Polkadot)
+ * @deprecated Use createPolkadotRelayChainManager() or createRpcManagersForNetwork()
+ */
+export function createRelayChainManager(): RpcManager {
+  return createPolkadotRelayChainManager();
+}
+
+/**
+ * Create a RPC manager for Asset Hub (defaults to Polkadot)
+ * @deprecated Use createPolkadotAssetHubManager() or createRpcManagersForNetwork()
+ */
+export function createAssetHubManager(): RpcManager {
+  return createPolkadotAssetHubManager();
 }
