@@ -13,7 +13,7 @@ export type { DotBotConfig, ChatResult, ChatOptions, ConversationMessage } from 
 
 // RPC Manager - For advanced endpoint management
 export { 
-  RpcManager,
+  RpcManager, 
   RpcEndpoints,
   // Generic factory
   createRpcManagersForNetwork,
@@ -28,7 +28,7 @@ export {
   createWestendRelayChainManager,
   createWestendAssetHubManager,
   // Legacy factories (backward compatibility)
-  createRelayChainManager,
+  createRelayChainManager, 
   createAssetHubManager,
 } from './rpcManager';
 export type { Network } from './rpcManager';
@@ -152,4 +152,72 @@ export type {
   Signer, // Pluggable signer interface
   SignerOptions,
 } from './executionEngine';
+
+// ============================================================================
+// Chat Instance System (Environment-bound conversations)
+// ============================================================================
+export { ChatInstanceManager } from './chatInstanceManager';
+export type { ChatInstanceManagerConfig } from './chatInstanceManager';
+export type {
+  Environment,
+  ChatInstance,
+  ChatMessage,
+  ChatMessageType,
+  TextMessage,
+  ExecutionMessage,
+  SystemMessage,
+  KnowledgeRequestMessage,
+  KnowledgeResponseMessage,
+  SearchRequestMessage,
+  SearchResponseMessage,
+  CreateChatInstanceParams,
+  UpdateChatInstanceParams,
+  ChatInstanceFilter,
+  ValidationResult,
+  ParsedKnowledgeQuery,
+} from './types/chatInstance';
+export {
+  ENVIRONMENT_NETWORKS,
+  toConversationMessage,
+  toConversationHistory,
+  fromConversationMessage,
+  parseKnowledgeQuery,
+  validateKnowledgeQuery,
+  detectKnowledgeRequest,
+} from './types/chatInstance';
+
+// Chat Storage Abstraction (for backend integration)
+export type { IChatStorage } from './storage/chatStorage';
+export {
+  LocalStorageChatStorage,
+  ApiChatStorage,
+  HybridChatStorage,
+  StorageError,
+  createChatStorage,
+} from './storage/chatStorage';
+
+// Data Manager
+export { DataManager, STORAGE_KEYS } from './dataManager';
+export type { DataExport, DeletionReport } from './dataManager';
+export {
+  getDataManager,
+  exportAllData,
+  exportAndDownload,
+  nukeAllData,
+  getStorageInfo,
+  verifyDataCleared,
+} from './dataManager';
+
+// Knowledge Schema (AI Ask Pattern support)
+export type {
+  KnowledgeDomainSchema,
+  KnowledgeFieldSchema,
+} from './types/knowledgeSchema';
+export {
+  generatePolkadotKnowledgeSchema,
+  generateWestendKnowledgeSchema,
+  formatKnowledgeSchemaForPrompt,
+  getKnowledgeStats,
+  queryKnowledge,
+} from './types/knowledgeSchema';
 
