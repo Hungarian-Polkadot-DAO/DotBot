@@ -1,6 +1,6 @@
 {
   "name": "@dotbot/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DotBot core library for Polkadot operations through natural language",
   "main": "index.ts",
   "types": "index.ts",
