@@ -28,7 +28,7 @@ const WalletButton: React.FC<WalletButtonProps> = ({
 
   const formatAddress = (address: string): string => {
     if (!address) return '';
-    return `${address.slice(0, 6)}...${address.slice(-6)}`;
+    return `${address.slice(0, 4)}...${address.slice(-4)}`;
   };
 
   const handleOpenModal = () => {
@@ -53,10 +53,7 @@ const WalletButton: React.FC<WalletButtonProps> = ({
           }
         </span>
         {isConnected && (
-          <>
-            <EnvironmentBadge environment={environment} className="wallet-environment-badge" />
-            <div className="wallet-status-dot"></div>
-          </>
+          <EnvironmentBadge environment={environment} className="wallet-environment-badge" />
         )}
       </button>
 
