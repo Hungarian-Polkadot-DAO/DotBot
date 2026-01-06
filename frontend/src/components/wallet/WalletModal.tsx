@@ -46,10 +46,15 @@ const WalletModal: React.FC<WalletModalProps> = ({
 
   // Initialize wallet check when modal opens
   useEffect(() => {
-    if (isOpen && !isConnected) {
-      checkWalletStatus();
+    if (isOpen) {
+      if (!isConnected) {
+        checkWalletStatus();
+      } else {
+        // Refresh accounts when already connected to show other available accounts
+        refreshAccounts();
+      }
     }
-  }, [isOpen, isConnected, checkWalletStatus]);
+  }, [isOpen, isConnected, checkWalletStatus, refreshAccounts]);
 
   // Clear error when modal closes
   useEffect(() => {
@@ -66,6 +71,8 @@ const WalletModal: React.FC<WalletModalProps> = ({
 
   const handleConnectAccount = async (account: WalletAccount) => {
     console.log('Modal: Connecting to account:', account);
+    
+    const wasAlreadyConnected = isConnected;
     
     try {
       // CRITICAL: Authenticate first (this prompts user to sign)
@@ -89,8 +96,11 @@ const WalletModal: React.FC<WalletModalProps> = ({
       console.log('Modal: Post-connection state:', { isConnected: store.isConnected, error: store.error });
       
       if (store.isConnected && !store.error) {
-        console.log('Modal: Connection successful, closing modal');
-        onClose();
+        console.log('Modal: Connection successful');
+        // Only close modal on initial connection, not when switching accounts
+        if (!wasAlreadyConnected) {
+          onClose();
+        }
       }
     } catch (error) {
       console.error('Modal: Connection error:', error);
@@ -120,7 +130,11 @@ const WalletModal: React.FC<WalletModalProps> = ({
               address={selectedAccount.address}
               source={selectedAccount.source}
               environment={environment}
+              allAccounts={accounts}
+              isConnecting={isConnecting}
               onDisconnect={handleDisconnect}
+              onConnectAccount={handleConnectAccount}
+              onRefreshAccounts={refreshAccounts}
               onEnvironmentSwitch={onEnvironmentSwitch || (() => {})}
             />
           ) : (
