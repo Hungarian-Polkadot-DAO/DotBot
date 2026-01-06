@@ -1,16 +1,25 @@
 import React, { useEffect } from 'react';
-import { X, AlertCircle, RefreshCw } from 'lucide-react';
+import { X, AlertCircle, RefreshCw, Plus, Info } from 'lucide-react';
+import { Environment } from '../../lib/index';
 import { useWalletStore } from '../../stores/walletStore';
 import { WalletAccount } from '../../types/wallet';
 import { web3AuthService } from '../../lib/services/web3AuthService';
+import EnvironmentBadge from './EnvironmentBadge';
 import walletIcon from '../../assets/wallet.svg';
 
 interface WalletModalProps {
   isOpen: boolean;
   onClose: () => void;
+  environment?: Environment;
+  onEnvironmentSwitch?: (environment: Environment) => void;
 }
 
-const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
+const WalletModal: React.FC<WalletModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  environment = 'mainnet',
+  onEnvironmentSwitch 
+}) => {
   const {
     isConnected,
     selectedAccount,
@@ -90,6 +99,13 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
     onClose();
   };
 
+  const handleEnvironmentSwitch = () => {
+    const newEnvironment: Environment = environment === 'mainnet' ? 'testnet' : 'mainnet';
+    if (onEnvironmentSwitch) {
+      onEnvironmentSwitch(newEnvironment);
+    }
+  };
+
   return (
     <div className="wallet-modal-overlay">
       <div className="wallet-modal-container">
@@ -115,12 +131,11 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
             // Connected state
             <div className="wallet-connected-state">
               <div className="wallet-account-card">
-                <div className="wallet-status">
-                  <div className="wallet-status-indicator"></div>
-                  <span className="wallet-status-text">Connected</span>
-                </div>
                 <div className="wallet-account-info">
-                  <div className="wallet-account-name">{selectedAccount.name}</div>
+                  <div className="wallet-account-header">
+                    <div className="wallet-account-name">{selectedAccount.name}</div>
+                    <EnvironmentBadge environment={environment} />
+                  </div>
                   <div className="wallet-account-address">
                     {formatAddress(selectedAccount.address)}
                   </div>
@@ -184,6 +199,47 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
                       </button>
                     </div>
                   ))}
+                  
+                  {/* Add Account Button */}
+                  <button
+                    onClick={refreshAccounts}
+                    className="wallet-add-account-btn"
+                    disabled={isConnecting}
+                  >
+                    <Plus className="wallet-add-icon" size={20} />
+                    <span>Add Account</span>
+                  </button>
+                  
+                  {/* Testnet Toggle Section */}
+                  {environment === 'mainnet' && onEnvironmentSwitch && (
+                    <div className="wallet-testnet-section">
+                      <div className="wallet-testnet-content">
+                        <Info className="wallet-testnet-icon" size={18} />
+                        <span className="wallet-testnet-text">Try out testnet?</span>
+                      </div>
+                      <button
+                        onClick={handleEnvironmentSwitch}
+                        className="wallet-testnet-btn"
+                      >
+                        Use Testnet
+                      </button>
+                    </div>
+                  )}
+                  
+                  {environment === 'testnet' && onEnvironmentSwitch && (
+                    <div className="wallet-testnet-section">
+                      <div className="wallet-testnet-content">
+                        <Info className="wallet-testnet-icon" size={18} />
+                        <span className="wallet-testnet-text">Switch back to mainnet?</span>
+                      </div>
+                      <button
+                        onClick={handleEnvironmentSwitch}
+                        className="wallet-testnet-btn mainnet"
+                      >
+                        Use Mainnet
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 // No accounts found - show enable/refresh options

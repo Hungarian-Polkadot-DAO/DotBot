@@ -63,9 +63,10 @@ const Chat: React.FC<ChatProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedValue = inputValue.trim();
-    if (trimmedValue) {
-      await onSendMessage(trimmedValue);
+    if (trimmedValue && !isTyping) {
+      // Clear input immediately to prevent double submission
       setInputValue('');
+      await onSendMessage(trimmedValue);
     }
   };
 
@@ -146,7 +147,7 @@ const Chat: React.FC<ChatProps> = ({
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
               rows={1}
-              disabled={disabled}
+              disabled={disabled || isTyping}
             />
             {!inputValue.trim() ? (
               <button
@@ -176,7 +177,7 @@ const Chat: React.FC<ChatProps> = ({
                 type="submit"
                 className="action-button"
                 title="Send message"
-                disabled={disabled}
+                disabled={disabled || isTyping}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -184,8 +185,8 @@ const Chat: React.FC<ChatProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  opacity: disabled ? 0.5 : 1,
-                  cursor: disabled ? 'not-allowed' : 'pointer'
+                  opacity: (disabled || isTyping) ? 0.5 : 1,
+                  cursor: (disabled || isTyping) ? 'not-allowed' : 'pointer'
                 }}
               >
                 <img 

@@ -13,7 +13,7 @@ import ThemeToggle from './components/ui/ThemeToggle';
 import CollapsibleSidebar from './components/layout/CollapsibleSidebar';
 import WelcomeScreen from './components/chat/WelcomeScreen';
 import Chat from './components/chat/Chat';
-import { DotBot } from './lib';
+import { DotBot, Environment } from './lib';
 import { useWalletStore } from './stores/walletStore';
 import { ASIOneService } from './lib/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from './lib';
@@ -150,6 +150,21 @@ const App: React.FC = () => {
     }
   };
 
+  const handleEnvironmentSwitch = async (environment: Environment) => {
+    if (!dotbot) return;
+    
+    try {
+      console.log(`Switching to ${environment}...`);
+      await dotbot.switchEnvironment(environment);
+      setShowWelcomeScreen(true);
+      setConversationRefresh(prev => prev + 1);
+      console.log(`Successfully switched to ${environment}`);
+    } catch (error) {
+      console.error('Failed to switch environment:', error);
+      // You might want to show an error toast/notification here
+    }
+  };
+
   const handleCheckBalance = () => handleSendMessage("Please check my DOT balance");
   const handleTransfer = () => handleSendMessage("I want to transfer some DOT");
   const handleStatus = () => handleSendMessage("Show me my transaction status");
@@ -176,7 +191,10 @@ const App: React.FC = () => {
             {/* Header */}
             <div className="main-header">
               <ThemeToggle />
-              <WalletButton />
+              <WalletButton 
+                environment={dotbot?.getEnvironment() as Environment}
+                onEnvironmentSwitch={handleEnvironmentSwitch}
+              />
             </div>
 
             {/* Main Body */}
@@ -189,6 +207,7 @@ const App: React.FC = () => {
                   onStatus={handleStatus}
                   disabled={!dotbot}
                   placeholder={placeholder}
+                  isTyping={isTyping}
                 />
               ) : dotbot ? (
                 <Chat

@@ -1,9 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { useWalletStore } from '../../stores/walletStore';
 import WalletModal from './WalletModal';
+import EnvironmentBadge from './EnvironmentBadge';
 import walletIcon from '../../assets/wallet.svg';
+import { Environment } from '../../lib/index';
 
-const WalletButton: React.FC = () => {
+interface WalletButtonProps {
+  environment?: Environment;
+  onEnvironmentSwitch?: (environment: Environment) => void;
+}
+
+const WalletButton: React.FC<WalletButtonProps> = ({ 
+  environment = 'mainnet',
+  onEnvironmentSwitch 
+}) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const {
     isConnected,
@@ -43,13 +53,18 @@ const WalletButton: React.FC = () => {
           }
         </span>
         {isConnected && (
-          <div className="wallet-status-dot"></div>
+          <>
+            <EnvironmentBadge environment={environment} className="wallet-environment-badge" />
+            <div className="wallet-status-dot"></div>
+          </>
         )}
       </button>
 
       <WalletModal 
         isOpen={isModalOpen}
         onClose={handleCloseModal}
+        environment={environment}
+        onEnvironmentSwitch={onEnvironmentSwitch}
       />
     </>
   );

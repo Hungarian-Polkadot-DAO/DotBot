@@ -18,20 +18,19 @@
 
 import { ApiPromise } from '@polkadot/api';
 import { ExecutionSystem } from './executionEngine/system';
-import { ExecutionArray } from './executionEngine/executionArray';
-import { ExecutionArrayState, ExecutionItem } from './executionEngine/types';
+import { ExecutionArrayState } from './executionEngine/types';
 import { BrowserWalletSigner } from './executionEngine/signers/browserSigner';
 import { buildSystemPrompt } from './prompts/system/loader';
 import { ExecutionPlan } from './prompts/system/execution/types';
 import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executionEngine/types';
 import { WalletAccount } from '../types/wallet';
 import { processSystemQueries, areSystemQueriesEnabled } from './prompts/system/systemQuery';
-import { createRelayChainManager, createAssetHubManager, RpcManager, createRpcManagersForNetwork, Network } from './rpcManager';
+import { RpcManager, createRpcManagersForNetwork, Network } from './rpcManager';
 import { SimulationStatusCallback } from './agents/types';
 import { detectNetworkFromChainName } from './prompts/system/knowledge';
 import { ChatInstanceManager } from './chatInstanceManager';
 import { ChatInstance } from './chatInstance';
-import type { Environment, ChatMessage } from './types/chatInstance';
+import type { Environment, ConversationItem } from './types/chatInstance';
 
 export interface DotBotConfig {
   /** Wallet account */
@@ -380,7 +379,7 @@ export class DotBot {
   /**
    * Get all messages (full chat history)
    */
-  getAllMessages(): ChatMessage[] {
+  getAllMessages(): ConversationItem[] {
     return this.currentChat?.messages || [];
   }
   
