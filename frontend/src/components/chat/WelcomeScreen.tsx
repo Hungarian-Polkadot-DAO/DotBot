@@ -21,6 +21,7 @@ interface WelcomeScreenProps {
   onStatus: () => void;
   disabled?: boolean;
   placeholder?: string;
+  isTyping?: boolean;
 }
 
 const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
@@ -29,7 +30,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onTransfer,
   onStatus,
   disabled = false,
-  placeholder = "Type your message..."
+  placeholder = "Type your message...",
+  isTyping = false
 }) => {
   const [inputValue, setInputValue] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -45,9 +47,10 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedValue = inputValue.trim();
-    if (trimmedValue) {
-      await onSendMessage(trimmedValue);
+    if (trimmedValue && !disabled && !isTyping) {
+      // Clear input immediately to prevent double submission
       setInputValue('');
+      await onSendMessage(trimmedValue);
     }
   };
 
@@ -90,10 +93,10 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             key={index}
             onClick={action.onClick}
             className="quick-action-btn"
-            disabled={disabled}
+            disabled={disabled || isTyping}
             style={{
-              opacity: disabled ? 0.5 : 1,
-              cursor: disabled ? 'not-allowed' : 'pointer'
+              opacity: (disabled || isTyping) ? 0.5 : 1,
+              cursor: (disabled || isTyping) ? 'not-allowed' : 'pointer'
             }}
           >
             <img 
@@ -126,14 +129,14 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               }
             }}
             rows={1}
-            disabled={disabled}
+            disabled={disabled || isTyping}
           />
           {!inputValue.trim() ? (
             <button
               type="button"
               className="input-action-btn mic"
               title="Voice input"
-              disabled={disabled}
+              disabled={disabled || isTyping}
               style={{ 
                 background: 'none', 
                 border: 'none', 
@@ -141,8 +144,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                opacity: disabled ? 0.5 : 1,
-                cursor: disabled ? 'not-allowed' : 'pointer'
+                opacity: (disabled || isTyping) ? 0.5 : 1,
+                cursor: (disabled || isTyping) ? 'not-allowed' : 'pointer'
               }}
             >
               <img 
@@ -156,7 +159,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               type="submit"
               className="action-button"
               title="Send message"
-              disabled={disabled}
+              disabled={disabled || isTyping}
               style={{
                 background: 'none',
                 border: 'none',
@@ -164,8 +167,8 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                opacity: disabled ? 0.5 : 1,
-                cursor: disabled ? 'not-allowed' : 'pointer'
+                opacity: (disabled || isTyping) ? 0.5 : 1,
+                cursor: (disabled || isTyping) ? 'not-allowed' : 'pointer'
               }}
             >
               <img 

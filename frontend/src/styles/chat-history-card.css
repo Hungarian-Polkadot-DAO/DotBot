@@ -1,0 +1,136 @@
+/**
+ * ChatHistoryCard Component Styles
+ * 
+ * Individual chat card styling matching the application design.
+ */
+
+.chat-history-card {
+  padding: 1rem;
+  background: var(--bg-primary) !important;
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 80px;
+}
+
+.chat-history-card:hover {
+  background: var(--comp-light) !important;
+  border-color: var(--border-primary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.chat-history-card.selected {
+  background: var(--bg-message-user) !important;
+  border-color: var(--brand-pink);
+  box-shadow: 0 0 0 2px var(--brand-pink);
+  position: relative;
+}
+
+.chat-history-card.selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--brand-pink);
+  border-radius: 8px 0 0 8px;
+}
+
+.chat-history-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.chat-history-card-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.chat-history-card-title:hover {
+  background-color: var(--bg-message-user);
+}
+
+.chat-history-card-title-input {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--brand-pink);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin: 0;
+  flex: 1;
+  outline: none;
+  font-family: inherit;
+}
+
+.chat-history-card-title-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.chat-history-card-preview {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.chat-history-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.chat-history-card-date {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.chat-history-card-message-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .chat-history-card {
+  background: var(--bg-primary) !important;
+  border-color: var(--border-primary);
+}
+
+[data-theme="dark"] .chat-history-card:hover {
+  background: var(--transparent-dark-pink-light-overlay) !important;
+  border-color: var(--text-dark-semi-muted);
+}
+
+[data-theme="dark"] .chat-history-card.selected {
+  background: var(--transparent-dark-pink-light-overlay) !important;
+  border-color: var(--brand-pink);
+  box-shadow: 0 0 0 1px var(--brand-pink);
+}
+

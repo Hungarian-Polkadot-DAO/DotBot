@@ -1,0 +1,208 @@
+/* EnvironmentSwitch Component Styles */
+
+/* Modal variant - full section in WalletModal */
+.environment-switch-modal {
+  width: 100%;
+  background-color: rgba(251, 191, 36, 0.05);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+[data-theme="dark"] .environment-switch-modal {
+  background-color: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.25);
+}
+
+.environment-switch-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.environment-switch-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.environment-switch-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.environment-switch-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.environment-switch-info-icon {
+  color: #fbbf24;
+  flex-shrink: 0;
+}
+
+.environment-switch-info-icon.testnet {
+  color: #fbbf24;
+}
+
+.environment-switch-title {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.environment-switch-description {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.environment-switch-faucet {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  background-color: rgba(251, 191, 36, 0.08);
+  border-radius: 8px;
+}
+
+[data-theme="dark"] .environment-switch-faucet {
+  background-color: rgba(251, 191, 36, 0.12);
+}
+
+.environment-switch-faucet-label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.environment-switch-faucet-link {
+  color: #fbbf24;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  word-break: break-all;
+}
+
+.environment-switch-faucet-link:hover {
+  text-decoration: underline;
+  color: #f59e0b;
+}
+
+.environment-switch-btn {
+  flex-shrink: 0;
+  background-color: transparent;
+  color: var(--brand-white);
+  border: 1px solid var(--brand-white);
+  border-radius: 20px;
+  padding: 6px 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: fit-content;
+  height: fit-content;
+}
+
+.environment-switch-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--brand-white);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.environment-switch-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.environment-switch-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.environment-switch-btn.mainnet {
+  background-color: transparent;
+  border-color: var(--brand-white);
+  color: var(--brand-white);
+}
+
+.environment-switch-btn.mainnet:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--brand-white);
+}
+
+.environment-switch-spinner {
+  flex-shrink: 0;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Compact variant - small button like ThemeToggle */
+.environment-switch-compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.environment-switch-compact:hover:not(:disabled) {
+  background-color: var(--bg-action);
+  border-color: var(--border-action);
+}
+
+.environment-switch-compact:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.environment-switch-icon {
+  color: var(--text-primary);
+}
+
+.environment-switch-label {
+  color: var(--text-primary);
+}
+
+/* Animate spin utility */
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+

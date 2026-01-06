@@ -114,6 +114,69 @@ export class ExecutionArray {
       cancelledItems,
     };
   }
+
+  /**
+   * Restore ExecutionArray from saved state
+   * Used when loading a chat instance that has execution messages
+   * 
+   * Note: This creates a basic ExecutionArray from state, but extrinsics will be broken.
+   * For resuming interrupted flows, rebuild from ExecutionPlan instead.
+   */
+  static fromState(state: ExecutionArrayState): ExecutionArray {
+    const executionArray = new ExecutionArray(state.id);
+    executionArray.items = [...state.items];
+    executionArray.currentIndex = state.currentIndex;
+    executionArray.isExecuting = state.isExecuting;
+    executionArray.isPaused = state.isPaused;
+    return executionArray;
+  }
+
+  /**
+   * Check if this ExecutionArray is in an interrupted state (can be resumed)
+   * 
+   * Interrupted states: pending, ready, executing, signing, broadcasting, in_block
+   * Terminal states: completed, failed, finalized, cancelled
+   */
+  isInterrupted(): boolean {
+    const state = this.getState();
+    
+    // If all items are terminal, not interrupted
+    const terminalStatuses: ExecutionStatus[] = ['completed', 'failed', 'finalized', 'cancelled'];
+    const allTerminal = state.items.length > 0 && state.items.every(item => 
+      terminalStatuses.includes(item.status)
+    );
+    if (allTerminal) {
+      return false;
+    }
+    
+    // If there are any non-terminal items, it's interrupted
+    return state.items.some(item => !terminalStatuses.includes(item.status));
+  }
+
+  /**
+   * Restore execution state from a saved ExecutionArrayState
+   * Used when resuming interrupted flows after rebuilding from ExecutionPlan
+   * 
+   * @param savedState The saved state to restore from
+   */
+  restoreState(savedState: ExecutionArrayState): void {
+    this.currentIndex = savedState.currentIndex;
+    this.isPaused = savedState.isPaused;
+    
+    // Restore item statuses for completed/finalized items (skip them in execution)
+    for (let i = 0; i < Math.min(this.items.length, savedState.items.length); i++) {
+      const savedItem = savedState.items[i];
+      const currentItem = this.items[i];
+      
+      // Only restore status if item was completed/finalized (skip it)
+      // Otherwise keep the fresh status from orchestration
+      if (savedItem.status === 'completed' || savedItem.status === 'finalized') {
+        this.updateStatus(currentItem.id, savedItem.status);
+      }
+    }
+    
+    this.notifyProgress();
+  }
   
   /**
    * Update status of an execution item

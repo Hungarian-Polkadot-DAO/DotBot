@@ -90,6 +90,9 @@ export interface ExecutionMessage extends BaseChatMessage {
   /** Serialized execution state */
   executionArray: ExecutionArrayState;
   
+  /** Original execution plan (for rebuilding ExecutionArray with working extrinsics) */
+  executionPlan?: ExecutionPlan;
+  
   /** High-level status */
   status: 'pending' | 'executing' | 'completed' | 'failed' | 'cancelled';
   

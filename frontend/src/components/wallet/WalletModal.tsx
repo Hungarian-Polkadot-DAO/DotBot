@@ -1,16 +1,34 @@
+/**
+ * WalletModal Component
+ * 
+ * Main modal for wallet connection and management.
+ * Orchestrates wallet state and delegates to sub-components.
+ * 
+ * Will be part of @dotbot/react package.
+ */
+
 import React, { useEffect } from 'react';
-import { X, AlertCircle, RefreshCw } from 'lucide-react';
+import { Environment } from '../../lib/index';
 import { useWalletStore } from '../../stores/walletStore';
 import { WalletAccount } from '../../types/wallet';
 import { web3AuthService } from '../../lib/services/web3AuthService';
-import walletIcon from '../../assets/wallet.svg';
+import WalletModalHeader from './WalletModalHeader';
+import WalletConnectedState from './WalletConnectedState';
+import WalletDisconnectedState from './WalletDisconnectedState';
 
 interface WalletModalProps {
   isOpen: boolean;
   onClose: () => void;
+  environment?: Environment;
+  onEnvironmentSwitch?: (environment: Environment) => void;
 }
 
-const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
+const WalletModal: React.FC<WalletModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  environment = 'mainnet',
+  onEnvironmentSwitch 
+}) => {
   const {
     isConnected,
     selectedAccount,
@@ -28,10 +46,15 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
 
   // Initialize wallet check when modal opens
   useEffect(() => {
-    if (isOpen && !isConnected) {
-      checkWalletStatus();
+    if (isOpen) {
+      if (!isConnected) {
+        checkWalletStatus();
+      } else {
+        // Refresh accounts when already connected to show other available accounts
+        refreshAccounts();
+      }
     }
-  }, [isOpen, isConnected, checkWalletStatus]);
+  }, [isOpen, isConnected, checkWalletStatus, refreshAccounts]);
 
   // Clear error when modal closes
   useEffect(() => {
@@ -42,17 +65,14 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  const formatAddress = (address: string): string => {
-    if (!address) return '';
-    return `${address.slice(0, 6)}...${address.slice(-6)}`;
-  };
-
   const getAllAccounts = (): WalletAccount[] => {
     return availableWallets.flatMap(wallet => wallet.accounts);
   };
 
   const handleConnectAccount = async (account: WalletAccount) => {
     console.log('Modal: Connecting to account:', account);
+    
+    const wasAlreadyConnected = isConnected;
     
     try {
       // CRITICAL: Authenticate first (this prompts user to sign)
@@ -76,8 +96,11 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
       console.log('Modal: Post-connection state:', { isConnected: store.isConnected, error: store.error });
       
       if (store.isConnected && !store.error) {
-        console.log('Modal: Connection successful, closing modal');
-        onClose();
+        console.log('Modal: Connection successful');
+        // Only close modal on initial connection, not when switching accounts
+        if (!wasAlreadyConnected) {
+          onClose();
+        }
       }
     } catch (error) {
       console.error('Modal: Connection error:', error);
@@ -90,146 +113,41 @@ const WalletModal: React.FC<WalletModalProps> = ({ isOpen, onClose }) => {
     onClose();
   };
 
+  const accounts = getAllAccounts();
+
   return (
     <div className="wallet-modal-overlay">
       <div className="wallet-modal-container">
-        {/* Header */}
-        <div className="wallet-modal-header">
-          <div className="wallet-modal-title">
-            <img src={walletIcon} alt="Wallet" className="wallet-modal-icon" />
-            <h2 className="wallet-modal-heading">
-              {isConnected ? 'Wallet Connected' : 'Connect Wallet'}
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="wallet-modal-close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <WalletModalHeader 
+          isConnected={isConnected}
+          onClose={onClose}
+        />
 
-        {/* Content */}
         <div className="wallet-modal-content">
           {isConnected && selectedAccount ? (
-            // Connected state
-            <div className="wallet-connected-state">
-              <div className="wallet-account-card">
-                <div className="wallet-status">
-                  <div className="wallet-status-indicator"></div>
-                  <span className="wallet-status-text">Connected</span>
-                </div>
-                <div className="wallet-account-info">
-                  <div className="wallet-account-name">{selectedAccount.name}</div>
-                  <div className="wallet-account-address">
-                    {formatAddress(selectedAccount.address)}
-                  </div>
-                  <div className="wallet-account-source">
-                    via {selectedAccount.source}
-                  </div>
-                </div>
-              </div>
-              
-              <button
-                onClick={handleDisconnect}
-                className="wallet-disconnect-btn"
-              >
-                Disconnect Wallet
-              </button>
-            </div>
+            <WalletConnectedState
+              accountName={selectedAccount.name || ''}
+              address={selectedAccount.address}
+              source={selectedAccount.source}
+              environment={environment}
+              allAccounts={accounts}
+              isConnecting={isConnecting}
+              onDisconnect={handleDisconnect}
+              onConnectAccount={handleConnectAccount}
+              onRefreshAccounts={refreshAccounts}
+              onEnvironmentSwitch={onEnvironmentSwitch || (() => {})}
+            />
           ) : (
-            // Not connected state
-            <div className="wallet-disconnected-state">
-              <p className="wallet-description">
-                Connect with Talisman, Subwallet, or another Polkadot wallet extension to access DotBot.
-              </p>
-
-              {error && (
-                <div className="wallet-error-card">
-                  <div className="wallet-error-content">
-                    <AlertCircle className="wallet-error-icon" />
-                    <div className="wallet-error-text">
-                      {error}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {getAllAccounts().length > 0 ? (
-                // Show available accounts
-                <div className="wallet-accounts-section">
-                  <h3 className="wallet-accounts-title">Available Accounts:</h3>
-                  {getAllAccounts().map((account, index) => (
-                    <div
-                      key={`${account.address}-${index}`}
-                      className="wallet-account-item"
-                    >
-                      <div className="wallet-account-details">
-                        <div className="wallet-account-name">
-                          {account.name || 'Unnamed Account'}
-                        </div>
-                        <div className="wallet-account-address">
-                          {formatAddress(account.address)}
-                        </div>
-                        <div className="wallet-account-source">
-                          via {account.source}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleConnectAccount(account)}
-                        disabled={isConnecting}
-                        className="wallet-connect-btn"
-                      >
-                        {isConnecting ? 'Connecting...' : 'Connect'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                // No accounts found - show enable/refresh options
-                <div className="wallet-empty-state">
-                  <div className="wallet-empty-content">
-                    <img src={walletIcon} alt="Wallet" className="wallet-empty-icon" />
-                    <p className="wallet-empty-text">
-                      No wallet accounts detected
-                    </p>
-                  </div>
-                  
-                  <div className="wallet-actions">
-                    <button
-                      onClick={enableWallet}
-                      disabled={isConnecting}
-                      className="wallet-enable-btn"
-                    >
-                      {isConnecting ? (
-                        <>
-                          <RefreshCw className="wallet-btn-icon animate-spin" />
-                          <span>Enabling...</span>
-                        </>
-                      ) : (
-                        <>
-                          <img src={walletIcon} alt="Wallet" className="wallet-btn-icon" />
-                          <span>Enable Wallet Extensions</span>
-                        </>
-                      )}
-                    </button>
-                    
-                    <button
-                      onClick={refreshAccounts}
-                      disabled={isConnecting}
-                      className="wallet-refresh-btn"
-                    >
-                      <RefreshCw className={`wallet-btn-icon ${isConnecting ? 'animate-spin' : ''}`} />
-                      <span>Refresh Connection</span>
-                    </button>
-                  </div>
-                  
-                  <div className="wallet-help-text">
-                    Make sure you have a Polkadot wallet extension installed and unlocked
-                  </div>
-                </div>
-              )}
-            </div>
+            <WalletDisconnectedState
+              error={error}
+              accounts={accounts}
+              isConnecting={isConnecting}
+              environment={environment}
+              onConnectAccount={handleConnectAccount}
+              onEnableWallet={enableWallet}
+              onRefreshAccounts={refreshAccounts}
+              onEnvironmentSwitch={onEnvironmentSwitch}
+            />
           )}
         </div>
       </div>

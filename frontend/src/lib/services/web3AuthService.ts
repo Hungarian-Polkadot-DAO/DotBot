@@ -136,6 +136,7 @@ class Web3AuthService {
   async getAvailableAccounts(): Promise<WalletAccount[]> {
     try {
       const accounts = await web3Accounts();
+      console.log('Accounts:', accounts);
       
       return accounts.map(account => ({
         address: account.address,

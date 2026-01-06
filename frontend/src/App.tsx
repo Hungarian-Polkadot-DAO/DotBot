@@ -13,12 +13,16 @@ import ThemeToggle from './components/ui/ThemeToggle';
 import CollapsibleSidebar from './components/layout/CollapsibleSidebar';
 import WelcomeScreen from './components/chat/WelcomeScreen';
 import Chat from './components/chat/Chat';
-import { DotBot } from './lib';
+import ChatHistory from './components/history/ChatHistory';
+import { DotBot, Environment } from './lib';
+import type { ChatInstanceData } from './lib/types/chatInstance';
 import { useWalletStore } from './stores/walletStore';
 import { ASIOneService } from './lib/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from './lib';
 import './styles/globals.css';
 import './styles/execution-flow.css';
+import './styles/chat-history.css';
+import './styles/chat-history-card.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +39,8 @@ const App: React.FC = () => {
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [conversationRefresh, setConversationRefresh] = useState(0);
+  const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
+  const [showChatHistory, setShowChatHistory] = useState(false);
   
   // DotBot State
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
@@ -150,6 +156,42 @@ const App: React.FC = () => {
     }
   };
 
+  const handleEnvironmentSwitch = async (environment: Environment) => {
+    if (!dotbot) return;
+    
+    try {
+      console.log(`Switching to ${environment}...`);
+      await dotbot.switchEnvironment(environment);
+      setShowWelcomeScreen(true);
+      setConversationRefresh(prev => prev + 1);
+      console.info(`Successfully switched to ${environment}`);
+    } catch (error) {
+      console.error('Failed to switch environment:', error);
+      // We might want to show an error toast/notification here
+    }
+  };
+
+  const handleSearchChat = () => {
+    setShowChatHistory(true);
+  };
+
+  const handleSelectChat = async (chat: ChatInstanceData) => {
+    if (!dotbot) return;
+    
+    try {
+      setIsInitializing(true);
+      await dotbot.loadChatInstance(chat.id);
+      setShowChatHistory(false);
+      setShowWelcomeScreen(false);
+      setConversationRefresh(prev => prev + 1);
+    } catch (error) {
+      console.error('Failed to load chat:', error);
+      // We might want to show an error toast/notification here
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
   const handleCheckBalance = () => handleSendMessage("Please check my DOT balance");
   const handleTransfer = () => handleSendMessage("I want to transfer some DOT");
   const handleStatus = () => handleSendMessage("Show me my transaction status");
@@ -166,7 +208,7 @@ const App: React.FC = () => {
         <div className={`app-container ${isSidebarExpanded ? '' : 'sidebar-collapsed'}`}>
           <CollapsibleSidebar
             onNewChat={handleNewChat}
-            onSearchChat={() => {}}
+            onSearchChat={handleSearchChat}
             onTransactions={() => {}}
             isExpanded={isSidebarExpanded}
             onToggle={setIsSidebarExpanded}
@@ -176,12 +218,30 @@ const App: React.FC = () => {
             {/* Header */}
             <div className="main-header">
               <ThemeToggle />
-              <WalletButton />
+              <WalletButton 
+                environment={dotbot?.getEnvironment() as Environment}
+                onEnvironmentSwitch={handleEnvironmentSwitch}
+              />
             </div>
 
             {/* Main Body */}
             <div className="main-body">
-              {showWelcomeScreen && dotbot ? (
+              {showChatHistory ? (
+                <div className="chat-container">
+                  {dotbot && (
+                    <ChatHistory
+                      dotbot={dotbot}
+                      onSelectChat={handleSelectChat}
+                      onChatRenamed={() => {
+                        // Reload chat history after rename
+                        setChatHistoryRefresh(prev => prev + 1);
+                      }}
+                      currentChatId={dotbot.currentChat?.id}
+                      refreshTrigger={chatHistoryRefresh}
+                    />
+                  )}
+                </div>
+              ) : showWelcomeScreen && dotbot ? (
                 <WelcomeScreen
                   onSendMessage={handleSendMessage}
                   onCheckBalance={handleCheckBalance}
@@ -189,6 +249,7 @@ const App: React.FC = () => {
                   onStatus={handleStatus}
                   disabled={!dotbot}
                   placeholder={placeholder}
+                  isTyping={isTyping}
                 />
               ) : dotbot ? (
                 <Chat

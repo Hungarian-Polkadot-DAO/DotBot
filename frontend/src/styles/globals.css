@@ -757,82 +757,89 @@ body {
   cursor: not-allowed;
 }
 
-/* Wallet button styles */
+/* Wallet button styles - matches ThemeToggle design */
 .wallet-btn {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  padding: 10px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border-primary);
   cursor: pointer;
   transition: all 0.2s;
   font-weight: 500;
-  font-size: 14px;
+  font-size: 13px;
   text-decoration: none;
-  background-color: white;
-  color: #374151;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  box-shadow: none;
+  min-height: 40px;
+}
+
+.wallet-environment-badge {
+  flex-shrink: 0;
 }
 
 .wallet-btn.connected {
-  background-color: white;
-  color: #374151;
-  border-color: rgba(0, 0, 0, 0.1);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-primary);
 }
 
 .wallet-btn.connected:hover {
-  background-color: #f9fafb;
-  border-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--bg-action);
+  border-color: var(--border-action);
 }
 
 .wallet-btn.disconnected {
-  background-color: white;
-  color: #374151;
-  border-color: rgba(0, 0, 0, 0.1);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-primary);
 }
 
 .wallet-btn.disconnected:hover {
-  background-color: #f9fafb;
-  border-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--bg-action);
+  border-color: var(--border-action);
 }
 
 .wallet-icon {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  opacity: 0.7;
+}
+
+[data-theme="light"] .wallet-icon {
+  filter: brightness(0) saturate(100%) invert(25%) sepia(10%) saturate(1071%) hue-rotate(227deg) brightness(90%) contrast(89%);
+}
+
+[data-theme="dark"] .wallet-icon {
+  filter: none;
 }
 
 .wallet-address {
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
 }
 
 .wallet-status-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background-color: #10b981;
   flex-shrink: 0;
-  margin-left: auto;
 }
 
 /* Dark theme styles for wallet button */
 [data-theme="dark"] .wallet-btn {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: var(--bg-secondary);
   color: var(--text-primary);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-primary);
 }
 
 [data-theme="dark"] .wallet-btn:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-[data-theme="dark"] .wallet-icon {
-  opacity: 0.9;
+  background-color: var(--bg-action);
+  border-color: var(--border-action);
 }
 
 /* Theme toggle styles */
@@ -842,7 +849,7 @@ body {
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: 20px;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   cursor: pointer;
@@ -943,30 +950,18 @@ body {
 }
 
 .wallet-account-card {
-  background-color: var(--bg-success);
-  border: 1px solid var(--border-success);
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-primary);
   border-radius: 12px;
   padding: 20px;
 }
 
-.wallet-status {
+.wallet-account-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.wallet-status-indicator {
-  width: 8px;
-  height: 8px;
-  background-color: var(--text-success);
-  border-radius: 50%;
-}
-
-.wallet-status-text {
-  color: var(--text-success);
-  font-weight: 500;
-  font-size: 14px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .wallet-account-info {
@@ -976,7 +971,7 @@ body {
 .wallet-account-name {
   font-weight: 600;
   font-size: 16px;
-  margin-bottom: 4px;
+  flex: 1;
 }
 
 .wallet-account-address {
@@ -988,7 +983,7 @@ body {
 
 .wallet-account-source {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
 }
 
 .wallet-disconnect-btn {
@@ -1205,6 +1200,41 @@ body {
   color: var(--text-tertiary);
   text-align: center;
   line-height: 1.4;
+}
+
+/* Add Account Button */
+.wallet-add-account-btn {
+  width: 100%;
+  background-color: var(--brand-purple);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 14px 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.wallet-add-account-btn:hover:not(:disabled) {
+  background-color: var(--purple-600);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.wallet-add-account-btn:disabled {
+  background-color: var(--bg-disabled);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.wallet-add-icon {
+  flex-shrink: 0;
 }
 
 /* Typing indicator */

@@ -17,8 +17,9 @@ import type {
 import { toConversationHistory } from './types/chatInstance';
 import type { ConversationMessage } from './dotbot';
 import { ChatInstanceManager } from './chatInstanceManager';
-import type { ExecutionArray } from './executionEngine/executionArray';
+import { ExecutionArray } from './executionEngine/executionArray';
 import type { ExecutionArrayState } from './executionEngine/types';
+import type { ExecutionPlan } from './prompts/system/execution/types';
 
 /**
  * ChatInstance - A conversation with built-in methods and execution state
@@ -55,6 +56,28 @@ export class ChatInstance {
     this.data = data;
     this.manager = manager;
     this.persistenceEnabled = persistenceEnabled;
+    
+    // Restore ExecutionArray instances from execution messages
+    this.restoreExecutionArrays();
+  }
+
+  /**
+   * Restore ExecutionArray instances from execution messages
+   * This is called when loading a chat instance
+   */
+  private restoreExecutionArrays(): void {
+    const executionMessages = this.data.messages.filter(
+      m => m.type === 'execution'
+    ) as ExecutionMessage[];
+    
+    for (const execMessage of executionMessages) {
+      try {
+        const executionArray = ExecutionArray.fromState(execMessage.executionArray);
+        this.executionArrays.set(execMessage.executionId, executionArray);
+      } catch (error) {
+        console.error(`Failed to restore execution array ${execMessage.executionId}:`, error);
+      }
+    }
   }
 
   /**
@@ -163,13 +186,17 @@ export class ChatInstance {
   /**
    * Add execution message to conversation
    */
-  async addExecutionMessage(executionArrayState: ExecutionArrayState): Promise<ExecutionMessage> {
+  async addExecutionMessage(
+    executionArrayState: ExecutionArrayState,
+    executionPlan?: ExecutionPlan
+  ): Promise<ExecutionMessage> {
     const message: ExecutionMessage = {
       id: `exec_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       type: 'execution',
       timestamp: Date.now(),
       executionId: executionArrayState.id,
       executionArray: executionArrayState,
+      executionPlan,
       status: 'pending',
     };
     

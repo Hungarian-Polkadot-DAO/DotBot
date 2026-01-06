@@ -18,20 +18,19 @@
 
 import { ApiPromise } from '@polkadot/api';
 import { ExecutionSystem } from './executionEngine/system';
-import { ExecutionArray } from './executionEngine/executionArray';
-import { ExecutionArrayState, ExecutionItem } from './executionEngine/types';
+import { ExecutionArrayState } from './executionEngine/types';
 import { BrowserWalletSigner } from './executionEngine/signers/browserSigner';
 import { buildSystemPrompt } from './prompts/system/loader';
 import { ExecutionPlan } from './prompts/system/execution/types';
 import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executionEngine/types';
 import { WalletAccount } from '../types/wallet';
 import { processSystemQueries, areSystemQueriesEnabled } from './prompts/system/systemQuery';
-import { createRelayChainManager, createAssetHubManager, RpcManager, createRpcManagersForNetwork, Network } from './rpcManager';
+import { RpcManager, createRpcManagersForNetwork, Network } from './rpcManager';
 import { SimulationStatusCallback } from './agents/types';
 import { detectNetworkFromChainName } from './prompts/system/knowledge';
 import { ChatInstanceManager } from './chatInstanceManager';
 import { ChatInstance } from './chatInstance';
-import type { Environment, ChatMessage } from './types/chatInstance';
+import type { Environment, ConversationItem } from './types/chatInstance';
 
 export interface DotBotConfig {
   /** Wallet account */
@@ -380,7 +379,7 @@ export class DotBot {
   /**
    * Get all messages (full chat history)
    */
-  getAllMessages(): ChatMessage[] {
+  getAllMessages(): ConversationItem[] {
     return this.currentChat?.messages || [];
   }
   
@@ -465,10 +464,56 @@ export class DotBot {
   }
   
   /**
+   * Load a specific chat instance by ID
+   * Switches environment/network if needed and restores the chat state
+   * TODO Probably initializeChatInstance would be enough. Or redesigned.
+   */
+  async loadChatInstance(chatId: string): Promise<void> {
+    const chatData = await this.chatManager.loadInstance(chatId);
+    
+    if (!chatData) {
+      throw new Error(`Chat instance ${chatId} not found`);
+    }
+    
+    // Check if we need to switch environment or network
+    const needsEnvironmentSwitch = chatData.environment !== this.environment;
+    const needsNetworkSwitch = chatData.network !== this.network;
+    
+    if (needsEnvironmentSwitch || needsNetworkSwitch) {
+      // Update internal state
+      this.environment = chatData.environment;
+      this.network = chatData.network;
+      
+      // Create RPC managers for new network
+      const managers = createRpcManagersForNetwork(chatData.network);
+      this.relayChainManager = managers.relayChainManager;
+      this.assetHubManager = managers.assetHubManager;
+      
+      // Reconnect APIs
+      this.api = await this.relayChainManager.getReadApi();
+      await this.initializeAssetHub().catch(() => {
+        console.warn('Asset Hub connection failed after environment/network switch');
+      });
+    }
+    
+    // Create ChatInstance from loaded data (same pattern as initializeChatInstance)
+    this.currentChat = new ChatInstance(
+      chatData,
+      this.chatManager,
+      this.chatPersistenceEnabled
+    );
+    
+    console.info(`Loaded chat instance: ${this.currentChat.id}`);
+  }
+  
+  /**
    * Start execution of a specific execution array
    * 
    * This is called when user clicks "Accept & Start" in the UI.
    * Requires that prepareExecution() was already called (happens automatically after LLM response).
+   * 
+   * For interrupted flows (pending, ready, executing, etc.), rebuilds from ExecutionPlan
+   * to get fresh extrinsics with working methods, then restores state to resume from where it left off.
    * 
    * @param executionId The unique ID of the execution to start (from ExecutionMessage.executionId)
    * @param options Execution options (autoApprove, etc.)
@@ -478,9 +523,37 @@ export class DotBot {
       throw new Error('No active chat. Cannot start execution.');
     }
     
-    const executionArray = this.currentChat.getExecutionArray(executionId);
-    if (!executionArray) {
-      throw new Error(`Execution ${executionId} not found. It may not have been prepared yet.`);
+    let executionArray = this.currentChat.getExecutionArray(executionId);
+    
+    // If not found or interrupted, try to rebuild from ExecutionPlan
+    if (!executionArray || (executionArray.isInterrupted() && this.currentChat)) {
+      const executionMessage = this.currentChat.getDisplayMessages()
+        .find(m => m.type === 'execution' && (m as any).executionId === executionId) as any;
+      
+      if (executionMessage?.executionPlan) {
+        // Rebuild ExecutionArray with fresh extrinsics
+        const orchestrator = this.executionSystem.getOrchestrator();
+        const result = await orchestrator.orchestrate(executionMessage.executionPlan, {
+          stopOnError: false,
+          validateFirst: false,
+        });
+        
+        if (result.success && result.executionArray) {
+          // Restore state from saved ExecutionArrayState (preserve progress)
+          const savedState = executionMessage.executionArray;
+          result.executionArray.restoreState(savedState);
+          
+          // Update the stored ExecutionArray
+          this.currentChat.setExecutionArray(executionId, result.executionArray);
+          executionArray = result.executionArray;
+        } else {
+          throw new Error(`Failed to rebuild execution: ${result.errors.map(e => e.error).join(', ')}`);
+        }
+      } else if (!executionArray) {
+        throw new Error(`Execution ${executionId} not found. It may not have been prepared yet.`);
+      }
+      // If executionArray exists but is interrupted and no ExecutionPlan, continue with broken extrinsics
+      // (will fail, but that's expected for old flows without ExecutionPlan)
     }
     
     const executioner = this.executionSystem.getExecutioner();
@@ -656,7 +729,7 @@ export class DotBot {
     // Add ExecutionMessage to conversation timeline (so UI can render it!)
     if (this.currentChat) {
       const state = executionArray.getState();
-      const execMessage = await this.currentChat.addExecutionMessage(state);
+      const execMessage = await this.currentChat.addExecutionMessage(state, plan);
       this.currentChat.setExecutionArray(state.id, executionArray);
       
       // Subscribe to updates to keep ExecutionMessage in sync
