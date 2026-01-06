@@ -14,27 +14,32 @@ import '../../styles/chat-history.css';
 interface ChatHistoryProps {
   dotbot: DotBot;
   onSelectChat: (chat: ChatInstanceData) => void;
+  onChatRenamed?: () => void;
   currentChatId?: string;
+  refreshTrigger?: number;
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({ 
   dotbot,
-  onSelectChat, 
-  currentChatId
+  onSelectChat,
+  onChatRenamed,
+  currentChatId,
+  refreshTrigger
 }) => {
   const [chats, setChats] = useState<ChatInstanceData[]>([]);
   const [filteredChats, setFilteredChats] = useState<ChatInstanceData[]>([]);
   const [showTestnet, setShowTestnet] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadChats();
-  }, [dotbot]);
+  }, [dotbot, refreshTrigger]);
 
   useEffect(() => {
     filterChats();
-  }, [chats, showTestnet]);
+  }, [chats, showTestnet, searchQuery]);
 
   const loadChats = async () => {
     setIsLoading(true);
@@ -54,13 +59,33 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   };
 
   const filterChats = () => {
-    if (showTestnet) {
-      // Show all chats
-      setFilteredChats(chats);
-    } else {
-      // Show only mainnet chats
-      setFilteredChats(chats.filter(chat => chat.environment === 'mainnet'));
+    let filtered = chats;
+    
+    // Filter by environment
+    if (!showTestnet) {
+      filtered = filtered.filter(chat => chat.environment === 'mainnet');
     }
+    
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const lowerQuery = searchQuery.toLowerCase();
+      filtered = filtered.filter(chat => {
+        // Search title
+        if (chat.title?.toLowerCase().includes(lowerQuery)) {
+          return true;
+        }
+        
+        // Search messages
+        return chat.messages.some(msg => {
+          if (msg.type === 'user' || msg.type === 'bot' || msg.type === 'system') {
+            return msg.content.toLowerCase().includes(lowerQuery);
+          }
+          return false;
+        });
+      });
+    }
+    
+    setFilteredChats(filtered);
   };
 
   const handleToggleTestnet = () => {
@@ -71,24 +96,39 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
 
   return (
     <div className="chat-history">
-      <div className="chat-history-header">
-        <h2 className="chat-history-title">Chat History</h2>
-        {testnetCount > 0 && (
-          <label className="chat-history-toggle">
+      <div className="chat-history-content">
+        {/* Menu Bar */}
+        <div className="chat-history-menu-bar">
+          <div className="chat-history-search-container">
             <input
-              type="checkbox"
-              checked={showTestnet}
-              onChange={handleToggleTestnet}
+              type="text"
+              placeholder="Search chats..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="chat-history-search-input"
             />
-            <span className="chat-history-toggle-label">
-              Display testnet chats ({testnetCount})
-            </span>
-          </label>
-        )}
-      </div>
+          </div>
+          {testnetCount > 0 && (
+            <label className="chat-history-toggle">
+              <input
+                type="checkbox"
+                checked={showTestnet}
+                onChange={handleToggleTestnet}
+              />
+              <span className="chat-history-toggle-label">
+                Display testnet chats ({testnetCount})
+              </span>
+            </label>
+          )}
+        </div>
+
+        <div className="chat-history-header">
+          <h2 className="chat-history-title">Chat History</h2>
+        </div>
 
       {isLoading ? (
         <div className="chat-history-loading">
+          <div className="chat-history-loading-spinner"></div>
           <p>Loading chat history...</p>
         </div>
       ) : error ? (
@@ -100,10 +140,15 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
         </div>
       ) : filteredChats.length === 0 ? (
         <div className="chat-history-empty">
-          <p>No chats found</p>
-          {!showTestnet && testnetCount > 0 && (
+          <p>{searchQuery ? 'No chats match your search' : 'No chats found'}</p>
+          {!showTestnet && testnetCount > 0 && !searchQuery && (
             <p className="chat-history-empty-hint">
               Enable "Display testnet chats" to see {testnetCount} testnet chat{testnetCount !== 1 ? 's' : ''}
+            </p>
+          )}
+          {searchQuery && (
+            <p className="chat-history-empty-hint">
+              Try a different search term or clear the search
             </p>
           )}
         </div>
@@ -113,12 +158,15 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
             <ChatHistoryCard
               key={chat.id}
               chat={chat}
+              dotbot={dotbot}
               onClick={onSelectChat}
+              onRenamed={onChatRenamed}
               isSelected={chat.id === currentChatId}
             />
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 };

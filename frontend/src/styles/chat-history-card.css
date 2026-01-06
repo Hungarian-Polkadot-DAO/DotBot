@@ -45,6 +45,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.chat-history-card-title:hover {
+  background-color: var(--bg-message-user);
+}
+
+.chat-history-card-title-input {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-input);
+  border: 1px solid var(--brand-pink);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin: 0;
+  flex: 1;
+  outline: none;
+  font-family: inherit;
+}
+
+.chat-history-card-title-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .chat-history-card-preview {

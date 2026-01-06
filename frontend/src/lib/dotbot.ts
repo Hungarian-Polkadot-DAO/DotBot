@@ -701,6 +701,11 @@ export class DotBot {
       const execMessage = await this.currentChat.addExecutionMessage(state);
       this.currentChat.setExecutionArray(state.id, executionArray);
       
+      // Set title to chat instance ID if no title exists
+      if (!this.currentChat.title || this.currentChat.title.startsWith('Chat -')) {
+        await this.currentChat.setTitle(this.currentChat.id);
+      }
+      
       // Subscribe to updates to keep ExecutionMessage in sync
       executionArray.onStatusUpdate(() => {
         if (this.currentChat) {

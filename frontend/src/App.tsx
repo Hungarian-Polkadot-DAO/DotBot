@@ -39,6 +39,7 @@ const App: React.FC = () => {
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [conversationRefresh, setConversationRefresh] = useState(0);
+  const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
   const [showChatHistory, setShowChatHistory] = useState(false);
   
   // DotBot State
@@ -226,20 +227,17 @@ const App: React.FC = () => {
             {/* Main Body */}
             <div className="main-body">
               {showChatHistory ? (
-                <div className="chat-history-container">
-                  <div className="chat-history-header-bar">
-                    <button
-                      onClick={() => setShowChatHistory(false)}
-                      className="chat-history-back-button"
-                    >
-                      ← Back
-                    </button>
-                  </div>
+                <div className="chat-container">
                   {dotbot && (
                     <ChatHistory
                       dotbot={dotbot}
                       onSelectChat={handleSelectChat}
+                      onChatRenamed={() => {
+                        // Reload chat history after rename
+                        setChatHistoryRefresh(prev => prev + 1);
+                      }}
                       currentChatId={dotbot.currentChat?.id}
+                      refreshTrigger={chatHistoryRefresh}
                     />
                   )}
                 </div>

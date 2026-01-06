@@ -3,24 +3,92 @@
  * 
  * Displays a single chat instance in the history list.
  * Shows title, preview, timestamp, and environment badge (for testnet).
+ * Supports inline editing of chat title.
  */
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { ChatInstanceData } from '../../lib/types/chatInstance';
+import type { DotBot } from '../../lib/dotbot';
 import EnvironmentBadge from '../wallet/EnvironmentBadge';
 import '../../styles/chat-history-card.css';
 
 interface ChatHistoryCardProps {
   chat: ChatInstanceData;
+  dotbot: DotBot;
   onClick: (chat: ChatInstanceData) => void;
+  onRenamed?: () => void;
   isSelected?: boolean;
 }
 
 const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({ 
   chat, 
+  dotbot,
   onClick,
+  onRenamed,
   isSelected = false 
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(chat.title || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const handleTitleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!isEditing) {
+      setIsEditing(true);
+      setEditedTitle(chat.title || '');
+    }
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditedTitle(e.target.value);
+  };
+
+  const handleTitleBlur = async () => {
+    await saveTitle();
+  };
+
+  const handleTitleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      await saveTitle();
+    } else if (e.key === 'Escape') {
+      setIsEditing(false);
+      setEditedTitle(chat.title || '');
+    }
+  };
+
+  const saveTitle = async () => {
+    if (isSaving) return;
+    
+    const trimmedTitle = editedTitle.trim();
+    if (trimmedTitle === (chat.title || '')) {
+      setIsEditing(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Update through ChatInstanceManager
+      const chatManager = dotbot.getChatManager();
+      await chatManager.updateInstance(chat.id, { title: trimmedTitle || undefined });
+      onRenamed?.();
+    } catch (error) {
+      console.error('Failed to save chat title:', error);
+      // Revert on error
+      setEditedTitle(chat.title || '');
+    } finally {
+      setIsSaving(false);
+      setIsEditing(false);
+    }
+  };
   const formatDate = (timestamp: number): string => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -58,15 +126,35 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
     return 'New chat';
   };
 
-  const title = chat.title || getPreview();
+  const displayTitle = chat.title || getPreview();
 
   return (
     <div 
       className={`chat-history-card ${isSelected ? 'selected' : ''}`}
-      onClick={() => onClick(chat)}
+      onClick={() => !isEditing && onClick(chat)}
     >
       <div className="chat-history-card-header">
-        <h3 className="chat-history-card-title">{title}</h3>
+        {isEditing ? (
+          <input
+            ref={inputRef}
+            type="text"
+            value={editedTitle}
+            onChange={handleTitleChange}
+            onBlur={handleTitleBlur}
+            onKeyDown={handleTitleKeyDown}
+            className="chat-history-card-title-input"
+            disabled={isSaving}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <h3 
+            className="chat-history-card-title"
+            onClick={handleTitleClick}
+            title="Click to rename"
+          >
+            {displayTitle}
+          </h3>
+        )}
         {chat.environment === 'testnet' && (
           <EnvironmentBadge environment={chat.environment} />
         )}
