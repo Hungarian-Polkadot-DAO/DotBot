@@ -59,8 +59,8 @@ const Chat: React.FC<ChatProps> = ({
       <MessageList>
         <ConversationItems 
           items={conversationItems}
-          dotbot={dotbot}
-        />
+                dotbot={dotbot}
+              />
         
         {/* Simulation Status */}
         {simulationStatus && (
@@ -79,13 +79,13 @@ const Chat: React.FC<ChatProps> = ({
 
       {/* Input area */}
       <ChatInput
-        value={inputValue}
+              value={inputValue}
         onChange={setInputValue}
         onSubmit={handleSubmit}
-        placeholder={placeholder}
-        disabled={disabled}
+              placeholder={placeholder}
+              disabled={disabled}
         isTyping={isTyping}
-      />
+                />
     </div>
   );
 };

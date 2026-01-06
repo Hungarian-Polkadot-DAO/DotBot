@@ -72,7 +72,7 @@ export function createExecutionItemFromAgentResult(
   return {
     id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     agentResult,
-    status: 'ready',  //  TODO CRITICAL Simulation OFF shouldn't work like this! It needs to pass through simulation phase, that component needs to handle it !
+    status: 'pending',  // Items start as pending, then move to 'ready' after simulation/preparation
     executionType: agentResult.executionType,
     description: agentResult.description,
     estimatedFee: agentResult.estimatedFee,

@@ -46,7 +46,7 @@ export class ExecutionArray {
     const item: ExecutionItem = {
       id,
       agentResult,
-      status: 'ready',  // TODO redesign this
+      status: 'pending',  // Items start as pending, then move to 'ready' after simulation/preparation
       executionType: agentResult.executionType,
       description: agentResult.description,
       estimatedFee: agentResult.estimatedFee,

@@ -48,7 +48,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (!isConnected) {
-        checkWalletStatus();
+      checkWalletStatus();
       } else {
         // Refresh accounts when already connected to show other available accounts
         refreshAccounts();
@@ -99,7 +99,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
         console.log('Modal: Connection successful');
         // Only close modal on initial connection, not when switching accounts
         if (!wasAlreadyConnected) {
-          onClose();
+        onClose();
         }
       }
     } catch (error) {

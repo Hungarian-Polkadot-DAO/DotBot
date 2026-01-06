@@ -44,6 +44,7 @@ const App: React.FC = () => {
   
   // DotBot State
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [asiOne] = useState(() => new ASIOneService());
   const [isInitializing, setIsInitializing] = useState(false);
   
@@ -67,12 +68,21 @@ const App: React.FC = () => {
     }
   }, [isConnected, selectedAccount]);
 
+  // Sync current chat ID when dotbot changes
+  useEffect(() => {
+    if (dotbot?.currentChat) {
+      setCurrentChatId(dotbot.currentChat.id);
+    } else {
+      setCurrentChatId(null);
+    }
+  }, [dotbot, conversationRefresh]);
+
   // Auto-hide welcome screen when chat has messages
   useEffect(() => {
     if (dotbot?.currentChat && !dotbot.currentChat.isEmpty) {
       setShowWelcomeScreen(false);
     }
-  }, [dotbot, conversationRefresh]);
+  }, [dotbot, conversationRefresh, currentChatId]);
 
   // Send transaction approval to the wallet
   useEffect(() => {
@@ -150,6 +160,10 @@ const App: React.FC = () => {
     try {
       await dotbot.clearHistory();
       setShowWelcomeScreen(true);
+      // Update current chat ID to trigger re-render
+      if (dotbot.currentChat) {
+        setCurrentChatId(dotbot.currentChat.id);
+      }
       setConversationRefresh(prev => prev + 1);
     } catch (error) {
       console.error('Failed to create new chat:', error);
@@ -163,6 +177,10 @@ const App: React.FC = () => {
       console.log(`Switching to ${environment}...`);
       await dotbot.switchEnvironment(environment);
       setShowWelcomeScreen(true);
+      // Update current chat ID to trigger re-render
+      if (dotbot.currentChat) {
+        setCurrentChatId(dotbot.currentChat.id);
+      }
       setConversationRefresh(prev => prev + 1);
       console.info(`Successfully switched to ${environment}`);
     } catch (error) {
@@ -183,6 +201,10 @@ const App: React.FC = () => {
       await dotbot.loadChatInstance(chat.id);
       setShowChatHistory(false);
       setShowWelcomeScreen(false);
+      // Update current chat ID to trigger re-render
+      if (dotbot.currentChat) {
+        setCurrentChatId(dotbot.currentChat.id);
+      }
       setConversationRefresh(prev => prev + 1);
     } catch (error) {
       console.error('Failed to load chat:', error);
@@ -241,7 +263,7 @@ const App: React.FC = () => {
                     />
                   )}
                 </div>
-              ) : showWelcomeScreen && dotbot ? (
+              ) : showWelcomeScreen && dotbot && dotbot.currentChat ? (
                 <WelcomeScreen
                   onSendMessage={handleSendMessage}
                   onCheckBalance={handleCheckBalance}
@@ -251,7 +273,7 @@ const App: React.FC = () => {
                   placeholder={placeholder}
                   isTyping={isTyping}
                 />
-              ) : dotbot ? (
+              ) : dotbot && dotbot.currentChat ? (
                 <Chat
                   dotbot={dotbot}
                   onSendMessage={handleSendMessage}

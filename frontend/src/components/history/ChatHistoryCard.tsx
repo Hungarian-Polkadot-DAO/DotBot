@@ -89,6 +89,7 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
       setIsEditing(false);
     }
   };
+
   const formatDate = (timestamp: number): string => {
     const date = new Date(timestamp);
     const now = new Date();

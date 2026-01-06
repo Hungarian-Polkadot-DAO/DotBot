@@ -47,6 +47,8 @@
   width: 100%;
   margin-top: 24px;
   margin-bottom: 24px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 .chat-history-content {

@@ -6,7 +6,7 @@
 
 .chat-history-card {
   padding: 1rem;
-  background: var(--bg-primary) !important;
+  background: var(--bg-primary);
   border: 1px solid var(--border-secondary);
   border-radius: 8px;
   cursor: pointer;
@@ -119,7 +119,7 @@
 
 /* Dark theme adjustments */
 [data-theme="dark"] .chat-history-card {
-  background: var(--bg-primary) !important;
+  background: var(--bg-primary);
   border-color: var(--border-primary);
 }
 
