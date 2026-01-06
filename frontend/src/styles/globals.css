@@ -1084,10 +1084,10 @@ body {
 }
 
 .wallet-connect-btn {
-  background-color: var(--brand-purple);
+  background-color: #514371;
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 24px;
   padding: 8px 16px;
   font-weight: 500;
   cursor: pointer;
@@ -1096,7 +1096,9 @@ body {
 }
 
 .wallet-connect-btn:hover:not(:disabled) {
-  background-color: var(--purple-600);
+  background-color: #6b5a8f;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(81, 67, 113, 0.3);
 }
 
 .wallet-connect-btn:disabled {
