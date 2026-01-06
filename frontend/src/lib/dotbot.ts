@@ -464,6 +464,49 @@ export class DotBot {
   }
   
   /**
+   * Load a specific chat instance by ID
+   * Switches environment/network if needed and restores the chat state
+   * TODO Probably initializeChatInstance would be enough. Or redesigned.
+   */
+  async loadChatInstance(chatId: string): Promise<void> {
+    const chatData = await this.chatManager.loadInstance(chatId);
+    
+    if (!chatData) {
+      throw new Error(`Chat instance ${chatId} not found`);
+    }
+    
+    // Check if we need to switch environment or network
+    const needsEnvironmentSwitch = chatData.environment !== this.environment;
+    const needsNetworkSwitch = chatData.network !== this.network;
+    
+    if (needsEnvironmentSwitch || needsNetworkSwitch) {
+      // Update internal state
+      this.environment = chatData.environment;
+      this.network = chatData.network;
+      
+      // Create RPC managers for new network
+      const managers = createRpcManagersForNetwork(chatData.network);
+      this.relayChainManager = managers.relayChainManager;
+      this.assetHubManager = managers.assetHubManager;
+      
+      // Reconnect APIs
+      this.api = await this.relayChainManager.getReadApi();
+      await this.initializeAssetHub().catch(() => {
+        console.warn('Asset Hub connection failed after environment/network switch');
+      });
+    }
+    
+    // Create ChatInstance from loaded data (same pattern as initializeChatInstance)
+    this.currentChat = new ChatInstance(
+      chatData,
+      this.chatManager,
+      this.chatPersistenceEnabled
+    );
+    
+    console.info(`Loaded chat instance: ${this.currentChat.id}`);
+  }
+  
+  /**
    * Start execution of a specific execution array
    * 
    * This is called when user clicks "Accept & Start" in the UI.
