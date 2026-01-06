@@ -17,8 +17,10 @@ import type {
 import { toConversationHistory } from './types/chatInstance';
 import type { ConversationMessage } from './dotbot';
 import { ChatInstanceManager } from './chatInstanceManager';
-import type { ExecutionArray } from './executionEngine/executionArray';
+import { ExecutionArray } from './executionEngine/executionArray';
 import type { ExecutionArrayState } from './executionEngine/types';
+import type { ExecutionOrchestrator } from './executionEngine/orchestrator';
+import type { ExecutionPlan, ExecutionStep } from './prompts/system/execution/types';
 
 /**
  * ChatInstance - A conversation with built-in methods and execution state
@@ -55,6 +57,163 @@ export class ChatInstance {
     this.data = data;
     this.manager = manager;
     this.persistenceEnabled = persistenceEnabled;
+    
+    // Restore ExecutionArray instances from execution messages
+    this.restoreExecutionArrays();
+  }
+
+  /**
+   * Restore ExecutionArray instances from execution messages
+   * This is called when loading a chat instance
+   * 
+   * Note: This creates a basic ExecutionArray from state, but extrinsics will be broken.
+   * Use rebuildExecutionArrays() to fully restore with working extrinsics.
+   */
+  private restoreExecutionArrays(): void {
+    const executionMessages = this.data.messages.filter(
+      m => m.type === 'execution'
+    ) as ExecutionMessage[];
+    
+    for (const execMessage of executionMessages) {
+      try {
+        const executionArray = ExecutionArray.fromState(execMessage.executionArray);
+        this.executionArrays.set(execMessage.executionId, executionArray);
+      } catch (error) {
+        console.error(`Failed to restore execution array ${execMessage.executionId}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Rebuild ExecutionArray instances by re-orchestrating from saved metadata
+   * This restores working extrinsics that were lost during serialization
+   */
+  async rebuildExecutionArrays(orchestrator: ExecutionOrchestrator): Promise<void> {
+    const executionMessages = this.data.messages.filter(
+      m => m.type === 'execution'
+    ) as ExecutionMessage[];
+    
+    for (const execMessage of executionMessages) {
+      try {
+        // Use stored execution plan if available, otherwise try to extract from state
+        let plan = execMessage.executionPlan;
+        if (!plan) {
+          plan = this.extractExecutionPlanFromState(execMessage.executionArray);
+          if (!plan) {
+            console.warn(`Could not extract execution plan for ${execMessage.executionId}`);
+            continue;
+          }
+        }
+        
+        // Re-orchestrate to get fresh ExecutionArray with working extrinsics
+        const result = await orchestrator.orchestrate(plan, {
+          stopOnError: false,
+          validateFirst: false, // Skip validation since we're restoring
+        });
+        
+        if (result.success && result.executionArray) {
+          // Preserve the original ID and state
+          const restoredArray = result.executionArray;
+          // Copy over status information from saved state
+          this.restoreExecutionArrayState(restoredArray, execMessage.executionArray);
+          this.executionArrays.set(execMessage.executionId, restoredArray);
+        } else {
+          console.error(`Failed to re-orchestrate execution ${execMessage.executionId}:`, result.errors);
+        }
+      } catch (error) {
+        console.error(`Failed to rebuild execution array ${execMessage.executionId}:`, error);
+      }
+    }
+  }
+
+  /**
+   * Extract ExecutionPlan from saved ExecutionArrayState
+   */
+  private extractExecutionPlanFromState(state: ExecutionArrayState): ExecutionPlan | null {
+    try {
+      const steps: ExecutionStep[] = [];
+      
+      for (const item of state.items) {
+        // Extract step information from metadata
+        const metadata = item.agentResult?.metadata || item.metadata || {};
+        const agentClassName = metadata.agentClassName || metadata.agentClass;
+        const functionName = metadata.functionName || metadata.function;
+        const parameters = metadata.parameters || {};
+        
+        if (!agentClassName || !functionName) {
+          console.warn('Missing agentClassName or functionName in metadata:', metadata);
+          continue;
+        }
+        
+        steps.push({
+          id: item.id,
+          stepNumber: item.index + 1,
+          agentClassName,
+          functionName,
+          parameters,
+          executionType: item.executionType || 'extrinsic',
+          status: this.mapStatusToPromptStatus(item.status),
+          description: item.description,
+          requiresConfirmation: item.agentResult?.requiresConfirmation ?? true,
+          createdAt: item.createdAt,
+        });
+      }
+      
+      if (steps.length === 0) {
+        return null;
+      }
+      
+      return {
+        id: state.id,
+        originalRequest: steps[0]?.description || 'Restored execution',
+        steps,
+        status: 'pending',
+        requiresApproval: true,
+        createdAt: state.items[0]?.createdAt || Date.now(),
+      };
+    } catch (error) {
+      console.error('Failed to extract execution plan from state:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Map runtime execution status to prompt system status
+   */
+  private mapStatusToPromptStatus(status: string): 'pending' | 'ready' | 'executing' | 'completed' | 'failed' | 'cancelled' {
+    if (status === 'completed' || status === 'finalized') return 'completed';
+    if (status === 'failed') return 'failed';
+    if (status === 'cancelled') return 'cancelled';
+    if (status === 'executing' || status === 'signing' || status === 'broadcasting') return 'executing';
+    if (status === 'ready') return 'ready';
+    return 'pending';
+  }
+
+  /**
+   * Restore execution state (status, results, etc.) to rebuilt ExecutionArray
+   */
+  private restoreExecutionArrayState(executionArray: ExecutionArray, savedState: ExecutionArrayState): void {
+    const items = executionArray.getItems();
+    
+    for (let i = 0; i < items.length && i < savedState.items.length; i++) {
+      const savedItem = savedState.items[i];
+      const currentItem = items[i];
+      
+      // Restore status if execution was already started/completed
+      if (savedItem.status !== 'ready' && savedItem.status !== 'pending') {
+        executionArray.updateStatus(currentItem.id, savedItem.status as any, savedItem.error);
+      }
+      
+      // Restore results if execution completed
+      if (savedItem.result) {
+        executionArray.updateResult(currentItem.id, savedItem.result);
+      }
+    }
+    
+    // Restore execution state
+    if (savedState.isExecuting) {
+      executionArray.setCurrentIndex(savedState.currentIndex);
+    }
   }
 
   /**
@@ -163,13 +322,17 @@ export class ChatInstance {
   /**
    * Add execution message to conversation
    */
-  async addExecutionMessage(executionArrayState: ExecutionArrayState): Promise<ExecutionMessage> {
+  async addExecutionMessage(
+    executionArrayState: ExecutionArrayState,
+    executionPlan?: ExecutionPlan
+  ): Promise<ExecutionMessage> {
     const message: ExecutionMessage = {
       id: `exec_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       type: 'execution',
       timestamp: Date.now(),
       executionId: executionArrayState.id,
       executionArray: executionArrayState,
+      executionPlan,
       status: 'pending',
     };
     

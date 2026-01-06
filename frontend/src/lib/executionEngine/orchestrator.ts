@@ -244,6 +244,14 @@ export class ExecutionOrchestrator {
         );
       }
       
+      // Store step information in metadata for rebuilding ExecutionArray later
+      if (!result.metadata) {
+        result.metadata = {};
+      }
+      result.metadata.agentClassName = step.agentClassName;
+      result.metadata.functionName = step.functionName;
+      result.metadata.parameters = step.parameters;
+      
       return result;
       
     } catch (error) {

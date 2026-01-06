@@ -126,7 +126,7 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
     return 'New chat';
   };
 
-  const displayTitle = chat.title || getPreview();
+  const displayTitle = chat.title || chat.id;
 
   return (
     <div 

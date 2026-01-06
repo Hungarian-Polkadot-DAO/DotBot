@@ -114,6 +114,19 @@ export class ExecutionArray {
       cancelledItems,
     };
   }
+
+  /**
+   * Restore ExecutionArray from saved state
+   * Used when loading a chat instance that has execution messages
+   */
+  static fromState(state: ExecutionArrayState): ExecutionArray {
+    const executionArray = new ExecutionArray(state.id);
+    executionArray.items = [...state.items];
+    executionArray.currentIndex = state.currentIndex;
+    executionArray.isExecuting = state.isExecuting;
+    executionArray.isPaused = state.isPaused;
+    return executionArray;
+  }
   
   /**
    * Update status of an execution item
