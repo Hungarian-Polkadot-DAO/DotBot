@@ -8,16 +8,24 @@
 import React, { useState } from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2, AlertTriangle, ChevronRight, Play, X } from 'lucide-react';
 import { ExecutionItem, ExecutionArrayState } from '../../lib/executionEngine/types';
+import type { ExecutionMessage, DotBot } from '../../lib';
 import '../../styles/execution-flow.css';
 
 export interface ExecutionFlowProps {
-  state: ExecutionArrayState | null;
+  // New API: Pass ExecutionMessage + DotBot instance
+  executionMessage?: ExecutionMessage;
+  dotbot?: DotBot;
+  
+  // Legacy API: Pass state directly
+  state?: ExecutionArrayState | null;
   onAcceptAndStart?: () => void;
-    onCancel?: () => void;
-    show?: boolean;
+  onCancel?: () => void;
+  show?: boolean;
 }
 
 const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
+  executionMessage,
+  dotbot,
   state,
   onAcceptAndStart,
   onCancel,
@@ -25,33 +33,57 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
 }) => {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 
-  if (!show || !state || state.items.length === 0) {
+  // Use new API if provided, otherwise fall back to legacy API
+  const executionState = executionMessage?.executionArray || state;
+  const shouldShow = executionMessage ? executionMessage.executionArray.items.length > 0 : show;
+
+  if (!shouldShow || !executionState || executionState.items.length === 0) {
     return null;
   }
 
+  // Handle execution through DotBot if using new API
+  const handleAcceptAndStart = async () => {
+    if (executionMessage && dotbot) {
+      try {
+        await dotbot.startExecution(executionMessage.executionId, { autoApprove: false });
+      } catch (error) {
+        console.error('Failed to start execution:', error);
+      }
+    } else if (onAcceptAndStart) {
+      onAcceptAndStart();
+    }
+  };
+
+  const handleCancel = () => {
+    // TODO: Cancel execution through ChatInstance if using new API
+    if (onCancel) {
+      onCancel();
+    }
+  };
+
   // Check if any items are being simulated (pending status)
-  const isSimulating = state.items.some(item => item.status === 'pending');
-  const simulatingCount = state.items.filter(item => item.status === 'pending').length;
+  const isSimulating = executionState.items.some(item => item.status === 'pending');
+  const simulatingCount = executionState.items.filter(item => item.status === 'pending').length;
   
   // Check simulation results
-  const hasSimulationSuccess = state.items.some(item => item.status === 'ready');
-  const hasSimulationFailure = state.items.some(item => item.status === 'failed');
+  const hasSimulationSuccess = executionState.items.some(item => item.status === 'ready');
+  const hasSimulationFailure = executionState.items.some(item => item.status === 'failed');
   const allSimulationsComplete = !isSimulating && (hasSimulationSuccess || hasSimulationFailure);
-  const successCount = state.items.filter(item => item.status === 'ready').length;
-  const failureCount = state.items.filter(item => item.status === 'failed').length;
+  const successCount = executionState.items.filter(item => item.status === 'ready').length;
+  const failureCount = executionState.items.filter(item => item.status === 'failed').length;
   
   // Check if flow is waiting for user approval (all items are pending/ready)
-  const isWaitingForApproval = state.items.every(item => 
+  const isWaitingForApproval = executionState.items.every(item => 
     item.status === 'pending' || item.status === 'ready'
   );
   
   // Check if flow is executing
-  const isExecuting = state.isExecuting || state.items.some(item => 
+  const isExecuting = executionState.isExecuting || executionState.items.some(item => 
     item.status === 'executing' || item.status === 'signing' || item.status === 'broadcasting'
   );
   
   // Check if flow is complete
-  const isComplete = !isExecuting && state.items.every(item => 
+  const isComplete = !isExecuting && executionState.items.every(item => 
     item.status === 'completed' || item.status === 'finalized' || item.status === 'failed' || item.status === 'cancelled'
   );
 
@@ -130,15 +162,15 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         <div className="execution-flow-title">
           <h3>{isWaitingForApproval ? 'Review Transaction Flow' : 'Execution Flow'}</h3>
           <span className="execution-flow-count">
-            {state.totalItems} step{state.totalItems !== 1 ? 's' : ''}
+            {executionState.totalItems} step{executionState.totalItems !== 1 ? 's' : ''}
           </span>
         </div>
         
         {!isWaitingForApproval && (
         <div className="execution-flow-summary">
-            {state.completedItems > 0 && (
+            {executionState.completedItems > 0 && (
               <span className="summary-badge summary-success">
-                {state.completedItems} completed
+                {executionState.completedItems} completed
             </span>
           )}
             {isExecuting && (
@@ -147,9 +179,9 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
                 executing
             </span>
           )}
-            {state.failedItems > 0 && (
+            {executionState.failedItems > 0 && (
             <span className="summary-badge summary-error">
-                {state.failedItems} failed
+                {executionState.failedItems} failed
             </span>
           )}
         </div>
@@ -208,7 +240,7 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
 
       {/* Items List */}
       <div className="execution-flow-items">
-        {state.items.map((item, index) => {
+        {executionState.items.map((item, index) => {
           const isExpanded = expandedItems.has(item.id);
           const isItemExecuting = item.status === 'executing' || item.status === 'signing' || item.status === 'broadcasting';
           const isItemCompleted = item.status === 'completed' || item.status === 'finalized';
@@ -352,18 +384,18 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         {isWaitingForApproval ? (
           /* Approval Actions */
           <div className="execution-flow-approval-actions">
-            {onCancel && (
+            {(onCancel || executionMessage) && (
               <button
-                onClick={onCancel}
+                onClick={handleCancel}
                 className="execution-cancel-btn"
               >
                 <X size={16} />
                 Cancel
               </button>
             )}
-            {onAcceptAndStart && (
+            {(onAcceptAndStart || executionMessage) && (
               <button
-                onClick={onAcceptAndStart}
+                onClick={handleAcceptAndStart}
                 className="execution-accept-btn"
                 disabled={isSimulating}
                 title={isSimulating ? 'Waiting for simulation to complete...' : 'Accept and start execution'}
@@ -380,13 +412,13 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
             <div
               className="progress-fill"
               style={{
-                width: `${(state.completedItems / state.totalItems) * 100}%`
+                width: `${(executionState.completedItems / executionState.totalItems) * 100}%`
               }}
             />
           </div>
           <div className="progress-text">
-            {state.completedItems} / {state.totalItems} completed
-              {isComplete && state.failedItems === 0 && ' ✓'}
+            {executionState.completedItems} / {executionState.totalItems} completed
+              {isComplete && executionState.failedItems === 0 && ' ✓'}
             </div>
           </div>
         )}

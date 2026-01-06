@@ -46,7 +46,7 @@ export class ExecutionArray {
     const item: ExecutionItem = {
       id,
       agentResult,
-      status: 'pending',
+      status: 'ready',  // Start as 'ready' since simulation is disabled globally TODO redesign this
       executionType: agentResult.executionType,
       description: agentResult.description,
       estimatedFee: agentResult.estimatedFee,

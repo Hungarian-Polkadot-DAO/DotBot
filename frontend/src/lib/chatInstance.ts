@@ -450,11 +450,13 @@ export class ChatInstance {
   }
 
   /**
-   * Set current execution array (called by DotBot internally)
-   */
-  /**
-   * Set ExecutionArray (legacy method - use setExecutionArray instead)
-   * @deprecated Use setExecutionArray(executionId, executionArray)
+   * Set ExecutionArray by automatically extracting its ID
+   * 
+   * This is a convenience wrapper around setExecutionArray() that extracts
+   * the execution ID from the ExecutionArray's state.
+   * 
+   * @param execution The ExecutionArray to add, or null to do nothing
+   * @internal Called by DotBot during execution preparation
    */
   setExecution(execution: ExecutionArray | null): void {
     if (!execution) return;

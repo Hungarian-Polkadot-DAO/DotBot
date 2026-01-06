@@ -8,6 +8,7 @@ import iconTransactions from '../../assets/icon-transactions.svg';
 import iconCog from '../../assets/icon-cog.svg';
 import voiceIcon from '../../assets/mingcute_voice-line.svg';
 import actionButtonIcon from '../../assets/action-button.svg';
+import type { ConversationItem, ExecutionMessage as ExecutionMessageType } from '../../lib';
 
 interface Message {
   id: string;
@@ -21,12 +22,14 @@ interface MainContentProps {
   onTransfer: () => void;
   onStatus: () => void;
   onSendMessage: (message: string) => void;
-  messages: Message[];
+  messages?: Message[];  // Deprecated: use conversationItems instead
+  conversationItems?: ConversationItem[];  // New: mixed array of messages + execution flows
   isTyping: boolean;
   showWelcomeScreen: boolean;
   disabled?: boolean;
   placeholder?: string;
-  executionFlow?: React.ReactNode;
+  executionFlow?: React.ReactNode;  // Deprecated: execution flows are in conversationItems
+  renderExecutionFlow?: (executionMessage: ExecutionMessageType) => React.ReactNode;
   simulationStatus?: {
     phase: string;
     message: string;
@@ -51,11 +54,13 @@ const MainContent: React.FC<MainContentProps> = ({
   onStatus,
   onSendMessage,
   messages,
+  conversationItems,
   isTyping,
   showWelcomeScreen,
   disabled = false,
   placeholder = "Type your message...",
   executionFlow,
+  renderExecutionFlow,
   simulationStatus
 }) => {
   const [welcomeInputValue, setWelcomeInputValue] = useState('');
@@ -218,11 +223,13 @@ const MainContent: React.FC<MainContentProps> = ({
           /* Chat Interface */
           <ChatInterface
             messages={messages}
+            conversationItems={conversationItems}
             onSendMessage={onSendMessage}
             isTyping={isTyping}
             disabled={disabled}
             placeholder={placeholder}
             executionFlow={executionFlow}
+            renderExecutionFlow={renderExecutionFlow}
             simulationStatus={simulationStatus}
           />
         )}

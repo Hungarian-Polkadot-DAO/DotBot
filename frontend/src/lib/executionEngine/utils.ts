@@ -72,7 +72,7 @@ export function createExecutionItemFromAgentResult(
   return {
     id: `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
     agentResult,
-    status: 'pending',
+    status: 'ready',  // Start as 'ready' since simulation is disabled globally TODO Simulation OFF shouldn't work like this!
     executionType: agentResult.executionType,
     description: agentResult.description,
     estimatedFee: agentResult.estimatedFee,

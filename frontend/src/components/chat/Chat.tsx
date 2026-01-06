@@ -1,65 +1,56 @@
+/**
+ * Chat Component
+ * 
+ * Main conversation UI that manages the message list and renders
+ * different item types (text messages, execution flows, system notifications).
+ * 
+ * This component will be part of @dotbot/react package.
+ */
+
 import React, { useState, useRef, useEffect } from 'react';
+import type { DotBot } from '../../lib';
+import type { ConversationItem } from '../../lib';
+import Message from './Message';
+import ExecutionFlow from '../execution/ExecutionFlow';
+import SimulationStatus from '../simulation/SimulationStatus';
 import voiceIcon from '../../assets/mingcute_voice-line.svg';
 import actionButtonIcon from '../../assets/action-button.svg';
-import SimulationStatus from '../simulation/SimulationStatus';
-import type { ConversationItem, ExecutionMessage as ExecutionMessageType } from '../../lib';
 
-interface Message {
-  id: string;
-  type: 'user' | 'bot';
-  content: string;
-  timestamp: number;
-}
-
-interface ChatInterfaceProps {
-  onSendMessage: (message: string) => void;
-  messages?: Message[];  // Deprecated: use conversationItems instead
-  conversationItems?: ConversationItem[];  // New: mixed array of messages + execution flows
+interface ChatProps {
+  dotbot: DotBot;
+  onSendMessage: (message: string) => Promise<void>;
   isTyping?: boolean;
   disabled?: boolean;
   placeholder?: string;
-  executionFlow?: React.ReactNode;  // Deprecated: execution flows are in conversationItems
-  renderExecutionFlow?: (executionMessage: ExecutionMessageType) => React.ReactNode;
   simulationStatus?: {
     phase: string;
     message: string;
     progress?: number;
     details?: string;
     chain?: string;
-    result?: {
-      success: boolean;
-      estimatedFee?: string;
-      validationMethod?: 'chopsticks' | 'paymentInfo';
-      balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
-      runtimeInfo?: Record<string, any>;
-      error?: string;
-      wouldSucceed?: boolean;
-    };
+    result?: any;
   } | null;
 }
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({
+const Chat: React.FC<ChatProps> = ({
+  dotbot,
   onSendMessage,
-  messages,
-  conversationItems,
   isTyping = false,
   disabled = false,
   placeholder = "Type your message...",
-  executionFlow,
-  renderExecutionFlow,
   simulationStatus
 }) => {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Use conversationItems if provided, otherwise fall back to messages (backward compatibility)
-  const items = conversationItems || messages || [];
+  // Get conversation items from ChatInstance
+  const conversationItems: ConversationItem[] = dotbot.currentChat?.getDisplayMessages() || [];
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [items, isTyping]);
+  }, [conversationItems.length, isTyping]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -69,11 +60,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   }, [inputValue]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedValue = inputValue.trim();
     if (trimmedValue) {
-      onSendMessage(trimmedValue);
+      await onSendMessage(trimmedValue);
       setInputValue('');
     }
   };
@@ -85,69 +76,36 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   };
 
-  const formatTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  // Render conversation item based on type
-  const renderItem = (item: ConversationItem | Message) => {
-    // Handle execution type (new way)
-    if ('type' in item && item.type === 'execution') {
-      const executionMsg = item as ExecutionMessageType;
-      if (renderExecutionFlow) {
-        return (
-          <div key={item.id} className="conversation-item execution-flow-item">
-            {renderExecutionFlow(executionMsg)}
-          </div>
-        );
-      }
-      // Fallback if no render function provided
-      return (
-        <div key={item.id} className="message system">
-          <div className="message-avatar system">S</div>
-          <div className="message-content">
-            <div className="message-bubble">
-              [Execution Flow: {executionMsg.status}]
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Handle text messages (user/bot/system)
-    if ('content' in item) {
-      const message = item as { id: string; type: string; content: string; timestamp: number };
-      const displayType = message.type === 'system' ? 'bot' : message.type;
-      return (
-        <div key={message.id} className={`message ${displayType}`}>
-          <div className={`message-avatar ${displayType}`}>
-            {displayType === 'user' ? 'U' : 'D'}
-          </div>
-          <div className="message-content">
-            <div className="message-bubble">
-              {message.content}
-            </div>
-            <div className="message-time">
-              {formatTime(message.timestamp)}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // Unknown type - skip
-    return null;
-  };
-
   return (
     <div className="chat-container">
       {/* Messages */}
       <div className="chat-messages">
         {/* Render all conversation items (mixed array) */}
-        {items.map((item) => renderItem(item))}
+        {conversationItems.map((item) => {
+          // Execution Flow
+          if (item.type === 'execution') {
+            return (
+              <ExecutionFlow
+                key={item.id}
+                executionMessage={item}
+                dotbot={dotbot}
+              />
+            );
+          }
+          
+          // Text Messages (user/bot/system)
+          if (item.type === 'user' || item.type === 'bot' || item.type === 'system') {
+            return (
+              <Message
+                key={item.id}
+                message={item}
+              />
+            );
+          }
+
+          // Future: knowledge-request, search-request, etc.
+          return null;
+        })}
         
         {/* Simulation Status */}
         {simulationStatus && (
@@ -173,9 +131,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
           </div>
         )}
-        
-        {/* Execution Flow - deprecated, kept for backward compat */}
-        {executionFlow}
         
         <div ref={messagesEndRef} />
       </div>
@@ -247,4 +202,5 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   );
 };
 
-export default ChatInterface;
+export default Chat;
+

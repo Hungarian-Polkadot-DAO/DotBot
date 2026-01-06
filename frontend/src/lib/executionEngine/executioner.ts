@@ -127,7 +127,7 @@ export class Executioner {
     options: ExecutionOptions = {}
   ): Promise<void> {
     this.ensureInitialized();
-    
+
     const {
       continueOnError = false,
       allowBatching = true,

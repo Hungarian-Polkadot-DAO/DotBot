@@ -78,7 +78,7 @@ export class BrowserWalletSigner implements Signer {
         ...request,
         resolve: resolveWrapper,
       };
-      
+      console.log('requestWithResolve', requestWithResolve);
       console.log('[BrowserWalletSigner] 📤 Calling signing request handler with request:', {
         itemId: requestWithResolve.itemId,
         description: requestWithResolve.description,
