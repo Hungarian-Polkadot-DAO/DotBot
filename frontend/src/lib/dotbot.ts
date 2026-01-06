@@ -512,6 +512,9 @@ export class DotBot {
    * This is called when user clicks "Accept & Start" in the UI.
    * Requires that prepareExecution() was already called (happens automatically after LLM response).
    * 
+   * For interrupted flows (pending, ready, executing, etc.), rebuilds from ExecutionPlan
+   * to get fresh extrinsics with working methods, then restores state to resume from where it left off.
+   * 
    * @param executionId The unique ID of the execution to start (from ExecutionMessage.executionId)
    * @param options Execution options (autoApprove, etc.)
    */
@@ -520,9 +523,37 @@ export class DotBot {
       throw new Error('No active chat. Cannot start execution.');
     }
     
-    const executionArray = this.currentChat.getExecutionArray(executionId);
-    if (!executionArray) {
-      throw new Error(`Execution ${executionId} not found. It may not have been prepared yet.`);
+    let executionArray = this.currentChat.getExecutionArray(executionId);
+    
+    // If not found or interrupted, try to rebuild from ExecutionPlan
+    if (!executionArray || (executionArray.isInterrupted() && this.currentChat)) {
+      const executionMessage = this.currentChat.getDisplayMessages()
+        .find(m => m.type === 'execution' && (m as any).executionId === executionId) as any;
+      
+      if (executionMessage?.executionPlan) {
+        // Rebuild ExecutionArray with fresh extrinsics
+        const orchestrator = this.executionSystem.getOrchestrator();
+        const result = await orchestrator.orchestrate(executionMessage.executionPlan, {
+          stopOnError: false,
+          validateFirst: false,
+        });
+        
+        if (result.success && result.executionArray) {
+          // Restore state from saved ExecutionArrayState (preserve progress)
+          const savedState = executionMessage.executionArray;
+          result.executionArray.restoreState(savedState);
+          
+          // Update the stored ExecutionArray
+          this.currentChat.setExecutionArray(executionId, result.executionArray);
+          executionArray = result.executionArray;
+        } else {
+          throw new Error(`Failed to rebuild execution: ${result.errors.map(e => e.error).join(', ')}`);
+        }
+      } else if (!executionArray) {
+        throw new Error(`Execution ${executionId} not found. It may not have been prepared yet.`);
+      }
+      // If executionArray exists but is interrupted and no ExecutionPlan, continue with broken extrinsics
+      // (will fail, but that's expected for old flows without ExecutionPlan)
     }
     
     const executioner = this.executionSystem.getExecutioner();
