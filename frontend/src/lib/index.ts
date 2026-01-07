@@ -221,3 +221,47 @@ export {
   queryKnowledge,
 } from './types/knowledgeSchema';
 
+// ============================================================================
+// Scenario Engine (Testing/Evaluation Framework)
+// ============================================================================
+export { ScenarioEngine, createScenarioEngine } from './scenarioEngine';
+export type {
+  // Scenario definition
+  Scenario,
+  ScenarioCategory,
+  ScenarioStep,
+  ScenarioExpectation,
+  ScenarioChain,
+  ScenarioMode,
+  ScenarioAction,
+  ScenarioAssertion,
+  // Results
+  ScenarioResult,
+  EvaluationResult,
+  StepResult,
+  // Engine types
+  ScenarioEngineConfig,
+  ScenarioEngineState,
+  ExecutorDependencies,
+  // Test prompts
+  TestPrompt,
+  // Entity types
+  TestEntity,
+  EntityConfig,
+} from './scenarioEngine';
+export {
+  // Test prompt collections
+  ALL_TESTS,
+  HAPPY_PATH_TESTS,
+  ADVERSARIAL_TESTS,
+  JAILBREAK_TESTS,
+  AMBIGUITY_TESTS,
+  EDGE_CASE_TESTS,
+  STRESS_TESTS,
+  CONTEXT_AWARENESS_TESTS,
+  KNOWLEDGE_TESTS,
+  getSmokeTests,
+  getSecurityTests,
+  getTestsByType,
+} from './scenarioEngine';
+
