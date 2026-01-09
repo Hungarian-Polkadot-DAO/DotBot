@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from 'react-query';
 import { ThemeProvider } from './contexts/ThemeContext';
 import WalletButton from './components/wallet/WalletButton';
 import ThemeToggle from './components/ui/ThemeToggle';
+import SettingsModal from './components/settings/SettingsModal';
 import CollapsibleSidebar from './components/layout/CollapsibleSidebar';
 import WelcomeScreen from './components/chat/WelcomeScreen';
 import Chat from './components/chat/Chat';
@@ -20,6 +21,7 @@ import type { ChatInstanceData } from './lib/types/chatInstance';
 import { useWalletStore } from './stores/walletStore';
 import { ASIOneService } from './lib/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from './lib';
+import { Settings } from 'lucide-react';
 import './styles/globals.css';
 import './styles/execution-flow.css';
 import './styles/chat-history.css';
@@ -47,7 +49,8 @@ const App: React.FC = () => {
   const [conversationRefresh, setConversationRefresh] = useState(0);
   const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
   const [showChatHistory, setShowChatHistory] = useState(false);
-  const [showScenarioEngine, setShowScenarioEngine] = useState(ENABLE_SCENARIO_ENGINE);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [scenarioEngineEnabled, setScenarioEngineEnabled] = useState(false);
   
   // DotBot State
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
@@ -297,10 +300,19 @@ const App: React.FC = () => {
             {/* Header */}
             <div className="main-header">
               <ThemeToggle />
-              <WalletButton 
-                environment={dotbot?.getEnvironment() || preferredEnvironment}
-                onEnvironmentSwitch={handleEnvironmentSwitch}
-              />
+              <div className="header-right">
+                <button
+                  className="settings-button"
+                  onClick={() => setShowSettingsModal(true)}
+                  title="Settings"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+                <WalletButton 
+                  environment={dotbot?.getEnvironment() || preferredEnvironment}
+                  onEnvironmentSwitch={handleEnvironmentSwitch}
+                />
+              </div>
             </div>
 
             {/* Main Body */}
@@ -348,12 +360,24 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* ScenarioEngine Overlay */}
-        {showScenarioEngine && dotbot && isScenarioEngineReady && (
+        {/* Settings Modal */}
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          scenarioEngineEnabled={scenarioEngineEnabled}
+          onToggleScenarioEngine={setScenarioEngineEnabled}
+          isMainnet={(dotbot?.getEnvironment() || preferredEnvironment) === 'mainnet'}
+        />
+
+        {/* ScenarioEngine Overlay - Only on testnet */}
+        {scenarioEngineEnabled && 
+         dotbot && 
+         isScenarioEngineReady && 
+         dotbot.getEnvironment() === 'testnet' && (
           <ScenarioEngineOverlay 
             engine={scenarioEngine}
             dotbot={dotbot}
-            onClose={() => setShowScenarioEngine(false)}
+            onClose={() => setScenarioEngineEnabled(false)}
             onSendMessage={handleSendMessage}
           />
         )}

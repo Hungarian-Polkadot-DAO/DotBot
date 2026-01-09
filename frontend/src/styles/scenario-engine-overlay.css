@@ -10,10 +10,10 @@
 
 .scenario-overlay {
   position: fixed;
-  top: 50px; /* Leave space for navbar */
+  top: 0;
   right: 0;
   width: 30%;
-  height: calc(100vh - 50px); /* Adjust height to account for navbar */
+  height: 100vh;
   z-index: 999; /* Lower than modals but higher than content */
   font-family: 'Courier New', 'Consolas', monospace;
   animation: slideInRight 0.3s ease-out;

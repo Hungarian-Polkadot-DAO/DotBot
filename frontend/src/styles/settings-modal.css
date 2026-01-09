@@ -1,0 +1,234 @@
+/* Settings Modal Styles */
+
+.settings-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+}
+
+.settings-modal {
+  background-color: var(--bg-primary);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+}
+
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.settings-modal-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.settings-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-modal-close:hover {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.settings-modal-content {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Settings Sections */
+
+.settings-section {
+  margin-bottom: 32px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.settings-section-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--primary-color);
+}
+
+.settings-section-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.settings-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.settings-option:last-child {
+  margin-bottom: 0;
+}
+
+.settings-option-info {
+  flex: 1;
+  margin-right: 16px;
+}
+
+.settings-option-label {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.settings-option-description {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.settings-warning {
+  color: var(--warning-color);
+  font-weight: 500;
+}
+
+/* Toggle Switch */
+
+.settings-toggle {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.settings-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--border-color);
+  transition: 0.3s;
+  border-radius: 24px;
+}
+
+.settings-toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.settings-toggle input:checked + .settings-toggle-slider {
+  background-color: var(--primary-color);
+}
+
+.settings-toggle input:checked + .settings-toggle-slider:before {
+  transform: translateX(24px);
+}
+
+.settings-toggle input:disabled + .settings-toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Placeholder for future sections */
+
+.settings-placeholder {
+  padding: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  text-align: center;
+  font-style: italic;
+}
+
+/* Dark theme adjustments */
+
+[data-theme="dark"] .settings-modal {
+  background-color: #1a1b1e;
+}
+
+[data-theme="dark"] .settings-modal-header {
+  border-bottom-color: #2d2e32;
+}
+
+[data-theme="dark"] .settings-option {
+  background-color: #25262b;
+}
+
+[data-theme="dark"] .settings-placeholder {
+  background-color: #25262b;
+}
+
+/* Light theme adjustments */
+
+[data-theme="light"] .settings-modal {
+  background-color: #ffffff;
+}
+
+[data-theme="light"] .settings-modal-header {
+  border-bottom-color: #e5e7eb;
+}
+
+[data-theme="light"] .settings-option {
+  background-color: #f9fafb;
+}
+
+[data-theme="light"] .settings-placeholder {
+  background-color: #f9fafb;
+}
+

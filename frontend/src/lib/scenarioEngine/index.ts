@@ -186,7 +186,6 @@ export type {
 // SCENARIO LIBRARY EXPORTS
 // =============================================================================
 
-// Note: TestPrompt type removed - scenarios now use Scenario type directly
 export {
   // All tests
   ALL_TESTS,

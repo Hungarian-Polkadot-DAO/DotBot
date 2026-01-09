@@ -243,8 +243,6 @@ export type {
   ScenarioEngineConfig,
   ScenarioEngineState,
   ExecutorDependencies,
-  // Test prompts
-  TestPrompt,
   // Entity types
   TestEntity,
   EntityConfig,

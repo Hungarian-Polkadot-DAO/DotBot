@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ScenarioEngine } from '../../lib/scenarioEngine';
+import { ScenarioEngine, DotBot, Scenario } from '../../lib';
 import { 
   HAPPY_PATH_TESTS,
   ADVERSARIAL_TESTS,
@@ -36,10 +36,18 @@ const TEST_CATEGORIES = [
 const EMPTY_ENTITIES: any[] = [];
 
 interface ScenarioEngineOverlayProps {
+  engine: ScenarioEngine;
+  dotbot: DotBot;
   onClose: () => void;
+  onSendMessage: (message: string) => Promise<void>;
 }
 
-const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ onClose }) => {
+const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ 
+  engine, 
+  dotbot, 
+  onClose,
+  onSendMessage 
+}) => {
   const [activeTab, setActiveTab] = useState<'entities' | 'scenarios' | 'report'>('entities');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['happy-path']));
   const [report, setReport] = useState<string>('');
@@ -47,6 +55,67 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ onClose }
   const [entities, setEntities] = useState<any[]>(EMPTY_ENTITIES);
   const [runningScenario, setRunningScenario] = useState<string | null>(null);
   const [isCreatingEntities, setIsCreatingEntities] = useState(false);
+  
+  // Subscribe to engine events
+  useEffect(() => {
+    const handleEvent = (event: any) => {
+      if (event.type === 'inject-prompt') {
+        // Engine wants to inject a prompt - send it through the UI
+        handlePromptInjection(event.prompt);
+      } else if (event.type === 'log') {
+        // Append log messages to report
+        appendToReport(`[${event.level.toUpperCase()}] ${event.message}\n`);
+      } else if (event.type === 'scenario-complete') {
+        setRunningScenario(null);
+        const result = event.result;
+        appendToReport(
+          `\n[COMPLETE] ${result.success ? '✅ PASSED' : '❌ FAILED'}\n` +
+          `[SCORE] ${result.evaluation.score}/100\n` +
+          `[DURATION] ${result.duration}ms\n`
+        );
+      }
+    };
+    
+    engine.addEventListener(handleEvent);
+    
+    return () => {
+      engine.removeEventListener(handleEvent);
+    };
+  }, [engine]);
+  
+  /**
+   * Handle prompt injection from ScenarioEngine
+   * This runs the prompt through the normal UI flow
+   */
+  const handlePromptInjection = async (prompt: string) => {
+    appendToReport(`[UI] Injecting prompt: "${prompt}"\n`);
+    
+    // Notify engine that we received the prompt
+    const executor = engine.getExecutor();
+    if (executor) {
+      executor.notifyPromptProcessed();
+    }
+    
+    // Send through normal UI (this will call dotbot.chat())
+    await onSendMessage(prompt);
+    
+    // Get the result from the last chat
+    if (dotbot.currentChat) {
+      const messages = dotbot.currentChat.messages;
+      const lastMessage = messages[messages.length - 1];
+      
+      if (lastMessage && (lastMessage.type === 'bot' || lastMessage.type === 'user')) {
+        appendToReport(`[RESPONSE] Received from DotBot\n`);
+        // Notify engine that response was received
+        if (executor) {
+          executor.notifyResponseReceived({
+            response: lastMessage.content,
+            // Add other fields as needed
+          });
+        }
+      }
+    }
+  };
 
   const toggleCategory = (category: string) => {
     setExpandedCategories(prev => {
@@ -71,74 +140,125 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ onClose }
     
     setIsTyping(false);
   };
+  
+  const appendToReport = (text: string) => {
+    setReport(prev => prev + text);
+  };
+  
+  // Tests are now full Scenario objects, no conversion needed
 
   const createEntities = async () => {
     setIsCreatingEntities(true);
     setActiveTab('report');
     
-    await typeText(
-      `> Wake up, Neo...\n` +
-      `> The Matrix has you.\n\n` +
-      `[INIT] EntityCreator initializing...\n` +
-      `[MODE] Deterministic keypair generation\n` +
-      `[SS58] Format: 42 (Westend)\n\n` +
-      `[CREATE] Generating test accounts...\n` +
-      `  → Alice (mnemonic: //Alice)\n` +
-      `  ✓ 15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5\n` +
-      `  → Bob (mnemonic: //Bob)\n` +
-      `  ✓ 14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3\n` +
-      `  → Charlie (mnemonic: //Charlie)\n` +
-      `  ✓ 14Gjs1TD93gnwEBfDMHoCgsuf1s2TVKUP6Z1qKmAZnZ8cW5q\n\n` +
-      `[FUND] Allocating balances on Westend...\n` +
-      `  → Requesting from dev account...\n` +
-      `  ✓ Alice: 100 DOT (tx: 0xabc123...)\n` +
-      `  ✓ Bob: 50 DOT (tx: 0xdef456...)\n` +
-      `  ✓ Charlie: 50 DOT (tx: 0x789abc...)\n\n` +
-      `[RESULT] ✅ 3 entities created\n` +
-      `[TOTAL] 200 DOT allocated\n\n` +
-      `> Follow the white rabbit.\n`
-    );
+    appendToReport(`[INIT] EntityCreator initializing...\n`);
+    appendToReport(`[MODE] Deterministic keypair generation\n`);
+    appendToReport(`[SS58] Format: 42 (Westend)\n\n`);
     
-    // Update entity balances
-    setEntities([
-      { name: 'Alice', address: '15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5', type: 'keypair', balance: '100 DOT' },
-      { name: 'Bob', address: '14E5nqKAp3oAJcmzgZhUD2RcptBeUBScxKHgJKU4HPNcKVf3', type: 'keypair', balance: '50 DOT' },
-      { name: 'Charlie', address: '14Gjs1TD93gnwEBfDMHoCgsuf1s2TVKUP6Z1qKmAZnZ8cW5q', type: 'keypair', balance: '50 DOT' },
-    ]);
+    try {
+      // Get environment from dotbot
+      const environment = dotbot.getEnvironment();
+      const chain = environment === 'mainnet' ? 'polkadot' : 'westend';
+      
+      // Create a dummy scenario with entities to trigger entity creation
+      const dummyScenario: Scenario = {
+        id: 'entity-setup',
+        name: 'Entity Setup',
+        description: 'Initialize test entities',
+        category: 'happy-path',
+        environment: {
+          chain: chain as 'westend' | 'polkadot',
+          mode: 'synthetic',
+        },
+        entities: [
+          { name: 'Alice', type: 'keypair' },
+          { name: 'Bob', type: 'keypair' },
+          { name: 'Charlie', type: 'keypair' },
+        ],
+        walletState: {
+          accounts: [
+            { entityName: 'Alice', balance: '100 DOT' },
+            { entityName: 'Bob', balance: '50 DOT' },
+            { entityName: 'Charlie', balance: '50 DOT' },
+          ]
+        },
+        steps: [],
+        expectations: [],
+      };
+      
+      // Actually run the scenario to create entities
+      // Since steps array is empty, this will only set up entities
+      await engine.runScenario(dummyScenario);
+      
+      // Get the created entities from the engine
+      const engineEntities = Array.from(engine.getEntities().values());
+      
+      if (engineEntities.length > 0) {
+        setEntities(engineEntities.map(e => ({
+          name: e.name,
+          address: e.address,
+          type: e.type,
+          balance: '0 DOT' // Real balance would come from chain query
+        })));
+        
+        appendToReport(`[CREATE] ✅ ${engineEntities.length} entities created\n`);
+        
+        // Log each entity
+        engineEntities.forEach(e => {
+          appendToReport(`  • ${e.name}: ${e.address}\n`);
+        });
+        
+        appendToReport(`\n[READY] Entities ready for testing\n\n`);
+      } else {
+        appendToReport(`[WARN] No entities were created\n\n`);
+      }
+      
+    } catch (error) {
+      appendToReport(`[ERROR] Failed to create entities: ${error}\n`);
+      console.error('Entity creation failed:', error);
+    }
     
     setIsCreatingEntities(false);
   };
 
-  const runScenario = async (testInput: string) => {
+  const runScenario = async (scenario: Scenario) => {
     setActiveTab('report');
-    setRunningScenario(testInput);
+    setRunningScenario(scenario.name);
     
-    await typeText(
-      `> Wake up, Neo...\n` +
-      `> The Matrix has you.\n` +
-      `> Follow the white rabbit.\n\n` +
-      `[TEST] ${testInput}\n` +
-      `[STATUS] Initializing...\n` +
-      `[ENTITIES] Test accounts ready\n` +
-      `  ✓ Alice (15oF4uVJwmo4...)\n` +
-      `  ✓ Bob (14E5nqKAp3oA...)\n` +
-      `[EXEC] Injecting prompt into DotBot UI...\n` +
-      `  → "${testInput}"\n` +
-      `[UI] ChatInput filled, waiting for submit...\n` +
-      `[WAIT] dotbot.chat() called...\n` +
-      `[LLM] Processing with ASI-One...\n` +
-      `[AGENT] AssetTransferAgent invoked\n` +
-      `[RESPONSE] "I'll help you with that transaction."\n` +
-      `[CHECK] ✓ LLM response contains expected content\n` +
-      `[CHECK] ✓ Agent called correctly\n` +
-      `[CHECK] ✓ Extrinsic created\n` +
-      `[RESULT] ✅ PASSED\n` +
-      `[SCORE] 100/100\n\n` +
-      `> The Matrix is a system, Neo.\n` +
-      `> That system is our enemy.\n`
+    // Get the first step's input for the test description
+    const firstStepInput = scenario.steps[0]?.input || scenario.name;
+    
+    appendToReport(
+      `[TEST] ${firstStepInput}\n` +
+      `[STATUS] Initializing...\n\n`
     );
     
-    setRunningScenario(null);
+    try {
+      // Check if entities exist (for scenarios that need them)
+      const engineEntities = Array.from(engine.getEntities().values());
+      if (engineEntities.length === 0) {
+        appendToReport(
+          `[INFO] No test entities found.\n` +
+          `[INFO] Entities will be created during scenario execution.\n` +
+          `[TIP] You can pre-create entities in the ENTITIES tab for faster execution.\n\n`
+        );
+      }
+      
+      appendToReport(`[SCENARIO] Running: ${scenario.name}\n`);
+      appendToReport(`[CATEGORY] ${scenario.category}\n`);
+      appendToReport(`[ENVIRONMENT] ${scenario.environment?.mode || 'synthetic'} mode\n\n`);
+      
+      // Run the scenario through the real engine
+      const result = await engine.runScenario(scenario);
+      
+      // Result is already appended by event handlers
+      appendToReport(`\n[COMPLETE] Scenario execution finished\n`);
+      
+    } catch (error) {
+      appendToReport(`\n[ERROR] Scenario failed: ${error}\n`);
+      console.error('Scenario execution failed:', error);
+      setRunningScenario(null);
+    }
   };
 
   return (
@@ -221,7 +341,6 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ onClose }
                   onClick={createEntities}
                   disabled={isCreatingEntities || entities.length > 0}
                 >
-                  <Plus size={16} style={{ marginRight: '8px' }} />
                   {isCreatingEntities ? 'CREATING...' : entities.length > 0 ? 'ENTITIES CREATED' : 'CREATE ENTITIES'}
                 </button>
               </div>
@@ -258,11 +377,11 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ onClose }
                           <div key={`${category.category}-${index}`} className="scenario-item">
                             <div className="scenario-item-info">
                               <span className="scenario-item-bullet">▸</span>
-                              <span className="scenario-item-name">{test.input}</span>
+                              <span className="scenario-item-name">{test.name}</span>
                             </div>
                             <button
                               className="scenario-item-run"
-                              onClick={() => runScenario(test.input)}
+                              onClick={() => runScenario(test)}
                               disabled={runningScenario !== null}
                             >
                               <Play size={14} />

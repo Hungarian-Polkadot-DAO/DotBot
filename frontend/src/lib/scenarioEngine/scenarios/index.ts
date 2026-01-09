@@ -1,12 +1,9 @@
 /**
- * Test Prompts Library
+ * Scenario Library
  * 
- * Pre-built test prompts for DotBot evaluation.
- * These are simple test data objects that get converted to full Scenarios by the engine.
+ * Pre-built test scenarios for DotBot evaluation.
+ * All tests are full Scenario objects ready for execution.
  */
-
-// TestPrompt type removed - scenarios now use Scenario type directly
-// export type { TestPrompt } from './testPrompts';
 
 export {
   // Test collections
