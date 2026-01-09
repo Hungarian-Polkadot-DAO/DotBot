@@ -32,7 +32,7 @@ const EnvironmentSwitch: React.FC<EnvironmentSwitchProps> = ({
   const isMainnet = environment === 'mainnet';
 
   const handleSwitch = async () => {
-    if (isSwitching) return;
+    if (isSwitching || disabled) return;
 
     const newEnvironment: Environment = isMainnet ? 'testnet' : 'mainnet';
     
@@ -51,7 +51,7 @@ const EnvironmentSwitch: React.FC<EnvironmentSwitchProps> = ({
     return (
       <button
         onClick={handleSwitch}
-        disabled={isSwitching}
+        disabled={isSwitching || disabled}
         className="environment-switch-compact"
         title={`Switch to ${isMainnet ? 'Testnet' : 'Mainnet'}`}
       >
@@ -79,7 +79,7 @@ const EnvironmentSwitch: React.FC<EnvironmentSwitchProps> = ({
             </div>
             <button
               onClick={handleSwitch}
-              disabled={isSwitching}
+              disabled={isSwitching || disabled}
               className="environment-switch-btn"
             >
               {isSwitching ? (
@@ -110,7 +110,7 @@ const EnvironmentSwitch: React.FC<EnvironmentSwitchProps> = ({
             </div>
             <button
               onClick={handleSwitch}
-              disabled={isSwitching}
+              disabled={isSwitching || disabled}
               className="environment-switch-btn mainnet"
             >
               {isSwitching ? (

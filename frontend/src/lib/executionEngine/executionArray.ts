@@ -15,6 +15,7 @@ import {
   ErrorCallback,
   CompletionCallback,
 } from './types';
+import { shouldSimulate } from './simulation/executionSimulator';
 
 /**
  * Execution Array class
@@ -43,10 +44,13 @@ export class ExecutionArray {
    */
   add(agentResult: AgentResult): string {
     const id = this.generateId();
+    // If simulation is disabled, items start as 'ready' (ready for signing)
+    // If simulation is enabled, items start as 'pending' (will be simulated first)
+    const initialStatus = shouldSimulate() ? 'pending' : 'ready';
     const item: ExecutionItem = {
       id,
       agentResult,
-      status: 'pending',  // Items start as pending, then move to 'ready' after simulation/preparation
+      status: initialStatus,
       executionType: agentResult.executionType,
       description: agentResult.description,
       estimatedFee: agentResult.estimatedFee,

@@ -7,11 +7,12 @@
  * Will be part of @dotbot/react package.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { Environment } from '../../lib/index';
 import { useWalletStore } from '../../stores/walletStore';
 import { WalletAccount } from '../../types/wallet';
 import { web3AuthService } from '../../lib/services/web3AuthService';
+import { useDebouncedClick } from '../../hooks/useDebounce';
 import WalletModalHeader from './WalletModalHeader';
 import WalletConnectedState from './WalletConnectedState';
 import WalletDisconnectedState from './WalletDisconnectedState';
@@ -63,13 +64,11 @@ const WalletModal: React.FC<WalletModalProps> = ({
     }
   }, [isOpen, clearError]);
 
-  if (!isOpen) return null;
-
-  const getAllAccounts = (): WalletAccount[] => {
+  const getAllAccounts = useCallback((): WalletAccount[] => {
     return availableWallets.flatMap(wallet => wallet.accounts);
-  };
+  }, [availableWallets]);
 
-  const handleConnectAccount = async (account: WalletAccount) => {
+  const handleConnectAccountInternal = useCallback(async (account: WalletAccount) => {
     console.log('Modal: Connecting to account:', account);
     
     const wasAlreadyConnected = isConnected;
@@ -106,12 +105,21 @@ const WalletModal: React.FC<WalletModalProps> = ({
       console.error('Modal: Connection error:', error);
       // Error is already set in the store by connectAccount
     }
-  };
+  }, [isConnected, connectAccount, syncWithService, onClose]);
 
-  const handleDisconnect = async () => {
+  // Debounced version to prevent multiple rapid clicks
+  // Hooks must be called before any conditional returns
+  const handleConnectAccount = useDebouncedClick(handleConnectAccountInternal, 1000);
+
+  const handleDisconnectInternal = useCallback(async () => {
     await disconnect();
     onClose();
-  };
+  }, [disconnect, onClose]);
+
+  // Debounced version to prevent multiple rapid clicks
+  const handleDisconnect = useDebouncedClick(handleDisconnectInternal, 500);
+
+  if (!isOpen) return null;
 
   const accounts = getAllAccounts();
 

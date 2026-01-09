@@ -6,8 +6,9 @@
  * Will be part of @dotbot/react package.
  */
 
-import React from 'react';
+import React, { useCallback } from 'react';
 import { WalletAccount } from '../../types/wallet';
+import { useDebouncedClick } from '../../hooks/useDebounce';
 
 interface WalletAccountItemProps {
   account: WalletAccount;
@@ -25,6 +26,14 @@ const WalletAccountItem: React.FC<WalletAccountItemProps> = ({
     return `${address.slice(0, 6)}...${address.slice(-6)}`;
   };
 
+  // Debounced connect handler to prevent multiple rapid clicks
+  const handleConnect = useDebouncedClick(
+    useCallback(() => {
+      onConnect(account);
+    }, [onConnect, account]),
+    1000
+  );
+
   return (
     <div className="wallet-account-item">
       <div className="wallet-account-details">
@@ -39,7 +48,7 @@ const WalletAccountItem: React.FC<WalletAccountItemProps> = ({
         </div>
       </div>
       <button
-        onClick={() => onConnect(account)}
+        onClick={handleConnect}
         disabled={isConnecting}
         className="wallet-connect-btn"
       >

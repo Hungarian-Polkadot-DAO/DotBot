@@ -10,6 +10,7 @@ import React from 'react';
 import { Plus } from 'lucide-react';
 import { Environment } from '../../lib';
 import { WalletAccount } from '../../types/wallet';
+import { useDebouncedClick } from '../../hooks/useDebounce';
 import WalletAccountCard from './WalletAccountCard';
 import WalletAccountItem from './WalletAccountItem';
 import EnvironmentSwitch from './EnvironmentSwitch';
@@ -44,6 +45,10 @@ const WalletConnectedState: React.FC<WalletConnectedStateProps> = ({
     account => account.address !== address
   );
 
+  // Debounced handlers to prevent multiple rapid clicks
+  const handleDisconnect = useDebouncedClick(onDisconnect, 500);
+  const handleRefreshAccounts = useDebouncedClick(onRefreshAccounts, 500);
+
   return (
     <div className="wallet-connected-state">
       <WalletAccountCard
@@ -69,7 +74,7 @@ const WalletConnectedState: React.FC<WalletConnectedStateProps> = ({
 
       {/* Add Account Button */}
       <button
-        onClick={onRefreshAccounts}
+        onClick={handleRefreshAccounts}
         className="wallet-add-account-btn"
         disabled={isConnecting}
       >
@@ -85,8 +90,9 @@ const WalletConnectedState: React.FC<WalletConnectedStateProps> = ({
       />
       
       <button
-        onClick={onDisconnect}
+        onClick={handleDisconnect}
         className="wallet-disconnect-btn"
+        disabled={isConnecting}
       >
         Disconnect Wallet
       </button>

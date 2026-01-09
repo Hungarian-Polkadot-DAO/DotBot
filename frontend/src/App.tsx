@@ -48,6 +48,9 @@ const App: React.FC = () => {
   const [asiOne] = useState(() => new ASIOneService());
   const [isInitializing, setIsInitializing] = useState(false);
   
+  // Environment preference (for when wallet is not connected yet)
+  const [preferredEnvironment, setPreferredEnvironment] = useState<Environment>('mainnet');
+  
   // Signing & Simulation
   const [signingRequest, setSigningRequest] = useState<SigningRequest | BatchSigningRequest | null>(null);
   const [simulationStatus, setSimulationStatus] = useState<{
@@ -95,8 +98,13 @@ const App: React.FC = () => {
   const initializeDotBot = async () => {
     setIsInitializing(true);
     try {
+      // Derive network from environment (same logic as switchEnvironment)
+      const network = preferredEnvironment === 'mainnet' ? 'polkadot' : 'westend';
+      
       const dotbotInstance = await DotBot.create({
         wallet: selectedAccount!,
+        environment: preferredEnvironment,
+        network: network,
         onSigningRequest: (request) => setSigningRequest(request),
         onBatchSigningRequest: (request) => setSigningRequest(request),
         onSimulationStatus: (status) => {
@@ -158,7 +166,18 @@ const App: React.FC = () => {
     if (!dotbot) return;
     
     try {
-      await dotbot.clearHistory();
+      const currentEnvironment = dotbot.getEnvironment();
+      
+      // If preferred environment is different, switch to it (creates new chat)
+      if (preferredEnvironment !== currentEnvironment) {
+        await dotbot.switchEnvironment(preferredEnvironment);
+      } else {
+        // Otherwise, just clear history in current environment
+        await dotbot.clearHistory();
+      }
+      
+      // Close history view and show the new chat
+      setShowChatHistory(false);
       setShowWelcomeScreen(true);
       // Update current chat ID to trigger re-render
       if (dotbot.currentChat) {
@@ -171,21 +190,28 @@ const App: React.FC = () => {
   };
 
   const handleEnvironmentSwitch = async (environment: Environment) => {
-    if (!dotbot) return;
+    // Store preference (for when wallet is not connected yet)
+    setPreferredEnvironment(environment);
     
-    try {
-      console.log(`Switching to ${environment}...`);
-      await dotbot.switchEnvironment(environment);
-      setShowWelcomeScreen(true);
-      // Update current chat ID to trigger re-render
-      if (dotbot.currentChat) {
-        setCurrentChatId(dotbot.currentChat.id);
+    // If DotBot is already initialized, switch environment (creates new chat)
+    if (dotbot) {
+      try {
+        console.log(`Switching to ${environment}...`);
+        await dotbot.switchEnvironment(environment);
+        setShowWelcomeScreen(true);
+        // Update current chat ID to trigger re-render
+        if (dotbot.currentChat) {
+          setCurrentChatId(dotbot.currentChat.id);
+        }
+        setConversationRefresh(prev => prev + 1);
+        console.info(`Successfully switched to ${environment}`);
+      } catch (error) {
+        console.error('Failed to switch environment:', error);
+        // We might want to show an error toast/notification here
       }
-      setConversationRefresh(prev => prev + 1);
-      console.info(`Successfully switched to ${environment}`);
-    } catch (error) {
-      console.error('Failed to switch environment:', error);
-      // We might want to show an error toast/notification here
+    } else {
+      // If not connected yet, preference will be used when wallet connects
+      console.log(`Environment preference set to ${environment}. Will be applied when wallet connects.`);
     }
   };
 
@@ -241,7 +267,7 @@ const App: React.FC = () => {
             <div className="main-header">
               <ThemeToggle />
               <WalletButton 
-                environment={dotbot?.getEnvironment() as Environment}
+                environment={dotbot?.getEnvironment() || preferredEnvironment}
                 onEnvironmentSwitch={handleEnvironmentSwitch}
               />
             </div>

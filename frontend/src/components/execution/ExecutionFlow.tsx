@@ -9,6 +9,7 @@ import React, { useState } from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2, AlertTriangle, ChevronRight, Play, X } from 'lucide-react';
 import { ExecutionItem, ExecutionArrayState } from '../../lib/executionEngine/types';
 import type { ExecutionMessage, DotBot } from '../../lib';
+import { shouldSimulate } from '../../lib/executionEngine/simulation/executionSimulator';
 import '../../styles/execution-flow.css';
 
 export interface ExecutionFlowProps {
@@ -61,8 +62,10 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
     }
   };
 
-  // Check if any items are being simulated (pending status)
-  const isSimulating = executionState.items.some(item => item.status === 'pending');
+  // Check if simulation is enabled and if any items are being simulated (pending status)
+  // Only consider items as "simulating" if simulation is actually enabled
+  const simulationEnabled = shouldSimulate();
+  const isSimulating = simulationEnabled && executionState.items.some(item => item.status === 'pending');
   const simulatingCount = executionState.items.filter(item => item.status === 'pending').length;
   
   // Check simulation results
@@ -121,7 +124,9 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
 
   const getStatusLabel = (status: ExecutionItem['status']) => {
     switch (status) {
-      case 'pending': return 'Simulating...';
+      case 'pending': 
+        // Only show "Simulating..." if simulation is actually enabled
+        return simulationEnabled ? 'Simulating...' : 'Ready';
       case 'ready': return 'Ready';
       case 'executing': return 'Executing';
       case 'signing': return 'Signing...';

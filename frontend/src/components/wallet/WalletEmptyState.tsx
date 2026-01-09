@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { RefreshCw } from 'lucide-react';
+import { useDebouncedClick } from '../../hooks/useDebounce';
 import walletIcon from '../../assets/wallet.svg';
 
 interface WalletEmptyStateProps {
@@ -21,6 +22,10 @@ const WalletEmptyState: React.FC<WalletEmptyStateProps> = ({
   onEnableWallet,
   onRefreshAccounts
 }) => {
+  // Debounced handlers to prevent multiple rapid clicks
+  const handleEnableWallet = useDebouncedClick(onEnableWallet, 1000);
+  const handleRefreshAccounts = useDebouncedClick(onRefreshAccounts, 500);
+
   return (
     <div className="wallet-empty-state">
       <div className="wallet-empty-content">
@@ -32,7 +37,7 @@ const WalletEmptyState: React.FC<WalletEmptyStateProps> = ({
       
       <div className="wallet-actions">
         <button
-          onClick={onEnableWallet}
+          onClick={handleEnableWallet}
           disabled={isConnecting}
           className="wallet-enable-btn"
         >
@@ -50,7 +55,7 @@ const WalletEmptyState: React.FC<WalletEmptyStateProps> = ({
         </button>
         
         <button
-          onClick={onRefreshAccounts}
+          onClick={handleRefreshAccounts}
           disabled={isConnecting}
           className="wallet-refresh-btn"
         >
