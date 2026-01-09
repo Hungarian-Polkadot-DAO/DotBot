@@ -119,6 +119,7 @@ export class StateAllocator {
   private config: StateAllocatorConfig;
   private initialized: boolean = false;
   private chopsticksChain: any = null; // Chopsticks chain instance for emulated mode
+  private chopsticksApi: ApiPromise | null = null; // API instance for Chopsticks fork (emulated mode)
   private api: ApiPromise | null = null; // Polkadot.js API for live mode
   private executionSession: any = null; // Execution session for live mode (keeps API alive)
   private chatManager: ChatInstanceManager;
@@ -177,7 +178,18 @@ export class StateAllocator {
         db: storage,
       });
 
+      // Diagnostic: Log available methods for debugging
+      const availableMethods = Object.keys(this.chopsticksChain).filter(key => 
+        typeof this.chopsticksChain[key] === 'function'
+      );
       console.log(`[StateAllocator] Connected to Chopsticks fork for ${this.config.chain} using ${rpcEndpoint}`);
+      console.log(`[StateAllocator] Chain object methods: ${availableMethods.join(', ')}`);
+      console.log(`[StateAllocator] Chain has api: ${!!this.chopsticksChain.api}`);
+      
+      // Note: We use the setStorage utility function directly with the chain object
+      // No separate API instance is needed for setting storage
+      // If we need to query balances later, we can create an API instance then
+      console.log(`[StateAllocator] Chopsticks chain ready. Will use setStorage utility for state manipulation.`);
     } catch (error) {
       throw new Error(`Failed to connect to Chopsticks: ${error}`);
     }
@@ -446,6 +458,16 @@ export class StateAllocator {
       this.api = null;
     }
     
+    // Clean up Chopsticks API
+    if (this.chopsticksApi) {
+      try {
+        await this.chopsticksApi.disconnect();
+      } catch (error) {
+        console.warn('[StateAllocator] Error disconnecting Chopsticks API:', error);
+      }
+      this.chopsticksApi = null;
+    }
+    
     if (this.chopsticksChain) {
       this.chopsticksChain = null;
     }
@@ -493,12 +515,16 @@ export class StateAllocator {
     }
 
     try {
+      // Import the setStorage utility from Chopsticks
+      // This is the correct way to set storage when using Chopsticks as a library
+      const { setStorage } = await import('@acala-network/chopsticks-core');
+      
       // Decode address to get account ID
       const accountId = decodeAddress(address);
-      
-      // Set account balance using Chopsticks storage manipulation
-      // Format: System.Account(AccountId) -> AccountInfo { data: { free, reserved, frozen, miscFrozen } }
-      await this.chopsticksChain.setStorage({
+
+      // Use the setStorage utility function with StorageConfig format
+      // This is the correct way to set storage in Chopsticks when using it as a library
+      await setStorage(this.chopsticksChain, {
         System: {
           Account: [
             [
@@ -518,7 +544,7 @@ export class StateAllocator {
       });
 
       result.balances.set(address, { free: planck });
-      console.log(`[StateAllocator] Chopsticks balance set for ${address}: ${planck} planck`);
+      console.log(`[StateAllocator] Set balance via setStorage utility for ${address}: ${planck} planck`);
     } catch (error) {
       result.errors.push(`Failed to set Chopsticks balance for ${address}: ${error}`);
       throw error;
@@ -652,7 +678,10 @@ export class StateAllocator {
 
       // For Asset Hub, set asset balance using Assets pallet
       // Format: Assets.Account(AssetId, AccountId) -> AssetAccount { balance, ... }
-      await this.chopsticksChain.setStorage({
+      // Use the setStorage utility function from Chopsticks
+      const { setStorage } = await import('@acala-network/chopsticks-core');
+      
+      await setStorage(this.chopsticksChain, {
         Assets: {
           Account: [
             [
