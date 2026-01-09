@@ -7,7 +7,8 @@
  * Part of @dotbot/react package.
  */
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
+import { useChatInput } from '../../contexts/ChatInputContext';
 import voiceIcon from '../../assets/mingcute_voice-line.svg';
 import actionButtonIcon from '../../assets/action-button.svg';
 
@@ -29,6 +30,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   isTyping = false
 }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { lastInjectionTime } = useChatInput();
+  const [isInjected, setIsInjected] = useState(false);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -37,6 +41,23 @@ const ChatInput: React.FC<ChatInputProps> = ({
       inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
     }
   }, [value]);
+
+  // Visual effect when injection happens
+  useEffect(() => {
+    if (lastInjectionTime > 0) {
+      setIsInjected(true);
+      if (containerRef.current) {
+        containerRef.current.classList.add('chat-input-injected');
+      }
+      const timer = setTimeout(() => {
+        setIsInjected(false);
+        if (containerRef.current) {
+          containerRef.current.classList.remove('chat-input-injected');
+        }
+      }, 2000); // Animation lasts 2 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [lastInjectionTime]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -58,7 +79,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   return (
     <div className="input-area">
-      <div className="input-container">
+      <div ref={containerRef} className={`input-container ${isInjected ? 'chat-input-injected' : ''}`}>
         <form onSubmit={handleSubmit} className="action-badge">
           <textarea
             ref={inputRef}

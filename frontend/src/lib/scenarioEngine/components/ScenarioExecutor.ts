@@ -358,23 +358,38 @@ export class ScenarioExecutor {
     step: ScenarioStep,
     startTime: number
   ): Promise<StepResult> {
-    const input = step.input;
+    let input = step.input;
     if (!input) {
       throw new Error('Prompt step requires input');
     }
 
+    // Replace entity names with addresses in the prompt
+    // Example: "Send 5 WND to Alice" -> "Send 5 WND to 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+    if (this.deps?.getEntityAddress) {
+      // Find entity names in the prompt (simple pattern matching for common names)
+      const entityNamePattern = /\b(Alice|Bob|Charlie|Dave|Eve|Ferdie|Grace|Heinz|Ida|Judith|Ken|Larry|Mary|Nina|Oscar|Peggy|Quinn|Rita|Steve|Trent|Ursula|Victor|Wendy|Xavier|Yvonne|Zoe)\b/gi;
+      input = input.replace(entityNamePattern, (match) => {
+        const address = this.deps?.getEntityAddress?.(match);
+        if (address) {
+          this.emit({ type: 'log', level: 'debug', message: `Replaced entity "${match}" with address ${address}` });
+          return address;
+        }
+        return match; // Keep original if address not found
+      });
+    }
+
     this.emit({ type: 'log', level: 'debug', message: `Executing prompt: "${input}"` });
 
-    // Tell UI to inject the prompt
+    // Tell UI to inject the prompt (fills ChatInput, doesn't send - user submits manually)
     this.emit({
       type: 'inject-prompt',
       prompt: input,
     });
 
-    // Wait for UI to process (fill ChatInput and submit)
+    // Wait for UI to process (fill ChatInput)
     await this.waitForPromptProcessed();
     
-    // Wait for response from DotBot (via UI)
+    // Wait for user to submit and get response from DotBot (via UI)
     const chatResult = await this.waitForResponseReceived();
     const response = chatResult?.response || '';
 
@@ -545,6 +560,18 @@ export class ScenarioExecutor {
 
       case 'submit-extrinsic':
         // Submit any extrinsic as a specific entity
+        // Log multisig address if creating a multisig
+        const extrinsicParams = action.params?.extrinsic as any;
+        if (extrinsicParams?.pallet === 'multisig' && extrinsicParams?.method === 'asMultiThreshold1') {
+          const multisigEntity = this.deps?.getEntityAddress?.('MultisigAccount');
+          if (multisigEntity) {
+            this.emit({ 
+              type: 'log', 
+              level: 'info', 
+              message: `📋 Creating multisig on-chain: ${multisigEntity}` 
+            });
+          }
+        }
         await this.submitExtrinsic(action);
         break;
 
@@ -797,7 +824,9 @@ export class ScenarioExecutor {
     });
 
     // Create signer from entity URI (ensures address matches)
-    const signer = KeyringSigner.fromUri(entityKeypair.uri);
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);
@@ -867,7 +896,9 @@ export class ScenarioExecutor {
       message: `Executing multisig as ${action.asEntity}` 
     });
 
-    const signer = KeyringSigner.fromUri(entityKeypair.uri);
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);
@@ -923,7 +954,9 @@ export class ScenarioExecutor {
       message: `Funding ${targetAddress} with ${amount} from ${fromEntity} (background)` 
     });
 
-    const signer = KeyringSigner.fromUri(entityKeypair.uri);
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const fromAddress = this.deps?.getEntityAddress?.(fromEntity);
     if (!fromAddress) {
       throw new Error(`Entity address not found for ${fromEntity}`);
@@ -982,7 +1015,9 @@ export class ScenarioExecutor {
       message: `Submitting extrinsic as ${action.asEntity}` 
     });
 
-    const signer = KeyringSigner.fromUri(entityKeypair.uri);
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);

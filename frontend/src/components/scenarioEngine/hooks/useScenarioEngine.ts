@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { ScenarioEngine, DotBot, Scenario, TestEntity } from '../../../lib';
+import { useChatInput } from '../../../contexts/ChatInputContext';
 
 interface UseScenarioEngineProps {
   engine: ScenarioEngine;
@@ -22,26 +23,19 @@ export const useScenarioEngine = ({
 }: UseScenarioEngineProps) => {
   const [entities, setEntities] = useState<any[]>([]);
   const [runningScenario, setRunningScenario] = useState<string | null>(null);
-
-  const getLastBotResponse = (): string | null => {
-    if (!dotbot.currentChat) return null;
-    const messages = dotbot.currentChat.messages;
-    const lastMessage = messages[messages.length - 1];
-    return (lastMessage && (lastMessage.type === 'bot' || lastMessage.type === 'user')) 
-      ? lastMessage.content 
-      : null;
-  };
+  const { setInputValue, setPendingPrompt, setExecutor } = useChatInput();
 
   const handlePromptInjection = async (prompt: string) => {
     const executor = engine.getExecutor();
     executor?.notifyPromptProcessed();
     
-    await onSendMessage(prompt);
+    // Fill the ChatInput but DON'T send the message
+    // User can review and submit manually
+    setInputValue(prompt);
     
-    const response = getLastBotResponse();
-    if (executor && response) {
-      executor.notifyResponseReceived({ response, plan: null });
-    }
+    // Store the prompt and executor reference for App.tsx to detect submission
+    setPendingPrompt(prompt);
+    setExecutor(executor);
   };
 
   useEffect(() => {

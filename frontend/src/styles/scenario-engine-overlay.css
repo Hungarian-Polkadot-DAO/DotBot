@@ -631,6 +631,46 @@
   }
 }
 
+.scenario-loading-dots {
+  color: #00ff41;
+  display: inline-block;
+  width: 1.5em;
+  text-align: left;
+  animation: pulseDots 1.5s ease-in-out infinite;
+}
+
+@keyframes pulseDots {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Alternative simpler approach - just animate opacity of dots */
+.scenario-loading-dots {
+  color: #00ff41;
+  display: inline-block;
+  width: 1.5em;
+  text-align: left;
+  position: relative;
+}
+
+.scenario-loading-dots::before {
+  content: '...';
+  animation: pulseDots 1.5s ease-in-out infinite;
+}
+
+@keyframes pulseDots {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 /* =============================================================================
    BUTTONS
    ============================================================================= */

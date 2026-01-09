@@ -7,8 +7,9 @@
  * This component will be part of @dotbot/react package.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { DotBot, ConversationItem } from '../../lib';
+import { useChatInput } from '../../contexts/ChatInputContext';
 import MessageList from './MessageList';
 import ConversationItems from './ConversationItems';
 import ChatInput from './ChatInput';
@@ -40,6 +41,12 @@ const Chat: React.FC<ChatProps> = ({
   simulationStatus
 }) => {
   const [inputValue, setInputValue] = useState('');
+  const { registerSetter } = useChatInput();
+
+  // Register setInputValue with context (for ScenarioEngine)
+  useEffect(() => {
+    registerSetter(setInputValue);
+  }, [registerSetter, setInputValue]);
 
   // Get conversation items from ChatInstance
   const conversationItems: ConversationItem[] = dotbot.currentChat?.getDisplayMessages() || [];

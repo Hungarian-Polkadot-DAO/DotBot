@@ -10,12 +10,14 @@ import { Trash2 } from 'lucide-react';
 interface ReportTabProps {
   report: string;
   isTyping: boolean;
+  isRunning?: boolean;  // Whether a scenario is currently running
   onClear?: () => void;
 }
 
 export const ReportTab: React.FC<ReportTabProps> = ({
   report,
   isTyping: externalIsTyping,
+  isRunning = false,
   onClear,
 }) => {
   // Initialize displayedText to current report on mount (no animation for existing content)
@@ -155,6 +157,7 @@ export const ReportTab: React.FC<ReportTabProps> = ({
         <pre className="scenario-report-text">
           {displayedText || '> Awaiting scenario execution...\n> Run a scenario to see results.'}
           {isTyping && <span className="scenario-cursor">█</span>}
+          {isRunning && !isTyping && <span className="scenario-loading-dots">...</span>}
         </pre>
       </div>
     </div>

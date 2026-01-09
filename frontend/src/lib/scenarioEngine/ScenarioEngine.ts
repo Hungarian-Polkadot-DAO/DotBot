@@ -1,14 +1,48 @@
 /**
  * ScenarioEngine
  * 
- * Main orchestrator for DotBot scenario testing and evaluation.
- * Coordinates EntityCreator, StateAllocator, ScenarioExecutor, and Evaluator.
+ * **ARCHITECTURE PRINCIPLE**: ScenarioEngine is a CONTROLLER, not a replacement for DotBot.
  * 
- * Usage:
+ * ## Core Design Principle
+ * 
+ * ScenarioEngine **CONTROLS** DotBot, it does NOT create duplicate state or replace DotBot.
+ * - ✅ ScenarioEngine creates test entities (Alice, Bob, multisigs)
+ * - ✅ ScenarioEngine funds accounts on the REAL chain (live mode)
+ * - ✅ ScenarioEngine injects prompts to DotBot's UI
+ * - ✅ ScenarioEngine evaluates DotBot's responses
+ * - ❌ ScenarioEngine does NOT create mock balances that shadow DotBot's view
+ * - ❌ ScenarioEngine does NOT create parallel APIs or state
+ * 
+ * ## Current Implementation Status
+ * 
+ * **LIVE Mode**: ✅ READY
+ * - Creates real test entities with deterministic addresses
+ * - Funds accounts on real Westend testnet via batch transfers
+ * - DotBot sees the same state (real chain)
+ * - Tests work correctly
+ * 
+ * **SYNTHETIC Mode**: ⚠️ TODO (Disabled)
+ * - Future: Mock DotBot's LLM responses entirely
+ * - Don't actually query chain or run DotBot
+ * - Fast unit testing
+ * - Requires: Response mocking system
+ * 
+ * **EMULATED Mode**: ⚠️ TODO (Disabled)
+ * - Future: Create Chopsticks fork AND reconnect DotBot to it
+ * - DotBot must use Chopsticks API, not real chain API
+ * - Realistic integration testing without testnet costs
+ * - Requires: DotBot reconfiguration support
+ * 
+ * ## Usage (Live Mode)
+ * 
  * ```typescript
- * const engine = new ScenarioEngine({ enableOverlay: true });
+ * const engine = new ScenarioEngine();
  * await engine.initialize();
  * 
+ * // Set wallet for funding (user must approve)
+ * engine.setWalletForLiveMode(account, signer);
+ * 
+ * // Run scenario - will fund accounts on real testnet
  * const result = await engine.runScenario(myScenario);
  * console.log(result.evaluation.summary);
  * ```

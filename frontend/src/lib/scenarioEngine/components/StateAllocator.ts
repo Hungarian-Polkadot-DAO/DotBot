@@ -3,43 +3,61 @@
  * 
  * Sets up initial state for scenario execution.
  * 
- * ## Responsibilities
+ * **ARCHITECTURE PRINCIPLE**: StateAllocator prepares the REAL environment for testing.
+ * It does NOT create duplicate/shadow state. It modifies what DotBot will see.
  * 
- * ### Wallet/Account Balances
- * - **Synthetic**: Mock data only
- * - **Emulated**: Use Chopsticks `setStorage` to set balances
- * - **Live**: Batch transfers from user's wallet (single signature via wallet extension)
+ * ## Current Implementation Status
  * 
- * ### On-chain Entities (Multisigs, Proxies)
- * - **Synthetic**: Mock multisig addresses
- * - **Emulated**: Create multisig addresses, mock on-chain data
- * - **Live**: Submit actual multisig creation transactions to Westend
+ * ### LIVE Mode: ✅ READY
  * 
- * ### Governance & Staking
- * - **Synthetic/Emulated**: Mock state
- * - **Live**: Set up actual proposals, nominations (if needed)
+ * **Wallet/Account Balances**:
+ * - Batch transfers from user's wallet to test accounts (single signature)
+ * - Creates REAL balances on REAL Westend testnet
+ * - DotBot queries the REAL chain and sees these balances
+ * - ✅ No duplicate state - DotBot and tests see the same thing
  * 
- * ### Local Storage & Chat History
- * - All modes: Populate browser localStorage with test data
+ * **On-chain Entities (Multisigs, Proxies)**:
+ * - Submit actual multisig creation transactions to Westend
+ * - Creates REAL multisigs on REAL chain
+ * - DotBot queries the REAL chain and sees these multisigs
  * 
- * ## Example: Multisig Demo Setup on Westend (Live Mode)
+ * **Local Storage & Chat History**:
+ * - Populate browser localStorage with test data
+ * - DotBot reads this localStorage normally
+ * 
+ * ### SYNTHETIC Mode: ⚠️ TODO (Disabled)
+ * 
+ * Future implementation would:
+ * - NOT create duplicate state
+ * - Instead: Mock DotBot's LLM responses entirely (the LLM responses itself shouldn't be mocked)
+ * - Don't run real DotBot at all - just verify response structure
+ * - Fast unit testing without any chain interaction
+ * 
+ * ### EMULATED Mode: ⚠️ TODO (Disabled)
+ * 
+ * Future implementation would:
+ * - Create Chopsticks fork
+ * - Use `setStorage` to set balances on fork
+ * - **Reconfigure DotBot's API** to use Chopsticks fork (not real chain)
+ * - DotBot must query Chopsticks, not real chain
+ * - ✅ No duplicate state - DotBot uses fork, StateAllocator sets up fork
+ * 
+ * ## Example: Live Mode Usage
+ * 
  * ```typescript
  * // User's wallet will be used to fund entities
  * await stateAllocator.allocateWalletState({
  *   accounts: [
- *     { entityName: "Alice", balance: "100 DOT" },  // Funded from user's wallet
- *     { entityName: "Bob", balance: "50 DOT" },
- *     { entityName: "Charlie", balance: "50 DOT" }
+ *     { entityName: "Alice", balance: "100 WND" },  // Real transfer on Westend
+ *     { entityName: "Bob", balance: "50 WND" },
+ *     { entityName: "Charlie", balance: "50 WND" }
  *   ]
  * });
  * // All transfers are batched into a single transaction
  * // User signs once via wallet extension (Talisman, Subwallet, etc.)
  * 
- * // Create multisig on-chain (submits tx to Westend)
- * const multisigAddress = await stateAllocator.createMultisig({
- *   signatories: [Alice.address, Bob.address, Charlie.address],
- *   threshold: 2
- * });
+ * // Now DotBot can query the chain and see these balances!
+ * // No duplicate state - it's all on the real chain.
  * ```
  */
 
@@ -381,24 +399,39 @@ export class StateAllocator {
       errors: [],
     };
 
-    // For live mode, check user's wallet balance and batch all transfers
+    // For live mode, check user's wallet balance
+    // First, calculate how much we actually need by checking each account's current balance
     if (this.config.mode === 'live') {
       if (!this.config.walletAccount || !this.config.signer) {
         throw new Error('Wallet account and signer are required for live mode transfers');
       }
       
-      // Check user's wallet balance
-      const totalNeeded = config.accounts.reduce((sum, acc) => {
-        const parsed = this.parseBalance(acc.balance);
-        return sum.add(new BN(parsed.planck));
-      }, new BN(0));
-      
       try {
         const chainName = this.isAssetHubChain() ? 'Asset Hub' : 'Relay Chain';
-        console.log(`[StateAllocator] Checking wallet balance on ${chainName} (chain: ${this.config.chain})`);
+        console.log(`[StateAllocator] Checking wallet balance and account balances on ${chainName} (chain: ${this.config.chain})`);
         
         await this.api!.isReady;
         
+        // Calculate total needed by checking each account's current balance
+        let totalNeeded = new BN(0);
+        for (const accountConfig of config.accounts) {
+          const entity = this.config.entityResolver(accountConfig.entityName);
+          if (!entity) continue;
+          
+          const requiredBalance = this.parseBalance(accountConfig.balance);
+          const currentBalance = await this.getCurrentBalance(entity.address);
+          const requiredBN = new BN(requiredBalance.planck);
+          
+          if (currentBalance.lt(requiredBN)) {
+            const needed = requiredBN.sub(currentBalance);
+            totalNeeded = totalNeeded.add(needed);
+            console.log(`[StateAllocator] ${accountConfig.entityName} needs ${this.formatBalance(needed.toString())} (has ${this.formatBalance(currentBalance.toString())}, needs ${accountConfig.balance})`);
+          } else {
+            console.log(`[StateAllocator] ${accountConfig.entityName} already has sufficient balance (${this.formatBalance(currentBalance.toString())} >= ${accountConfig.balance})`);
+          }
+        }
+        
+        // Check wallet balance
         const accountInfo = await this.api!.query.system.account(this.config.walletAccount.address);
         const accountData = (accountInfo as any).data;
         const freeBalance = new BN(accountData.free.toString());
@@ -408,25 +441,31 @@ export class StateAllocator {
         const token = this.config.chain.includes('polkadot') ? 'DOT' : 'WND';
         console.log(`[StateAllocator] Wallet balance on ${chainName}: ${this.formatBalance(availableBalance.toString(), token)}`);
         
-        // Reserve some balance for fees (rough estimate: 0.1 DOT)
-        const feeReserve = this.parseBalance('0.1 DOT').planck;
-        const requiredBalance = totalNeeded.add(new BN(feeReserve));
-        
-        if (availableBalance.lt(requiredBalance)) {
-          const needed = this.formatBalance(requiredBalance.sub(availableBalance).toString());
-          const current = this.formatBalance(availableBalance.toString(), token);
-          throw new FundingRequiredError(
-            `⚠️  INSUFFICIENT BALANCE\n\n` +
-            `   Chain: ${chainName} (${this.config.chain})\n` +
-            `   Your Wallet: ${this.config.walletAccount.address}\n\n` +
-            `   Current Balance: ${current}\n` +
-            `   Required: ${needed} (for ${config.accounts.length} entities + fees)\n\n` +
-            `   Please fund your wallet and try again.`,
-            this.config.walletAccount.address,
-            this.config.chain === 'westend' ? 'https://faucet.polkadot.io/westend' : 'https://faucet.polkadot.io',
-            current,
-            needed
-          );
+        // If no transfers needed, skip wallet balance check
+        if (totalNeeded.isZero()) {
+          console.log(`[StateAllocator] All accounts have sufficient balances, no transfers needed`);
+        } else {
+          // Reserve some balance for fees (rough estimate: 0.1 DOT per transfer, minimum 0.1 DOT)
+          const transferCount = config.accounts.length;
+          const feeReserve = this.parseBalance('0.1 DOT').planck;
+          const requiredBalance = totalNeeded.add(new BN(feeReserve));
+          
+          if (availableBalance.lt(requiredBalance)) {
+            const needed = this.formatBalance(requiredBalance.sub(availableBalance).toString());
+            const current = this.formatBalance(availableBalance.toString(), token);
+            throw new FundingRequiredError(
+              `⚠️  INSUFFICIENT BALANCE\n\n` +
+              `   Chain: ${chainName} (${this.config.chain})\n` +
+              `   Your Wallet: ${this.config.walletAccount.address}\n\n` +
+              `   Current Balance: ${current}\n` +
+              `   Required: ${needed} (for ${transferCount} entities + fees)\n\n` +
+              `   Please fund your wallet and try again.`,
+              this.config.walletAccount.address,
+              this.config.chain === 'westend' ? 'https://faucet.polkadot.io/westend' : 'https://faucet.polkadot.io',
+              current,
+              needed
+            );
+          }
         }
       } catch (error) {
         if (error instanceof FundingRequiredError) {
@@ -474,9 +513,14 @@ export class StateAllocator {
     }
 
     // For live mode, batch all transfers into a single transaction
-    if (this.config.mode === 'live' && result.pendingTransfers && result.pendingTransfers.length > 0) {
-      await this.batchTransfers(result.pendingTransfers, result);
-      result.pendingTransfers = []; // Clear after batching
+    if (this.config.mode === 'live') {
+      if (result.pendingTransfers && result.pendingTransfers.length > 0) {
+        console.log(`[StateAllocator] Batching ${result.pendingTransfers.length} transfers for accounts that need funding`);
+        await this.batchTransfers(result.pendingTransfers, result);
+        result.pendingTransfers = []; // Clear after batching
+      } else {
+        console.log(`[StateAllocator] All accounts already have sufficient balances, skipping transfers`);
+      }
     }
 
     return result;
@@ -597,27 +641,83 @@ export class StateAllocator {
     result: AllocationResult
   ): Promise<void> {
     const parsedBalance = this.parseBalance(balance);
+    const requiredBN = new BN(parsedBalance.planck);
     
     switch (this.config.mode) {
       case 'synthetic':
-        // In synthetic mode, we just track the expected balance
-        result.balances.set(address, { free: parsedBalance.planck });
-        console.log(`[StateAllocator] Synthetic balance for ${address}: ${balance}`);
-        break;
+        // TODO: Synthetic mode disabled
+        // Future implementation: Don't create state at all
+        // Instead: Mock DotBot's LLM responses entirely
+        throw new Error('Synthetic mode is not implemented yet. Use live mode.');
         
       case 'emulated':
-        // In emulated mode, use Chopsticks to set balance
-        await this.setChopsticksBalance(address, parsedBalance.planck, result);
-        break;
+        // TODO: Emulated mode disabled
+        // Future implementation:
+        // 1. Create Chopsticks fork
+        // 2. Set balances on fork using setStorage
+        // 3. Reconfigure DotBot to use Chopsticks API (not real chain)
+        // This ensures DotBot sees the same state we set up
+        throw new Error('Emulated mode is not implemented yet. Use live mode.');
         
       case 'live':
-        // In live mode, collect transfers to batch later
-        if (!result.pendingTransfers) {
-          result.pendingTransfers = [];
+        // LIVE MODE: Create REAL balances on REAL chain
+        // DotBot will query the real chain and see these balances
+        // ✅ No duplicate state - everything is on the real chain
+        const currentBalance = await this.getCurrentBalance(address);
+        if (currentBalance.lt(requiredBN)) {
+          // Only transfer the difference
+          const needed = requiredBN.sub(currentBalance);
+          if (!result.pendingTransfers) {
+            result.pendingTransfers = [];
+          }
+          result.pendingTransfers.push({ address, planck: needed.toString() });
+          console.log(`[StateAllocator] Live: Will transfer ${this.formatBalance(needed.toString())} to ${address} (has ${this.formatBalance(currentBalance.toString())}, needs ${balance})`);
+        } else {
+          console.log(`[StateAllocator] Live: ${address} already has sufficient balance (${this.formatBalance(currentBalance.toString())} >= ${balance}), skipping transfer`);
         }
-        result.pendingTransfers.push({ address, planck: parsedBalance.planck });
         result.balances.set(address, { free: parsedBalance.planck });
         break;
+    }
+  }
+
+  /**
+   * Get current balance for an address
+   */
+  private async getCurrentBalance(address: string): Promise<BN> {
+    switch (this.config.mode) {
+      case 'synthetic':
+        // In synthetic mode, return 0 (no real balance to check)
+        return new BN(0);
+        
+      case 'emulated':
+        // Query balance from Chopsticks API
+        if (!this.chopsticksChain) {
+          throw new Error('Chopsticks chain not initialized');
+        }
+        if (!this.chopsticksApi) {
+          // Create API instance if not exists
+          this.chopsticksApi = await this.chopsticksChain.api;
+        }
+        if (!this.chopsticksApi) {
+          throw new Error('Failed to create Chopsticks API instance');
+        }
+        await this.chopsticksApi.isReady;
+        const emulatedAccountInfo = await this.chopsticksApi.query.system.account(address);
+        const emulatedData = (emulatedAccountInfo as any).data;
+        return new BN(emulatedData.free.toString());
+        
+      case 'live':
+        // Query balance from live API
+        if (!this.api) {
+          throw new Error('API not initialized for live mode');
+        }
+        await this.api.isReady;
+        const accountInfo = await this.api.query.system.account(address);
+        const accountData = (accountInfo as any).data;
+        return new BN(accountData.free.toString());
+        
+      default:
+        return new BN(0);
     }
   }
 

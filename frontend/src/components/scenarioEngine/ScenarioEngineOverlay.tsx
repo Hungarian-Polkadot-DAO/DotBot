@@ -45,7 +45,8 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['state-allocation', 'happy-path']));
   const [report, setReport] = useState<string>('');
   const [isCreatingEntities, setIsCreatingEntities] = useState(false);
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('synthetic');
+  // Only LIVE mode is implemented - synthetic/emulated are TODO
+  const [executionMode, setExecutionMode] = useState<ExecutionMode>('live');
 
   const appendToReport = (text: string) => {
     setReport(prev => prev + text);
@@ -240,7 +241,8 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
           {activeTab === 'report' && (
             <ReportTab
               report={report}
-              isTyping={false}
+              isTyping={!!runningScenario}
+              isRunning={!!runningScenario}
               onClear={clearReport}
             />
           )}

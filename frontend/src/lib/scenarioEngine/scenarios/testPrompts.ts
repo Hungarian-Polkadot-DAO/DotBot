@@ -15,8 +15,8 @@ export const HAPPY_PATH_TESTS: Scenario[] = [
   // Basic transfers
   { 
     id: "happy-path-001",
-    name: "Basic DOT Transfer to Alice",
-    description: "Tests basic transfer of 5 DOT to Alice using natural language",
+    name: "Basic Transfer to Alice",
+    description: "Tests basic transfer of 5 WND to Alice using natural language",
     category: "happy-path",
     tags: ["transfer", "basic", "alice"],
     
@@ -24,7 +24,7 @@ export const HAPPY_PATH_TESTS: Scenario[] = [
       {
         id: "step-1",
         type: "prompt",
-        input: "Send 5 DOT to Alice"
+        input: "Send 5 WND to Alice"
       }
     ],
     

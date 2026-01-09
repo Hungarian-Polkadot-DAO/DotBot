@@ -2,6 +2,9 @@
  * Mode Selector Component
  * 
  * Reusable component for selecting execution mode (synthetic/emulated/live)
+ * 
+ * Currently: Only LIVE mode is fully implemented.
+ * Synthetic and Emulated modes are disabled (TODO for future implementation).
  */
 
 import React from 'react';
@@ -17,15 +20,15 @@ interface ModeSelectorProps {
 }
 
 const MODE_DESCRIPTIONS: Record<ExecutionMode, string> = {
-  synthetic: '→ Fast mocked tests (no blockchain)',
-  emulated: '→ Realistic Chopsticks fork (simulated chain)',
+  synthetic: '→ TODO: Fast mocked tests (DISABLED - not implemented)',
+  emulated: '→ TODO: Chopsticks fork (DISABLED - not implemented)',
   live: '→ Real Westend transactions (actual testnet)',
 };
 
 const MODE_TITLES: Record<ExecutionMode, string> = {
-  synthetic: 'Synthetic: Mocked blockchain (fast, no real transactions)',
-  emulated: 'Emulated: Chopsticks (realistic simulation with fork)',
-  live: 'Live: Real Westend testnet (actual transactions)',
+  synthetic: 'Synthetic: DISABLED - TODO: Requires DotBot API mocking',
+  emulated: 'Emulated: DISABLED - TODO: Requires DotBot reconnection to Chopsticks',
+  live: 'Live: Real Westend testnet (actual transactions) - READY',
 };
 
 export const ModeSelector: React.FC<ModeSelectorProps> = ({
@@ -40,16 +43,20 @@ export const ModeSelector: React.FC<ModeSelectorProps> = ({
       <div className="scenario-mode-label">{'>'} {label}</div>
       <div className="scenario-mode-options">
         <button
-          className={`scenario-mode-button ${mode === 'synthetic' ? 'active' : ''}`}
-          onClick={() => onModeChange('synthetic')}
+          className={`scenario-mode-button ${mode === 'synthetic' ? 'active' : ''} disabled`}
+          onClick={() => {/* Disabled - TODO */}}
           title={MODE_TITLES.synthetic}
+          disabled
+          style={{ opacity: 0.4, cursor: 'not-allowed' }}
         >
           SYNTHETIC
         </button>
         <button
-          className={`scenario-mode-button ${mode === 'emulated' ? 'active' : ''}`}
-          onClick={() => onModeChange('emulated')}
+          className={`scenario-mode-button ${mode === 'emulated' ? 'active' : ''} disabled`}
+          onClick={() => {/* Disabled - TODO */}}
           title={MODE_TITLES.emulated}
+          disabled
+          style={{ opacity: 0.4, cursor: 'not-allowed' }}
         >
           CHOPSTICKS
         </button>
