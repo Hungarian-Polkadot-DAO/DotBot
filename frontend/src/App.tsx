@@ -16,6 +16,7 @@ import WelcomeScreen from './components/chat/WelcomeScreen';
 import Chat from './components/chat/Chat';
 import ChatHistory from './components/history/ChatHistory';
 import ScenarioEngineOverlay from './components/scenarioEngine/ScenarioEngineOverlay';
+import LoadingOverlay from './components/common/LoadingOverlay';
 import { DotBot, Environment, ScenarioEngine } from './lib';
 import type { ChatInstanceData } from './lib/types/chatInstance';
 import { useWalletStore } from './stores/walletStore';
@@ -57,6 +58,8 @@ const App: React.FC = () => {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [asiOne] = useState(() => new ASIOneService());
   const [isInitializing, setIsInitializing] = useState(false);
+  const [initializingMessage, setInitializingMessage] = useState<string>('');
+  const [initializingSubMessage, setInitializingSubMessage] = useState<string>('');
   
   // ScenarioEngine State
   const [scenarioEngine] = useState(() => new ScenarioEngine({
@@ -284,6 +287,24 @@ const App: React.FC = () => {
     
     try {
       setIsInitializing(true);
+      
+      // Check if we need to switch network/environment
+      const currentEnvironment = dotbot.getEnvironment();
+      const currentNetwork = dotbot.getNetwork();
+      const needsEnvironmentSwitch = chat.environment !== currentEnvironment;
+      const needsNetworkSwitch = chat.network !== currentNetwork;
+      
+      if (needsEnvironmentSwitch) {
+        setInitializingMessage('Switching Environment');
+        setInitializingSubMessage(`Switching from ${currentEnvironment} to ${chat.environment}...`);
+      } else if (needsNetworkSwitch) {
+        setInitializingMessage('Switching Network');
+        setInitializingSubMessage(`Connecting to ${chat.network}...`);
+      } else {
+        setInitializingMessage('Loading Chat');
+        setInitializingSubMessage('Restoring conversation...');
+      }
+      
       await dotbot.loadChatInstance(chat.id);
       setShowChatHistory(false);
       setShowWelcomeScreen(false);
@@ -297,6 +318,8 @@ const App: React.FC = () => {
       // We might want to show an error toast/notification here
     } finally {
       setIsInitializing(false);
+      setInitializingMessage('');
+      setInitializingSubMessage('');
     }
   };
 
@@ -386,6 +409,13 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Loading Overlay */}
+        <LoadingOverlay
+          isVisible={isInitializing}
+          message={initializingMessage || 'Loading...'}
+          subMessage={initializingSubMessage}
+        />
 
         {/* Settings Modal */}
         <SettingsModal
