@@ -7,7 +7,7 @@
 export { EntityCreator, createEntityCreator, PREDEFINED_NAMES } from './EntityCreator';
 export type { EntityCreatorConfig, PredefinedName } from './EntityCreator';
 
-export { StateAllocator, createStateAllocator } from './StateAllocator';
+export { StateAllocator, createStateAllocator, FundingRequiredError } from './StateAllocator';
 export type { StateAllocatorConfig, AllocationResult } from './StateAllocator';
 
 export { ScenarioExecutor, createScenarioExecutor } from './ScenarioExecutor';

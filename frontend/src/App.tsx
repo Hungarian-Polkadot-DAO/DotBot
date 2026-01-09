@@ -137,17 +137,40 @@ const App: React.FC = () => {
       
       setDotbot(dotbotInstance);
       
-      // Initialize ScenarioEngine with DotBot's API
-      // NOTE: The API is always connected to the real chain (Westend/Mainnet).
-      // For synthetic mode, the executor uses queryBalance (mocked) instead of api.
-      // For emulated mode, we'd need to pass a Chopsticks API instance (TODO).
-      // For live mode, the real API is used.
-      try {
-        await scenarioEngine.initialize();
-        const api = await dotbotInstance.getApi();
-        const environment = dotbotInstance.getEnvironment();
-        
-        scenarioEngine.setDependencies({
+        // Initialize ScenarioEngine with DotBot's API
+        // NOTE: The API is always connected to the real chain (Westend/Mainnet).
+        // For synthetic mode, the executor uses queryBalance (mocked) instead of api.
+        // For emulated mode, we'd need to pass a Chopsticks API instance (TODO).
+        // For live mode, the real API is used.
+        try {
+          await scenarioEngine.initialize();
+          const api = await dotbotInstance.getApi();
+          const environment = dotbotInstance.getEnvironment();
+          
+          // Set wallet account and signer for live mode transfers
+          if (selectedAccount) {
+            // Get the signer from DotBot's execution system
+            // The signer is stored in the executionSystem's executioner
+            const dotbotAny = dotbotInstance as any;
+            const executionSystem = dotbotAny.executionSystem;
+            const executioner = executionSystem?.executioner;
+            const signer = executioner?.signer || null;
+            
+            if (signer) {
+              scenarioEngine.setWalletForLiveMode(
+                {
+                  address: selectedAccount.address,
+                  name: selectedAccount.name,
+                  source: selectedAccount.source
+                },
+                signer
+              );
+            } else {
+              console.warn('[App] No signer found in DotBot executioner - live mode transfers may not work');
+            }
+          }
+          
+          scenarioEngine.setDependencies({
           api, // Real API (Westend/Mainnet) - used for live mode
           // For synthetic mode, provide mocked balance queries from scenario state
           queryBalance: async (address: string) => {
@@ -173,6 +196,17 @@ const App: React.FC = () => {
             const entity = scenarioEngine.getEntity(entityName);
             return entity?.uri ? { uri: entity.uri } : undefined;
           }
+        });
+        
+        // Set RPC manager provider for StateAllocator (so it can use Asset Hub or Relay Chain as needed)
+        scenarioEngine.setRpcManagerProvider(() => {
+          // Access DotBot's RPC managers via internal properties
+          // Note: This is a workaround - ideally DotBot would expose a getter for these
+          const dotbotAny = dotbotInstance as any;
+          return {
+            relayChainManager: dotbotAny.relayChainManager,
+            assetHubManager: dotbotAny.assetHubManager,
+          };
         });
         setIsScenarioEngineReady(true);
         console.log('[ScenarioEngine] Initialized and ready');

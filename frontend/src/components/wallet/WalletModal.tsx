@@ -46,16 +46,26 @@ const WalletModal: React.FC<WalletModalProps> = ({
   } = useWalletStore();
 
   // Initialize wallet check when modal opens
+  // Use a ref to track if we've already initialized to prevent hot loops
+  const hasInitialized = React.useRef(false);
+  
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !hasInitialized.current) {
+      hasInitialized.current = true;
       if (!isConnected) {
-      checkWalletStatus();
+        checkWalletStatus();
       } else {
         // Refresh accounts when already connected to show other available accounts
         refreshAccounts();
       }
     }
-  }, [isOpen, isConnected, checkWalletStatus, refreshAccounts]);
+    
+    // Reset when modal closes
+    if (!isOpen) {
+      hasInitialized.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]); // Only depend on isOpen to prevent hot loops
 
   // Clear error when modal closes
   useEffect(() => {

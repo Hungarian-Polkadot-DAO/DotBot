@@ -57,7 +57,7 @@ import type { ApiPromise } from '@polkadot/api';
 import { ApiPromise as ApiPromiseClass, WsProvider } from '@polkadot/api';
 import { Keyring } from '@polkadot/keyring';
 import { BN } from '@polkadot/util';
-import { decodeAddress } from '@polkadot/util-crypto';
+import { decodeAddress, keyExtractSuri, mnemonicToMiniSecret, sr25519PairFromSeed, sr25519Sign } from '@polkadot/util-crypto';
 import { ChatInstanceManager } from '../../chatInstanceManager';
 import { ChopsticksDatabase } from '../../services/simulation/database';
 import type { Network, RpcManager } from '../../rpcManager';
@@ -67,6 +67,25 @@ import type { ConversationItem, TextMessage, SystemMessage } from '../../types/c
 // =============================================================================
 // TYPES
 // =============================================================================
+
+/**
+ * Custom error for funding requirements
+ * This error type signals that execution should stop immediately
+ */
+export class FundingRequiredError extends Error {
+  constructor(
+    message: string,
+    public readonly devAccountAddress: string,
+    public readonly faucetLink: string,
+    public readonly currentBalance?: string,
+    public readonly requiredBalance?: string
+  ) {
+    super(message);
+    this.name = 'FundingRequiredError';
+    // Ensure this error is not caught and ignored
+    Object.setPrototypeOf(this, FundingRequiredError.prototype);
+  }
+}
 
 export interface StateAllocatorConfig {
   /** Execution mode */
@@ -95,6 +114,16 @@ export interface StateAllocatorConfig {
   
   /** Seed prefix for deterministic generation */
   seedPrefix?: string;
+  
+  /** User's wallet account (for live mode transfers) */
+  walletAccount?: {
+    address: string;
+    name?: string;
+    source: string;
+  };
+  
+  /** Signer for live mode transactions (browser wallet) */
+  signer?: any; // Signer from executionEngine/signers/types
 }
 
 export interface AllocationResult {
@@ -115,6 +144,9 @@ export interface AllocationResult {
   
   /** Transaction hashes (for live mode) */
   txHashes?: string[];
+  
+  /** Pending transfers to batch (for live mode) */
+  pendingTransfers?: Array<{ address: string; planck: string }>;
 }
 
 // =============================================================================
@@ -226,7 +258,15 @@ export class StateAllocator {
           const session = await manager.createExecutionSession();
           this.executionSession = session; // Keep session alive
           this.api = session.api;
-          console.log(`[StateAllocator] Connected to RPC for ${this.config.chain} via RPC manager`);
+          
+          // Verify API is connected to the correct chain
+          await this.api.isReady;
+          const runtimeChain = this.api.runtimeChain?.toString() || 'Unknown';
+          const specName = this.api.runtimeVersion?.specName?.toString() || 'unknown';
+          const chainType = this.isAssetHubChain() ? 'Asset Hub' : 'Relay Chain';
+          console.log(`[StateAllocator] Connected to ${chainType} for ${this.config.chain} via RPC manager`);
+          console.log(`[StateAllocator] API runtime: ${runtimeChain} (${specName})`);
+          
           return;
         }
       }
@@ -338,95 +378,58 @@ export class StateAllocator {
       errors: [],
     };
 
-    // For live mode, check dev account balance first
-    let devAccount: any = null;
-    let devAccountAddress: string | null = null;
+    // For live mode, check user's wallet balance and batch all transfers
     if (this.config.mode === 'live') {
-      devAccount = this.getDevAccount();
-      if (devAccount) {
-        devAccountAddress = devAccount.address;
-        // Check if dev account has sufficient balance
-        const totalNeeded = config.accounts.reduce((sum, acc) => {
-          const parsed = this.parseBalance(acc.balance);
-          return sum.add(new BN(parsed.planck));
-        }, new BN(0));
+      if (!this.config.walletAccount || !this.config.signer) {
+        throw new Error('Wallet account and signer are required for live mode transfers');
+      }
+      
+      // Check user's wallet balance
+      const totalNeeded = config.accounts.reduce((sum, acc) => {
+        const parsed = this.parseBalance(acc.balance);
+        return sum.add(new BN(parsed.planck));
+      }, new BN(0));
+      
+      try {
+        const chainName = this.isAssetHubChain() ? 'Asset Hub' : 'Relay Chain';
+        console.log(`[StateAllocator] Checking wallet balance on ${chainName} (chain: ${this.config.chain})`);
         
-        try {
-          const accountInfo = await this.api!.query.system.account(devAccountAddress);
-          // AccountInfo has structure: { data: { free, reserved, ... }, nonce, ... }
-          const accountData = (accountInfo as any).data;
-          const freeBalance = new BN(accountData.free.toString());
-          const reservedBalance = new BN(accountData.reserved.toString());
-          const availableBalance = freeBalance.sub(reservedBalance);
-          
-          // Reserve some balance for fees (rough estimate: 0.1 DOT)
-          const feeReserve = this.parseBalance('0.1 DOT').planck;
-          const requiredBalance = totalNeeded.add(new BN(feeReserve));
-          
-          if (availableBalance.lt(requiredBalance)) {
-            const neededDOT = this.formatBalance(requiredBalance.sub(availableBalance).toString());
-            const faucetLink = this.config.chain === 'westend' 
-              ? 'https://faucet.polkadot.io/westend'
-              : 'https://faucet.polkadot.io';
-            
-            const token = this.config.chain.includes('polkadot') ? 'DOT' : 'WND';
-            result.warnings.push(
-              `⚠️  DEV ACCOUNT NEEDS FUNDING\n` +
-              `\n` +
-              `   Dev Account Address:\n` +
-              `   ${devAccountAddress}\n` +
-              `\n` +
-              `   Current Balance: ${this.formatBalance(availableBalance.toString(), token)}\n` +
-              `   Required: ${neededDOT} (for ${config.accounts.length} entities + transaction fees)\n` +
-              `\n` +
-              `   Next Step: Fund the dev account via faucet:\n` +
-              `   ${faucetLink}\n` +
-              `\n` +
-              `   After funding, re-run the scenario.`
-            );
-            // Still track expected balances even if we can't transfer
-            for (const accountConfig of config.accounts) {
-              const entity = this.config.entityResolver(accountConfig.entityName);
-              if (entity) {
-                const parsed = this.parseBalance(accountConfig.balance);
-                result.balances.set(entity.address, { free: parsed.planck });
-              }
-            }
-            return result;
-          }
-        } catch (error) {
-          result.errors.push(`Failed to check dev account balance: ${error}`);
-          result.success = false;
-          return result;
-        }
-      } else {
-        // No dev account configured - show instructions
-        const devAccountAddress = this.getDevAccountAddress();
-        const faucetLink = this.config.chain === 'westend' 
-          ? 'https://faucet.polkadot.io/westend'
-          : 'https://faucet.polkadot.io';
+        await this.api!.isReady;
+        
+        const accountInfo = await this.api!.query.system.account(this.config.walletAccount.address);
+        const accountData = (accountInfo as any).data;
+        const freeBalance = new BN(accountData.free.toString());
+        const reservedBalance = new BN(accountData.reserved.toString());
+        const availableBalance = freeBalance.sub(reservedBalance);
         
         const token = this.config.chain.includes('polkadot') ? 'DOT' : 'WND';
-        result.warnings.push(
-          `⚠️  DEV ACCOUNT REQUIRED FOR LIVE MODE\n` +
-          `\n` +
-          `   Dev Account Address:\n` +
-          `   ${devAccountAddress}\n` +
-          `\n` +
-          `   Next Step: Fund the dev account via faucet:\n` +
-          `   ${faucetLink}\n` +
-          `\n` +
-          `   After funding, re-run the scenario.`
-        );
-        // Still track expected balances
-        for (const accountConfig of config.accounts) {
-          const entity = this.config.entityResolver(accountConfig.entityName);
-          if (entity) {
-            const parsed = this.parseBalance(accountConfig.balance);
-            result.balances.set(entity.address, { free: parsed.planck });
-          }
+        console.log(`[StateAllocator] Wallet balance on ${chainName}: ${this.formatBalance(availableBalance.toString(), token)}`);
+        
+        // Reserve some balance for fees (rough estimate: 0.1 DOT)
+        const feeReserve = this.parseBalance('0.1 DOT').planck;
+        const requiredBalance = totalNeeded.add(new BN(feeReserve));
+        
+        if (availableBalance.lt(requiredBalance)) {
+          const needed = this.formatBalance(requiredBalance.sub(availableBalance).toString());
+          const current = this.formatBalance(availableBalance.toString(), token);
+          throw new FundingRequiredError(
+            `⚠️  INSUFFICIENT BALANCE\n\n` +
+            `   Chain: ${chainName} (${this.config.chain})\n` +
+            `   Your Wallet: ${this.config.walletAccount.address}\n\n` +
+            `   Current Balance: ${current}\n` +
+            `   Required: ${needed} (for ${config.accounts.length} entities + fees)\n\n` +
+            `   Please fund your wallet and try again.`,
+            this.config.walletAccount.address,
+            this.config.chain === 'westend' ? 'https://faucet.polkadot.io/westend' : 'https://faucet.polkadot.io',
+            current,
+            needed
+          );
         }
-        return result;
+      } catch (error) {
+        if (error instanceof FundingRequiredError) {
+          throw error;
+        }
+        throw new Error(`Failed to check wallet balance: ${error}`);
       }
     }
 
@@ -444,8 +447,7 @@ export class StateAllocator {
         await this.allocateBalance(
           entity.address,
           accountConfig.balance,
-          result,
-          devAccount
+          result
         );
 
         // Allocate assets if specified
@@ -457,11 +459,21 @@ export class StateAllocator {
           );
         }
       } catch (error) {
+        // If it's a FundingRequiredError, re-throw it immediately to stop execution
+        if (error instanceof FundingRequiredError) {
+          throw error;
+        }
         result.errors.push(
           `Failed to allocate state for "${accountConfig.entityName}": ${error}`
         );
         result.success = false;
       }
+    }
+
+    // For live mode, batch all transfers into a single transaction
+    if (this.config.mode === 'live' && result.pendingTransfers && result.pendingTransfers.length > 0) {
+      await this.batchTransfers(result.pendingTransfers, result);
+      result.pendingTransfers = []; // Clear after batching
     }
 
     return result;
@@ -589,8 +601,7 @@ export class StateAllocator {
   private async allocateBalance(
     address: string,
     balance: string,
-    result: AllocationResult,
-    devAccount?: any
+    result: AllocationResult
   ): Promise<void> {
     const parsedBalance = this.parseBalance(balance);
     
@@ -607,8 +618,12 @@ export class StateAllocator {
         break;
         
       case 'live':
-        // In live mode, transfer from dev account
-        await this.transferLiveBalance(address, parsedBalance.planck, result, devAccount);
+        // In live mode, collect transfers to batch later
+        if (!result.pendingTransfers) {
+          result.pendingTransfers = [];
+        }
+        result.pendingTransfers.push({ address, planck: parsedBalance.planck });
+        result.balances.set(address, { free: parsedBalance.planck });
         break;
     }
   }
@@ -659,42 +674,59 @@ export class StateAllocator {
     }
   }
 
-  private async transferLiveBalance(
-    address: string,
-    planck: string,
-    result: AllocationResult,
-    devAccount?: any
+  /**
+   * Batch all transfers into a single transaction (live mode only)
+   * User signs once via wallet extension
+   */
+  private async batchTransfers(
+    transfers: Array<{ address: string; planck: string }>,
+    result: AllocationResult
   ): Promise<void> {
-    if (!this.api) {
-      throw new Error('API not initialized for live mode');
-    }
-
-    if (!devAccount) {
-      // This should not happen if allocateWalletState checked properly
-      result.errors.push(
-        `Dev account not available for transfer to ${address}`
-      );
-      result.balances.set(address, { free: planck });
-      return;
+    if (!this.api || !this.config.walletAccount || !this.config.signer) {
+      throw new Error('API, wallet account, and signer required for live mode transfers');
     }
 
     try {
-      // Create transfer extrinsic
-      const amountBN = new BN(planck);
-      const transferExtrinsic = this.api.tx.balances.transferKeepAlive(
-        address,
-        amountBN
+      await this.api.isReady;
+
+      console.log(`[StateAllocator] Batching ${transfers.length} transfers into single transaction`);
+      
+      // Create all transfer extrinsics
+      const transferExtrinsics = transfers.map(({ address, planck }) => {
+        const amountBN = new BN(planck);
+        return this.api!.tx.balances.transferKeepAlive(address, amountBN);
+      });
+
+      // Create batch transaction
+      const batchExtrinsic = this.api.tx.utility.batchAll(transferExtrinsics);
+
+      console.log(`[StateAllocator] Signing batch transaction with wallet extension...`);
+      console.log(`[StateAllocator] From: ${this.config.walletAccount.address}`);
+      console.log(`[StateAllocator] Transfers: ${transfers.length} accounts`);
+
+      // Sign using the user's wallet extension
+      const signedExtrinsic = await this.config.signer.signExtrinsic(
+        batchExtrinsic,
+        this.config.walletAccount.address
       );
 
-      // Sign and send transaction
+      console.log(`[StateAllocator] Batch transaction signed, sending...`);
+
+      // Send the signed batch
       const hash = await new Promise<string>((resolve, reject) => {
-        transferExtrinsic.signAndSend(devAccount, (txResult: any) => {
-          if (txResult.status.isInBlock || txResult.status.isFinalized) {
-            resolve(txResult.txHash.toString());
+        signedExtrinsic.send((txResult: any) => {
+          if (txResult.status.isInBlock) {
+            console.log(`[StateAllocator] ✅ Batch transaction in block: ${txResult.txHash.toHex()}`);
+            resolve(txResult.txHash.toHex());
+          } else if (txResult.status.isFinalized) {
+            console.log(`[StateAllocator] ✅ Batch transaction finalized: ${txResult.txHash.toHex()}`);
           } else if (txResult.isError) {
-            reject(new Error(`Transaction failed: ${txResult.status.toString()}`));
+            reject(new Error('Batch transaction failed'));
           }
-        }).catch(reject);
+        }).catch((error: any) => {
+          console.error('[StateAllocator] ❌ Batch send failed:', error);
+          reject(error);
+        });
       });
 
       // Track transaction hash
@@ -703,65 +735,13 @@ export class StateAllocator {
       }
       result.txHashes.push(hash);
 
-      result.balances.set(address, { free: planck });
-      console.log(`[StateAllocator] Live transfer to ${address}: ${planck} planck (tx: ${hash})`);
+      console.log(`[StateAllocator] ✅ Batch transfer complete (tx: ${hash})`);
     } catch (error) {
-      result.errors.push(`Failed to transfer live balance to ${address}: ${error}`);
-      // Still track expected balance even if transfer fails
-      result.balances.set(address, { free: planck });
+      result.errors.push(`Failed to batch transfers: ${error}`);
       throw error;
     }
   }
 
-  /**
-   * Get or create a dev account for live mode transfers
-   * Uses a deterministic account based on scenario seed
-   */
-  private getDevAccount(): any | null {
-    if (this.config.mode !== 'live' || !this.api) {
-      return null;
-    }
-
-    try {
-      // Create a deterministic dev account using the same pattern as entities
-      // Use a fixed seed prefix for the dev account
-      const keyring = new Keyring({ 
-        type: 'sr25519', 
-        ss58Format: this.config.ss58Format 
-      });
-      
-      // Use a deterministic URI for the dev account: //{seedPrefix}/dev
-      const devUri = `//${this.config.seedPrefix}/dev`;
-      const devPair = keyring.addFromUri(devUri);
-      
-      return devPair;
-    } catch (error) {
-      console.error('[StateAllocator] Failed to create dev account:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Get the dev account address (for display purposes)
-   */
-  private getDevAccountAddress(): string {
-    if (this.config.mode !== 'live') {
-      return '';
-    }
-
-    try {
-      const keyring = new Keyring({ 
-        type: 'sr25519', 
-        ss58Format: this.config.ss58Format 
-      });
-      const devUri = `//${this.config.seedPrefix}/dev`;
-      const devPair = keyring.addFromUri(devUri);
-      return devPair.address;
-    } catch (error) {
-      console.error('[StateAllocator] Failed to get dev account address:', error);
-      return '';
-    }
-  }
 
   // ===========================================================================
   // ASSET ALLOCATION

@@ -32,6 +32,7 @@ import {
   createEntityCreator,
   StateAllocator,
   createStateAllocator,
+  FundingRequiredError,
   ScenarioExecutor,
   createScenarioExecutor,
   Evaluator,
@@ -72,6 +73,16 @@ export class ScenarioEngine {
   
   // Dependencies for executor
   private executorDeps: ExecutorDependencies | null = null;
+  
+  // RPC managers for StateAllocator (optional)
+  private rpcManagerProvider: (() => {
+    relayChainManager?: any;
+    assetHubManager?: any;
+  } | null) | null = null;
+  
+  // Wallet account and signer for live mode transfers
+  private walletAccount?: { address: string; name?: string; source: string };
+  private walletSigner?: any;
 
   constructor(config: ScenarioEngineConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -126,6 +137,31 @@ export class ScenarioEngine {
       this.executor.setDependencies(deps);
     }
     this.log('debug', 'Executor dependencies set');
+  }
+
+  /**
+   * Set RPC manager provider for StateAllocator
+   * 
+   * This allows StateAllocator to use the same RPC managers as DotBot,
+   * ensuring consistent connections and proper chain selection.
+   */
+  setRpcManagerProvider(provider: () => {
+    relayChainManager?: any;
+    assetHubManager?: any;
+  } | null): void {
+    this.rpcManagerProvider = provider;
+    this.log('debug', 'RPC manager provider set');
+  }
+
+  /**
+   * Set wallet account and signer for live mode transfers
+   * 
+   * This allows StateAllocator to use the user's wallet for funding scenario entities.
+   */
+  setWalletForLiveMode(walletAccount: { address: string; name?: string; source: string }, signer: any): void {
+    this.walletAccount = walletAccount;
+    this.walletSigner = signer;
+    this.log('debug', 'Wallet account and signer set for live mode');
   }
 
   /**
@@ -414,19 +450,36 @@ export class ScenarioEngine {
       chain: environment.chain,
       entityResolver: (name) => this.entityCreator?.getEntity(name),
       chopsticksEndpoint: environment.chopsticksConfig?.endpoint,
+      rpcManagerProvider: this.rpcManagerProvider || undefined,
+      // Pass wallet account and signer for live mode
+      walletAccount: this.walletAccount,
+      signer: this.walletSigner,
     });
     await this.stateAllocator.initialize();
 
     // Allocate wallet state
     if (scenario.walletState) {
-      const result = await this.stateAllocator.allocateWalletState(scenario.walletState);
-      if (!result.success) {
-        throw new Error(`Failed to allocate wallet state: ${result.errors.join(', ')}`);
-      }
-      if (result.warnings.length > 0) {
-        for (const warning of result.warnings) {
-          this.log('warn', warning);
+      try {
+        const result = await this.stateAllocator.allocateWalletState(scenario.walletState);
+        if (!result.success) {
+          throw new Error(`Failed to allocate wallet state: ${result.errors.join(', ')}`);
         }
+        if (result.warnings.length > 0) {
+          for (const warning of result.warnings) {
+            this.log('warn', warning);
+          }
+        }
+      } catch (error) {
+        // If it's a FundingRequiredError, log it and re-throw to stop execution immediately
+        // DO NOT continue to steps - this error means funding is required
+        if (error instanceof FundingRequiredError) {
+          this.log('error', error.message);
+          this.updateState({ status: 'error', error: error.message });
+          // Re-throw to stop execution - this will be caught by runScenario's catch block
+          throw error;
+        }
+        // For other errors, re-throw as well
+        throw error;
       }
     }
 
