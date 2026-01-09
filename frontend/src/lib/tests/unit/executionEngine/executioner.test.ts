@@ -366,8 +366,8 @@ describe('Executioner', () => {
       const item1 = executionArray.getItem(id1);
       const item2 = executionArray.getItem(id2);
       expect(item1?.status).toBe('failed');
-      // Second item should not be executed
-      expect(item2?.status).toBe('pending');
+      // Second item should not be executed - remains in initial state (ready when simulation disabled)
+      expect(item2?.status).toBe('ready');
     });
   });
 

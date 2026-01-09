@@ -41,7 +41,8 @@ describe('ExecutionArray', () => {
       const item = executionArray.getItem(id);
 
       expect(item).toBeDefined();
-      expect(item?.status).toBe('pending');
+      // When simulation is disabled, items start as 'ready' (not 'pending')
+      expect(item?.status).toBe('ready');
       expect(item?.description).toBe('Transfer 1 DOT');
       expect(item?.estimatedFee).toBe('0.01 DOT');
       expect(item?.warnings).toEqual(['Low balance']);
@@ -157,16 +158,19 @@ describe('ExecutionArray', () => {
 
       executionArray.updateStatus(id1, 'completed');
       executionArray.updateStatus(id2, 'failed');
-      // id3 remains pending
+      // id3 remains ready (simulation disabled by default)
 
-      expect(executionArray.getItemsByStatus('pending')).toHaveLength(1);
+      expect(executionArray.getItemsByStatus('ready')).toHaveLength(1);
       expect(executionArray.getItemsByStatus('completed')).toHaveLength(1);
       expect(executionArray.getItemsByStatus('failed')).toHaveLength(1);
     });
 
     it('should get pending items', () => {
-      executionArray.add(createMockAgentResult());
-      executionArray.add(createMockAgentResult());
+      const id1 = executionArray.add(createMockAgentResult());
+      const id2 = executionArray.add(createMockAgentResult());
+      // Manually set items to 'pending' for testing (simulating when simulation is enabled)
+      executionArray.updateStatus(id1, 'pending');
+      executionArray.updateStatus(id2, 'pending');
       executionArray.updateStatus(itemId, 'completed');
 
       const pending = executionArray.getPendingItems();
@@ -181,8 +185,9 @@ describe('ExecutionArray', () => {
       const id1 = executionArray.add(createMockAgentResult());
       const id2 = executionArray.add(createMockAgentResult());
       
-      executionArray.updateStatus(id1, 'ready');
-      // id2 remains pending
+      // id1 remains ready (simulation disabled by default)
+      // Manually set id2 to 'pending' to test both statuses
+      executionArray.updateStatus(id2, 'pending');
 
       const ready = executionArray.getReadyItems();
       expect(ready).toHaveLength(2);
@@ -212,7 +217,7 @@ describe('ExecutionArray', () => {
 
       executionArray.updateStatus(id1, 'completed');
       executionArray.updateStatus(id2, 'finalized');
-      // id3 remains pending
+      // id3 remains ready (simulation disabled by default)
 
       const state = executionArray.getState();
       expect(state.completedItems).toBe(2);
