@@ -4,7 +4,7 @@
  * Global application settings including ScenarioEngine activation.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { X, Beaker } from 'lucide-react';
 import '../../styles/settings-modal.css';
 
@@ -23,6 +23,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleScenarioEngine,
   isMainnet,
 }) => {
+  // Close on ESC key
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (

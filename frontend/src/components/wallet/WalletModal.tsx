@@ -64,6 +64,20 @@ const WalletModal: React.FC<WalletModalProps> = ({
     }
   }, [isOpen, clearError]);
 
+  // Close on ESC key
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onClose]);
+
   const getAllAccounts = useCallback((): WalletAccount[] => {
     return availableWallets.flatMap(wallet => wallet.accounts);
   }, [availableWallets]);

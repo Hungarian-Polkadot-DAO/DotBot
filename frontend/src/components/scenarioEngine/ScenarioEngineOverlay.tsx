@@ -5,7 +5,7 @@
  * Appears as an overlay on the right side of the screen.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ScenarioEngine, DotBot, Scenario } from '../../lib';
 import { X } from 'lucide-react';
 import { EntitiesTab } from './components/EntitiesTab';
@@ -30,6 +30,17 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
   onClose,
   onSendMessage 
 }) => {
+  // Close on ESC key
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
   const [activeTab, setActiveTab] = useState<TabType>('entities');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['state-allocation', 'happy-path']));
   const [report, setReport] = useState<string>('');
@@ -38,6 +49,15 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
 
   const appendToReport = (text: string) => {
     setReport(prev => prev + text);
+  };
+
+  const clearReport = () => {
+    setReport('');
+  };
+
+  const clearEntities = () => {
+    engine.clearEntities();
+    appendToReport(`[NUKE] All entities cleared\n`);
   };
 
   const { entities, runningScenario, setRunningScenario } = useScenarioEngine({
@@ -180,6 +200,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
               isCreating={isCreatingEntities}
               onAppendReport={appendToReport}
               onCreateEntities={createEntities}
+              onClearEntities={clearEntities}
             />
           )}
 
@@ -199,6 +220,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
             <ReportTab
               report={report}
               isTyping={false}
+              onClear={clearReport}
             />
           )}
         </div>

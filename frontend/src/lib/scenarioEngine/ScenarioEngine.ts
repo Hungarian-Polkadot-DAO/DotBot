@@ -353,6 +353,25 @@ export class ScenarioEngine {
     this.log('info', `Created ${this.state.entities.size} entities for ${environment.mode} mode`);
   }
 
+  /**
+   * Clear all entities
+   * 
+   * Removes all created entities and resets entity state.
+   */
+  clearEntities(): void {
+    if (this.entityCreator) {
+      this.entityCreator.clear();
+    }
+    
+    this.updateState({
+      entities: new Map(),
+      entityMode: undefined,
+      entityChain: undefined,
+    });
+    
+    this.log('info', 'All entities cleared');
+  }
+
   // ===========================================================================
   // SETUP PHASES
   // ===========================================================================
