@@ -42,6 +42,10 @@
  */
 
 import type { ApiPromise } from '@polkadot/api';
+import type { SubmittableExtrinsic } from '@polkadot/api/types';
+import { BN } from '@polkadot/util';
+import { KeyringSigner } from '../../executionEngine/signers/keyringSigner';
+import type { ExecutionPlan } from '../../prompts/system/execution/types';
 import type {
   Scenario,
   ScenarioStep,
@@ -116,6 +120,9 @@ export interface ExecutorDependencies {
   
   /** Optional: Entity keypair resolver (for signing background actions) */
   getEntityKeypair?: (entityName: string) => { mnemonic: string } | undefined;
+  
+  /** Optional: Entity address resolver (for getting entity addresses) */
+  getEntityAddress?: (entityName: string) => string | undefined;
 }
 
 // =============================================================================
@@ -518,80 +525,37 @@ export class ScenarioExecutor {
       
       case 'sign-as-participant':
         // Sign a multisig tx as a background participant
-        // TODO: Implement using KeyringSigner with test account keypair
-        this.emit({ 
-          type: 'log', 
-          level: 'info', 
-          message: `Signing as ${action.asEntity} (background)` 
-        });
-        // const signer = new KeyringSigner({ mnemonic: entity.mnemonic });
-        // await api.tx.multisig.asMulti(...).signAndSend(signer);
+        await this.signAsParticipant(action);
         break;
 
       case 'approve-multisig':
         // Approve a multisig call on-chain
-        // TODO: Get multisig call hash, submit approval
-        this.emit({ 
-          type: 'log', 
-          level: 'info', 
-          message: `Approving multisig as ${action.asEntity}` 
-        });
+        await this.approveMultisig(action);
         break;
 
       case 'execute-multisig':
         // Execute multisig when threshold reached
-        // TODO: Submit final execution
-        this.emit({ 
-          type: 'log', 
-          level: 'info', 
-          message: `Executing multisig as ${action.asEntity}` 
-        });
+        await this.executeMultisig(action);
         break;
 
       case 'fund-account':
         // Fund an account from dev account or faucet
-        // TODO: Use dev account KeyringSigner to transfer DOT
-        const targetAddress = action.params?.address as string;
-        const amount = action.params?.amount as string;
-        this.emit({ 
-          type: 'log', 
-          level: 'info', 
-          message: `Funding ${targetAddress} with ${amount} (background)` 
-        });
-        // const devSigner = new KeyringSigner({ uri: '//Alice' });
-        // await api.tx.balances.transfer(targetAddress, amount).signAndSend(devSigner);
+        await this.fundAccount(action);
         break;
 
       case 'submit-extrinsic':
         // Submit any extrinsic as a specific entity
-        // TODO: Get extrinsic from params, sign with entity's keypair
-        this.emit({ 
-          type: 'log', 
-          level: 'info', 
-          message: `Submitting extrinsic as ${action.asEntity}` 
-        });
+        await this.submitExtrinsic(action);
         break;
 
       case 'wait-blocks':
         // Wait for N blocks (for finalization)
-        const blockCount = (action.params?.blocks as number) || 1;
-        this.emit({ 
-          type: 'log', 
-          level: 'info', 
-          message: `Waiting for ${blockCount} blocks` 
-        });
-        // TODO: Subscribe to new blocks, wait for N
-        await this.sleep(blockCount * 6000); // Approximate: 6s per block
+        await this.waitForBlocks(action);
         break;
 
       case 'query-on-chain-state':
         // Query blockchain state
-        // TODO: Query using API
-        this.emit({ 
-          type: 'log', 
-          level: 'debug', 
-          message: `Querying on-chain state` 
-        });
+        await this.queryOnChainState(action);
         break;
 
       case 'custom':
@@ -647,50 +611,126 @@ export class ScenarioExecutor {
         return { passed: false, message: 'Invalid expected value for check-llm-response' };
 
       case 'check-agent-call':
-        // Check which agent was called (from chat result metadata)
+        // Check which agent was called (from ExecutionPlan in ChatResult)
         if (!lastChatResult) {
           return { passed: false, message: 'No chat result available' };
         }
         const expectedAgent = assertion.expected as string;
-        // TODO: Extract agent call info from lastChatResult.conversationItem.metadata or similar
-        // For now, check if response mentions the agent
+        
+        // Check ExecutionPlan steps for agent class name
+        const agentPlan = lastChatResult.plan as ExecutionPlan | undefined;
+        if (agentPlan?.steps) {
+          const agentCalled = agentPlan.steps.some((step: any) => 
+            step.agentClassName?.toLowerCase().includes(expectedAgent.toLowerCase())
+          );
+          return {
+            passed: agentCalled,
+            message: agentCalled
+              ? `Agent ${expectedAgent} was called in ExecutionPlan`
+              : `Agent ${expectedAgent} was not found in ExecutionPlan`,
+          };
+        }
+        
+        // Fallback: check if response mentions the agent
         const agentMentioned = response.toLowerCase().includes(expectedAgent.toLowerCase());
         return {
           passed: agentMentioned,
           message: agentMentioned
-            ? `Agent ${expectedAgent} appears to be called`
+            ? `Agent ${expectedAgent} appears to be mentioned in response`
             : `Agent ${expectedAgent} was not detected`,
         };
 
       case 'check-extrinsic-creation':
-        // Check if an extrinsic was created
+        // Check if an extrinsic was created (ExecutionPlan with steps)
         if (!lastChatResult) {
           return { passed: false, message: 'No chat result available' };
         }
-        // Check if executionArray exists in the chat result
-        const hasExtrinsic = !!(lastChatResult as any).executionArray && 
-                            (lastChatResult as any).executionArray.length > 0;
+        
+        // Check if ExecutionPlan exists and has steps
+        const extrinsicPlan = lastChatResult.plan as ExecutionPlan | undefined;
+        const hasPlan = !!extrinsicPlan && extrinsicPlan.steps && extrinsicPlan.steps.length > 0;
+        
+        // Also check if executionArray exists (from ExecutionMessage)
+        const hasExecutionArray = !!(lastChatResult as any).executionArray && 
+                                 (lastChatResult as any).executionArray.length > 0;
+        
+        const hasExtrinsic = hasPlan || hasExecutionArray;
+        
         return {
           passed: hasExtrinsic,
           message: hasExtrinsic 
-            ? 'Extrinsic was created' 
-            : 'No extrinsic was created',
+            ? 'Extrinsic was created (ExecutionPlan or ExecutionArray found)' 
+            : 'No extrinsic was created (no ExecutionPlan or ExecutionArray)',
         };
 
       case 'check-balance-change':
         // Verify a balance changed (requires before/after balance tracking)
-        // This would need to query the blockchain/state
         if (!this.deps?.queryBalance && !this.deps?.api) {
           return { 
             passed: false, 
             message: 'Cannot check balance - no queryBalance function or API provided' 
           };
         }
-        // TODO: Implement actual balance checking
-        return { 
-          passed: true, 
-          message: 'Balance change verification not fully implemented yet' 
-        };
+
+        const entityName = assertion.entityName;
+        if (!entityName) {
+          return { 
+            passed: false, 
+            message: 'check-balance-change requires entityName in assertion' 
+          };
+        }
+
+        const entityAddress = this.deps?.getEntityAddress?.(entityName);
+        if (!entityAddress) {
+          return { 
+            passed: false, 
+            message: `Entity address not found for ${entityName}` 
+          };
+        }
+
+        try {
+          // Get current balance
+          let currentBalance: string;
+          if (this.deps.queryBalance) {
+            currentBalance = await this.deps.queryBalance(entityAddress);
+          } else {
+            const accountInfo = await this.deps.api.query.system.account(entityAddress);
+            const data = accountInfo.toJSON() as any;
+            currentBalance = data.data?.free || '0';
+          }
+
+          // Get expected balance from assertion
+          const expectedBalance = assertion.expected as string | { free: string };
+          const expectedFree = typeof expectedBalance === 'string' 
+            ? expectedBalance 
+            : expectedBalance?.free;
+
+          if (!expectedFree) {
+            return { 
+              passed: false, 
+              message: 'check-balance-change requires expected balance in assertion.expected' 
+            };
+          }
+
+          // Compare balances (allow small difference for fees)
+          const currentBN = new BN(currentBalance);
+          const expectedBN = new BN(expectedFree);
+          const difference = currentBN.sub(expectedBN).abs();
+          const tolerance = new BN('1000000000'); // 0.001 DOT/WND tolerance
+
+          const passed = difference.lte(tolerance);
+          return {
+            passed,
+            message: passed
+              ? `Balance matches expected (current: ${currentBalance}, expected: ${expectedFree})`
+              : `Balance mismatch (current: ${currentBalance}, expected: ${expectedFree})`,
+          };
+        } catch (error) {
+          return { 
+            passed: false, 
+            message: `Balance check failed: ${error}` 
+          };
+        }
 
       case 'check-error':
         // Check if an error was thrown/mentioned
@@ -721,6 +761,340 @@ export class ScenarioExecutor {
 
       default:
         return { passed: false, message: `Unknown assertion type: ${assertion.type}` };
+    }
+  }
+
+  // ===========================================================================
+  // BACKGROUND ACTION IMPLEMENTATIONS
+  // ===========================================================================
+
+  /**
+   * Sign as a participant in a multisig transaction
+   */
+  private async signAsParticipant(action: ScenarioAction): Promise<void> {
+    if (!action.asEntity) {
+      throw new Error('sign-as-participant requires asEntity parameter');
+    }
+
+    const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
+    if (!entityKeypair?.mnemonic) {
+      throw new Error(`Entity keypair not found for ${action.asEntity}`);
+    }
+
+    const signatories = action.params?.signatories as string[];
+    const threshold = action.params?.threshold as number;
+    const callHash = action.params?.callHash as string;
+    const maxWeight = action.params?.maxWeight as number;
+
+    if (!signatories || !threshold || !callHash) {
+      throw new Error('sign-as-participant requires signatories, threshold, and callHash parameters');
+    }
+
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `Signing multisig as ${action.asEntity} (background)` 
+    });
+
+    // Create signer from entity mnemonic
+    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
+    if (!entityAddress) {
+      throw new Error(`Entity address not found for ${action.asEntity}`);
+    }
+
+    // Create approval extrinsic
+    const approvalExtrinsic = this.deps!.api.tx.multisig.approveAsMulti(
+      threshold,
+      signatories,
+      null, // timepoint (null for new approval)
+      callHash,
+      maxWeight || new BN(1000000000) // Default max weight
+    );
+
+    // Sign and send
+    const signedExtrinsic = await signer.signExtrinsic(approvalExtrinsic, entityAddress);
+    await new Promise<void>((resolve, reject) => {
+      signedExtrinsic.send((result: any) => {
+        if (result.status.isInBlock || result.status.isFinalized) {
+          this.emit({ 
+            type: 'log', 
+            level: 'info', 
+            message: `Multisig approval submitted by ${action.asEntity} (tx: ${result.txHash.toString()})` 
+          });
+          resolve();
+        } else if (result.isError) {
+          reject(new Error(`Multisig approval failed: ${result.status.toString()}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Approve a multisig call
+   */
+  private async approveMultisig(action: ScenarioAction): Promise<void> {
+    // Similar to sign-as-participant, but specifically for approvals
+    await this.signAsParticipant(action);
+  }
+
+  /**
+   * Execute a multisig when threshold is reached
+   */
+  private async executeMultisig(action: ScenarioAction): Promise<void> {
+    if (!action.asEntity) {
+      throw new Error('execute-multisig requires asEntity parameter');
+    }
+
+    const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
+    if (!entityKeypair?.mnemonic) {
+      throw new Error(`Entity keypair not found for ${action.asEntity}`);
+    }
+
+    const signatories = action.params?.signatories as string[];
+    const threshold = action.params?.threshold as number;
+    const call = action.params?.call as string | Uint8Array;
+    const maxWeight = action.params?.maxWeight as number;
+    const timepoint = action.params?.timepoint as { height: number; index: number } | null;
+
+    if (!signatories || !threshold || !call) {
+      throw new Error('execute-multisig requires signatories, threshold, and call parameters');
+    }
+
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `Executing multisig as ${action.asEntity}` 
+    });
+
+    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
+    if (!entityAddress) {
+      throw new Error(`Entity address not found for ${action.asEntity}`);
+    }
+
+    // Create execution extrinsic
+    const executionExtrinsic = this.deps!.api.tx.multisig.asMulti(
+      threshold,
+      signatories,
+      timepoint || null,
+      typeof call === 'string' ? call : this.deps!.api.createType('Call', call),
+      maxWeight || new BN(1000000000)
+    );
+
+    // Sign and send
+    const signedExtrinsic = await signer.signExtrinsic(executionExtrinsic, entityAddress);
+    await new Promise<void>((resolve, reject) => {
+      signedExtrinsic.send((result: any) => {
+        if (result.status.isInBlock || result.status.isFinalized) {
+          this.emit({ 
+            type: 'log', 
+            level: 'info', 
+            message: `Multisig executed by ${action.asEntity} (tx: ${result.txHash.toString()})` 
+          });
+          resolve();
+        } else if (result.isError) {
+          reject(new Error(`Multisig execution failed: ${result.status.toString()}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Fund an account from dev account
+   */
+  private async fundAccount(action: ScenarioAction): Promise<void> {
+    const targetAddress = action.params?.address as string;
+    const amount = action.params?.amount as string;
+    const fromEntity = action.asEntity || 'Alice'; // Default to Alice as dev account
+
+    if (!targetAddress || !amount) {
+      throw new Error('fund-account requires address and amount parameters');
+    }
+
+    const entityKeypair = this.deps?.getEntityKeypair?.(fromEntity);
+    if (!entityKeypair?.mnemonic) {
+      throw new Error(`Entity keypair not found for ${fromEntity}`);
+    }
+
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `Funding ${targetAddress} with ${amount} from ${fromEntity} (background)` 
+    });
+
+    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    const fromAddress = this.deps?.getEntityAddress?.(fromEntity);
+    if (!fromAddress) {
+      throw new Error(`Entity address not found for ${fromEntity}`);
+    }
+
+    // Parse amount to BN
+    const amountBN = new BN(amount);
+    
+    // Create transfer extrinsic
+    const transferExtrinsic = this.deps!.api.tx.balances.transferKeepAlive(
+      targetAddress,
+      amountBN
+    );
+
+    // Sign and send
+    const signedExtrinsic = await signer.signExtrinsic(transferExtrinsic, fromAddress);
+    await new Promise<void>((resolve, reject) => {
+      signedExtrinsic.send((result: any) => {
+        if (result.status.isInBlock || result.status.isFinalized) {
+          this.emit({ 
+            type: 'log', 
+            level: 'info', 
+            message: `Account funded (tx: ${result.txHash.toString()})` 
+          });
+          resolve();
+        } else if (result.isError) {
+          reject(new Error(`Funding failed: ${result.status.toString()}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Submit an extrinsic as a specific entity
+   */
+  private async submitExtrinsic(action: ScenarioAction): Promise<void> {
+    if (!action.asEntity) {
+      throw new Error('submit-extrinsic requires asEntity parameter');
+    }
+
+    const extrinsicHex = action.params?.extrinsic as string;
+    const extrinsic = action.params?.extrinsic as SubmittableExtrinsic<'promise'>;
+
+    if (!extrinsicHex && !extrinsic) {
+      throw new Error('submit-extrinsic requires extrinsic parameter (hex string or SubmittableExtrinsic)');
+    }
+
+    const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
+    if (!entityKeypair?.mnemonic) {
+      throw new Error(`Entity keypair not found for ${action.asEntity}`);
+    }
+
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `Submitting extrinsic as ${action.asEntity}` 
+    });
+
+    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
+    if (!entityAddress) {
+      throw new Error(`Entity address not found for ${action.asEntity}`);
+    }
+
+    // If hex string, decode it
+    let extrinsicToSubmit: SubmittableExtrinsic<'promise'>;
+    if (typeof extrinsicHex === 'string') {
+      extrinsicToSubmit = this.deps!.api.tx(extrinsicHex);
+    } else {
+      extrinsicToSubmit = extrinsic;
+    }
+
+    // Sign and send
+    const signedExtrinsic = await signer.signExtrinsic(extrinsicToSubmit, entityAddress);
+    await new Promise<void>((resolve, reject) => {
+      signedExtrinsic.send((result: any) => {
+        if (result.status.isInBlock || result.status.isFinalized) {
+          this.emit({ 
+            type: 'log', 
+            level: 'info', 
+            message: `Extrinsic submitted (tx: ${result.txHash.toString()})` 
+          });
+          resolve();
+        } else if (result.isError) {
+          reject(new Error(`Extrinsic submission failed: ${result.status.toString()}`));
+        }
+      });
+    });
+  }
+
+  /**
+   * Wait for N blocks
+   */
+  private async waitForBlocks(action: ScenarioAction): Promise<void> {
+    const blockCount = (action.params?.blocks as number) || 1;
+
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `Waiting for ${blockCount} block(s)` 
+    });
+
+    if (!this.deps?.api) {
+      // Fallback to approximate timing if no API
+      await this.sleep(blockCount * 6000); // ~6s per block
+      return;
+    }
+
+    // Get current block number
+    const currentBlock = await this.deps.api.rpc.chain.getHeader();
+    const targetBlock = currentBlock.number.toNumber() + blockCount;
+
+    // Subscribe to new blocks
+    return new Promise<void>(async (resolve) => {
+      const unsubscribe = await this.deps!.api.rpc.chain.subscribeNewHeads((header) => {
+        const blockNumber = header.number.toNumber();
+        if (blockNumber >= targetBlock) {
+          unsubscribe();
+          this.emit({ 
+            type: 'log', 
+            level: 'info', 
+            message: `Reached block ${blockNumber}` 
+          });
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Query on-chain state
+   */
+  private async queryOnChainState(action: ScenarioAction): Promise<void> {
+    const query = action.params?.query as string;
+    const params = action.params?.params as any[];
+
+    if (!query) {
+      throw new Error('query-on-chain-state requires query parameter');
+    }
+
+    this.emit({ 
+      type: 'log', 
+      level: 'debug', 
+      message: `Querying on-chain state: ${query}` 
+    });
+
+    if (!this.deps?.api) {
+      throw new Error('API required for on-chain state queries');
+    }
+
+    // Parse query format: "System.Account(address)" or "Balances.Account(address)"
+    const [pallet, method] = query.split('.');
+    if (!pallet || !method) {
+      throw new Error(`Invalid query format: ${query}. Expected format: "Pallet.Method"`);
+    }
+
+    try {
+      const result = await this.deps.api.query[pallet][method](...(params || []));
+      
+      // Store result in context variables
+      if (this.context) {
+        this.context.variables.set(`query_${query}`, result.toJSON());
+      }
+
+      this.emit({ 
+        type: 'log', 
+        level: 'debug', 
+        message: `Query result: ${JSON.stringify(result.toJSON())}` 
+      });
+    } catch (error) {
+      throw new Error(`Query failed: ${error}`);
     }
   }
 
