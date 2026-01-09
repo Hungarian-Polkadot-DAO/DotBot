@@ -7,8 +7,8 @@
  * 
  * ### Wallet/Account Balances
  * - **Synthetic**: Mock data only
- * - **Emulated**: Use Chopsticks `dev_setStorage` to set balances
- * - **Live**: Actually fund accounts from dev account or faucet
+ * - **Emulated**: Use Chopsticks `setStorage` to set balances
+ * - **Live**: Batch transfers from user's wallet (single signature via wallet extension)
  * 
  * ### On-chain Entities (Multisigs, Proxies)
  * - **Synthetic**: Mock multisig addresses
@@ -24,13 +24,16 @@
  * 
  * ## Example: Multisig Demo Setup on Westend (Live Mode)
  * ```typescript
+ * // User's wallet will be used to fund entities
  * await stateAllocator.allocateWalletState({
  *   accounts: [
- *     { entityName: "Alice", balance: "100 DOT" },  // Fund from dev account
+ *     { entityName: "Alice", balance: "100 DOT" },  // Funded from user's wallet
  *     { entityName: "Bob", balance: "50 DOT" },
  *     { entityName: "Charlie", balance: "50 DOT" }
  *   ]
  * });
+ * // All transfers are batched into a single transaction
+ * // User signs once via wallet extension (Talisman, Subwallet, etc.)
  * 
  * // Create multisig on-chain (submits tx to Westend)
  * const multisigAddress = await stateAllocator.createMultisig({
@@ -55,9 +58,8 @@ import type {
 } from '../types';
 import type { ApiPromise } from '@polkadot/api';
 import { ApiPromise as ApiPromiseClass, WsProvider } from '@polkadot/api';
-import { Keyring } from '@polkadot/keyring';
 import { BN } from '@polkadot/util';
-import { decodeAddress, keyExtractSuri, mnemonicToMiniSecret, sr25519PairFromSeed, sr25519Sign } from '@polkadot/util-crypto';
+import { decodeAddress } from '@polkadot/util-crypto';
 import { ChatInstanceManager } from '../../chatInstanceManager';
 import { ChopsticksDatabase } from '../../services/simulation/database';
 import type { Network, RpcManager } from '../../rpcManager';
@@ -71,11 +73,12 @@ import type { ConversationItem, TextMessage, SystemMessage } from '../../types/c
 /**
  * Custom error for funding requirements
  * This error type signals that execution should stop immediately
+ * Used when user's wallet doesn't have sufficient balance for transfers
  */
 export class FundingRequiredError extends Error {
   constructor(
     message: string,
-    public readonly devAccountAddress: string,
+    public readonly walletAddress: string,
     public readonly faucetLink: string,
     public readonly currentBalance?: string,
     public readonly requiredBalance?: string
@@ -577,16 +580,6 @@ export class StateAllocator {
       this.api = null;
     }
     
-    // Clean up Chopsticks API
-    if (this.chopsticksApi) {
-      try {
-        await this.chopsticksApi.disconnect();
-      } catch (error) {
-        console.warn('[StateAllocator] Error disconnecting Chopsticks API:', error);
-      }
-      this.chopsticksApi = null;
-    }
-    
     if (this.chopsticksChain) {
       this.chopsticksChain = null;
     }
@@ -676,7 +669,13 @@ export class StateAllocator {
 
   /**
    * Batch all transfers into a single transaction (live mode only)
-   * User signs once via wallet extension
+   * 
+   * Uses a pluggable Signer interface, allowing different signing implementations:
+   * - BrowserWalletSigner: Uses wallet extensions (Talisman, Subwallet, etc.)
+   * - KeyringSigner: Uses @polkadot/keyring for CLI/backend/testing
+   * - Custom signers: Implement the Signer interface for custom behavior
+   * 
+   * The user signs once via their wallet extension, and all transfers execute together.
    */
   private async batchTransfers(
     transfers: Array<{ address: string; planck: string }>,
@@ -697,22 +696,24 @@ export class StateAllocator {
         return this.api!.tx.balances.transferKeepAlive(address, amountBN);
       });
 
-      // Create batch transaction
+      // Create batch transaction - all transfers execute atomically
       const batchExtrinsic = this.api.tx.utility.batchAll(transferExtrinsics);
 
-      console.log(`[StateAllocator] Signing batch transaction with wallet extension...`);
+      console.log(`[StateAllocator] ⏳ Waiting for wallet signature...`);
       console.log(`[StateAllocator] From: ${this.config.walletAccount.address}`);
       console.log(`[StateAllocator] Transfers: ${transfers.length} accounts`);
+      console.log(`[StateAllocator] Please approve the transaction in your wallet extension (Talisman/Subwallet/etc.)`);
 
-      // Sign using the user's wallet extension
+      // Sign using the pluggable signer (BrowserWalletSigner in live mode)
+      // This will trigger the wallet extension popup
       const signedExtrinsic = await this.config.signer.signExtrinsic(
         batchExtrinsic,
         this.config.walletAccount.address
       );
 
-      console.log(`[StateAllocator] Batch transaction signed, sending...`);
+      console.log(`[StateAllocator] ✅ Transaction signed! Sending to network...`);
 
-      // Send the signed batch
+      // Send the signed batch transaction
       const hash = await new Promise<string>((resolve, reject) => {
         signedExtrinsic.send((txResult: any) => {
           if (txResult.status.isInBlock) {
