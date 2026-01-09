@@ -68,7 +68,10 @@ export interface TestEntity {
   /** SS58 address */
   address: string;
   
-  /** Mnemonic (only available in synthetic/emulated modes) */
+  /** Substrate URI for keypair derivation (//Alice, etc.) - used for signing */
+  uri?: string;
+  
+  /** Mnemonic (deprecated - use URI instead) */
   mnemonic?: string;
   
   /** Entity type */
@@ -296,6 +299,7 @@ export type ScenarioCategory =
   | 'context-awareness'
   | 'knowledge-base'
   | 'multi-step'
+  | 'state-allocation'
   | 'custom';
 
 /** A single step in a scenario */

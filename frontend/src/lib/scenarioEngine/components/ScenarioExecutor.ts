@@ -119,7 +119,7 @@ export interface ExecutorDependencies {
   queryBalance?: (address: string) => Promise<string>;
   
   /** Optional: Entity keypair resolver (for signing background actions) */
-  getEntityKeypair?: (entityName: string) => { mnemonic: string } | undefined;
+  getEntityKeypair?: (entityName: string) => { uri: string } | undefined;
   
   /** Optional: Entity address resolver (for getting entity addresses) */
   getEntityAddress?: (entityName: string) => string | undefined;
@@ -777,7 +777,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${action.asEntity}`);
     }
 
@@ -796,8 +796,8 @@ export class ScenarioExecutor {
       message: `Signing multisig as ${action.asEntity} (background)` 
     });
 
-    // Create signer from entity mnemonic
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    // Create signer from entity URI (ensures address matches)
+    const signer = KeyringSigner.fromUri(entityKeypair.uri);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);
@@ -847,7 +847,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${action.asEntity}`);
     }
 
@@ -867,7 +867,7 @@ export class ScenarioExecutor {
       message: `Executing multisig as ${action.asEntity}` 
     });
 
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    const signer = KeyringSigner.fromUri(entityKeypair.uri);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);
@@ -913,7 +913,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(fromEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${fromEntity}`);
     }
 
@@ -923,7 +923,7 @@ export class ScenarioExecutor {
       message: `Funding ${targetAddress} with ${amount} from ${fromEntity} (background)` 
     });
 
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    const signer = KeyringSigner.fromUri(entityKeypair.uri);
     const fromAddress = this.deps?.getEntityAddress?.(fromEntity);
     if (!fromAddress) {
       throw new Error(`Entity address not found for ${fromEntity}`);
@@ -972,7 +972,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${action.asEntity}`);
     }
 
@@ -982,7 +982,7 @@ export class ScenarioExecutor {
       message: `Submitting extrinsic as ${action.asEntity}` 
     });
 
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    const signer = KeyringSigner.fromUri(entityKeypair.uri);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);

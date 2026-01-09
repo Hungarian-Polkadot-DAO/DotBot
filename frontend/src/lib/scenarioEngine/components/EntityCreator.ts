@@ -114,32 +114,31 @@ export class EntityCreator {
 
   /**
    * Create a single keypair entity
+   * 
+   * IMPORTANT: The URI is the source of truth for signing.
+   * The keypair is derived from the URI, and the same URI must be used
+   * for signing to ensure the address matches.
    */
   async createKeypairEntity(name: string): Promise<TestEntity> {
     this.ensureInitialized();
     
     // Use Substrate derivation path for deterministic keypair generation
     // Format: //{seedPrefix}/{name} creates a deterministic keypair
-    const derivationPath = `//${this.config.seedPrefix}/${name}`;
+    const uri = `//${this.config.seedPrefix}/${name}`;
     
     // Create keyring and add keypair from derivation path
     const keyring = new Keyring({ type: 'sr25519', ss58Format: this.config.ss58Format });
-    const pair = keyring.addFromUri(derivationPath);
+    const pair = keyring.addFromUri(uri);
     
     // Get address (already encoded with correct SS58 format from keyring)
     const address = pair.address;
     
-    // For predefined entities (Alice, Bob, etc.), we can optionally generate a mnemonic
-    // for display/export purposes, but the actual keypair is derived from the path
-    // In synthetic/emulated modes, we generate a deterministic mnemonic for reference
-    const mnemonic = this.config.mode !== 'live' 
-      ? this.generateDeterministicMnemonic(name)
-      : undefined;
-    
+    // Store the URI for signing in synthetic/emulated modes
+    // In live mode, we don't expose the URI for security
     const entity: TestEntity = {
       name,
       address,
-      mnemonic,
+      uri: this.config.mode !== 'live' ? uri : undefined,
       type: 'keypair',
     };
     
@@ -290,7 +289,7 @@ export class EntityCreator {
   export(): TestEntity[] {
     return Array.from(this.entities.values()).map(entity => ({
       ...entity,
-      mnemonic: this.config.mode === 'live' ? undefined : entity.mnemonic,
+      uri: this.config.mode === 'live' ? undefined : entity.uri,
     }));
   }
 
@@ -304,61 +303,6 @@ export class EntityCreator {
     }
   }
 
-  /**
-   * Generate a deterministic mnemonic from entity name
-   * 
-   * Note: The actual keypair is derived from the Substrate derivation path
-   * (//{seedPrefix}/{name}). This mnemonic is generated for reference/display
-   * purposes in synthetic/emulated modes, but the keypair itself doesn't use it.
-   * 
-   * For true determinism, we use a seed-based approach that generates the same
-   * mnemonic for the same entity name.
-   */
-  private generateDeterministicMnemonic(name: string): string {
-    // Create a deterministic seed from the entity name
-    const seedString = `${this.config.seedPrefix}/${name}`;
-    
-    // Use the seed string to generate deterministic entropy
-    // We'll create a 16-byte entropy array (for 12-word mnemonic)
-    const entropy = new Uint8Array(16);
-    let hash = 0;
-    
-    // Fill entropy deterministically from seed string
-    for (let i = 0; i < 16; i++) {
-      const char = seedString.charCodeAt(i % seedString.length);
-      hash = ((hash << 5) - hash) + char + i;
-      hash = hash & hash;
-      entropy[i] = Math.abs(hash) % 256;
-    }
-    
-    // Convert entropy to mnemonic using mnemonicGenerate
-    // Note: mnemonicGenerate() is random, but we can use the entropy to seed it
-    // Actually, mnemonicGenerate doesn't accept entropy - it generates random
-    // So we'll use a workaround: generate from a deterministic mini secret
-    
-    // Better approach: Use the seed string directly with keyring derivation
-    // But for mnemonic display, we'll generate a deterministic one
-    // We can use mnemonicToMiniSecret with a deterministic input, then reverse
-    
-    // For now, generate a deterministic mnemonic by using the seed as a basis
-    // This is a simplified approach - in production you might want to use
-    // a proper seed-to-mnemonic conversion
-    
-    // Generate mnemonic deterministically by using seed hash
-    // We'll create a pseudo-mnemonic that's deterministic but not BIP39 compliant
-    // For actual use, the keypair comes from the derivation path, not this mnemonic
-    const words: string[] = [];
-    hash = 0;
-    for (let i = 0; i < 12; i++) {
-      hash = ((hash << 7) - hash) + seedString.charCodeAt(i % seedString.length) + i * 17;
-      hash = hash & hash;
-      // Create a deterministic "word" (in practice, you'd map to BIP39 word list)
-      const wordHash = Math.abs(hash);
-      words.push(`deterministic-${wordHash.toString(36)}`);
-    }
-    
-    return words.join(' ');
-  }
 
   /**
    * Calculate multisig address from signatories and threshold
