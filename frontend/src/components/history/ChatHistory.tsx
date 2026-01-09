@@ -161,6 +161,7 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
               dotbot={dotbot}
               onClick={onSelectChat}
               onRenamed={onChatRenamed}
+              onDeleted={loadChats}
               isSelected={chat.id === currentChatId}
             />
           ))}

@@ -1,5 +1,52 @@
 /* Confirmation Modal Styles */
 
+/* Prevent interaction with body content when modal is open */
+body.modal-open {
+  overflow: hidden !important;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  /* Prevent text selection on entire page */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Prevent all pointer events on body content except modal */
+body.modal-open > *:not(.confirmation-modal-overlay) {
+  pointer-events: none !important;
+}
+
+/* Specifically prevent interaction with chat history cards when modal is open */
+body.modal-open .chat-history-card,
+body.modal-open .chat-history-card * {
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  cursor: default !important;
+}
+
+/* Dim the selected card when modal is open */
+body.modal-open .chat-history-card.selected {
+  opacity: 0.5 !important;
+  filter: brightness(0.7);
+}
+
+/* Allow selection and interaction only within the modal */
+body.modal-open .confirmation-modal-overlay,
+body.modal-open .confirmation-modal-overlay * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+  pointer-events: auto !important;
+}
+
 .confirmation-modal-overlay {
   position: fixed;
   top: 0;
@@ -12,6 +59,26 @@
   justify-content: center;
   z-index: 10000;
   backdrop-filter: blur(4px);
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  touch-action: none;
+  /* Ensure overlay captures all events */
+  cursor: default;
+}
+
+/* Prevent any interaction with elements behind the overlay */
+.confirmation-modal-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  pointer-events: auto;
 }
 
 .confirmation-modal {
@@ -24,6 +91,13 @@
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   border: 1px solid var(--border-color);
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  position: relative;
+  z-index: 10001;
 }
 
 .confirmation-modal-header {
