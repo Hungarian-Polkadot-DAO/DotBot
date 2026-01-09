@@ -105,8 +105,8 @@
 .environment-switch-btn {
   flex-shrink: 0;
   background-color: transparent;
-  color: var(--brand-white);
-  border: 1px solid var(--brand-white);
+  color: var(--text-primary);
+  border: 1px solid var(--text-primary);
   border-radius: 20px;
   padding: 6px 14px;
   font-weight: 500;
@@ -122,11 +122,32 @@
   height: fit-content;
 }
 
-.environment-switch-btn:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.1);
+/* Light mode - use amber/yellow theme for testnet button */
+.environment-switch-btn {
+  background-color: rgba(251, 191, 36, 0.1);
+  border-color: #fbbf24;
+  color: #92400e;
+}
+
+/* Dark mode - use white for visibility */
+[data-theme="dark"] .environment-switch-btn {
+  background-color: transparent;
   border-color: var(--brand-white);
+  color: var(--brand-white);
+}
+
+.environment-switch-btn:hover:not(:disabled) {
+  background-color: rgba(251, 191, 36, 0.2);
+  border-color: #f59e0b;
+  color: #78350f;
   transform: translateY(-1px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .environment-switch-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: var(--brand-white);
+  color: var(--brand-white);
 }
 
 .environment-switch-btn:active:not(:disabled) {
@@ -142,14 +163,27 @@
 }
 
 .environment-switch-btn.mainnet {
+  background-color: rgba(13, 8, 42, 0.1);
+  border-color: var(--brand-purple);
+  color: var(--brand-purple);
+}
+
+[data-theme="dark"] .environment-switch-btn.mainnet {
   background-color: transparent;
   border-color: var(--brand-white);
   color: var(--brand-white);
 }
 
 .environment-switch-btn.mainnet:hover:not(:disabled) {
+  background-color: rgba(13, 8, 42, 0.15);
+  border-color: var(--brand-purple);
+  color: var(--brand-purple);
+}
+
+[data-theme="dark"] .environment-switch-btn.mainnet:hover:not(:disabled) {
   background-color: rgba(255, 255, 255, 0.1);
   border-color: var(--brand-white);
+  color: var(--brand-white);
 }
 
 .environment-switch-spinner {
