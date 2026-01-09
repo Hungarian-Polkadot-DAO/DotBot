@@ -56,11 +56,13 @@ export const ReportTab: React.FC<ReportTabProps> = ({
       return;
     }
 
-    // If report has new content beyond what we've already displayed
+    // If report has new content beyond what we've already processed
     if (report.length > lastProcessedLength) {
       // Immediately show everything we've already processed (no animation)
       const alreadyProcessed = report.slice(0, lastProcessedLength);
-      setDisplayedText(alreadyProcessed);
+      if (displayedText.length < lastProcessedLength) {
+        setDisplayedText(alreadyProcessed);
+      }
 
       // Only animate the NEW characters
       const newChars = report.slice(lastProcessedLength);
@@ -68,20 +70,32 @@ export const ReportTab: React.FC<ReportTabProps> = ({
       setIsTyping(true);
 
       const typeNextChar = () => {
-        if (charIndex < newChars.length && report.length > lastProcessedLengthRef.current) {
+        // Check if report has changed (might have been cleared or updated)
+        const currentReportLength = report.length;
+        if (currentReportLength < lastProcessedLengthRef.current) {
+          // Report was cleared, stop typing
+          setIsTyping(false);
+          lastProcessedLengthRef.current = currentReportLength;
+          setDisplayedText(report);
+          return;
+        }
+
+        if (charIndex < newChars.length) {
           const currentLength = lastProcessedLength + charIndex + 1;
           // Make sure we don't go beyond current report length
-          if (currentLength <= report.length) {
+          if (currentLength <= currentReportLength) {
             setDisplayedText(report.slice(0, currentLength));
             charIndex++;
             timeoutRef.current = setTimeout(typeNextChar, 20); // 20ms per character
           } else {
             setIsTyping(false);
-            lastProcessedLengthRef.current = report.length;
+            lastProcessedLengthRef.current = currentReportLength;
+            setDisplayedText(report);
           }
         } else {
           setIsTyping(false);
-          lastProcessedLengthRef.current = report.length;
+          lastProcessedLengthRef.current = currentReportLength;
+          setDisplayedText(report);
         }
       };
 
@@ -112,6 +126,17 @@ export const ReportTab: React.FC<ReportTabProps> = ({
     }
   };
 
+  const handleClick = () => {
+    // Finish typing animation immediately when clicked
+    if (isTyping && timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+      setDisplayedText(report);
+      setIsTyping(false);
+      lastProcessedLengthRef.current = report.length;
+    }
+  };
+
   return (
     <div className="scenario-panel">
       <div className="scenario-panel-header">
@@ -126,7 +151,7 @@ export const ReportTab: React.FC<ReportTabProps> = ({
           </button>
         )}
       </div>
-      <div className="scenario-report" ref={reportRef}>
+      <div className="scenario-report" ref={reportRef} onClick={handleClick}>
         <pre className="scenario-report-text">
           {displayedText || '> Awaiting scenario execution...\n> Run a scenario to see results.'}
           {isTyping && <span className="scenario-cursor">█</span>}
