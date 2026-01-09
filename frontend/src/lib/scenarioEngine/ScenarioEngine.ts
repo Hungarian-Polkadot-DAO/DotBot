@@ -93,6 +93,9 @@ export class ScenarioEngine {
       // Initialize evaluator (no async setup needed)
       this.evaluator = createEvaluator();
 
+      // Forward evaluator events (LLM-consumable logs)
+      this.evaluator.addEventListener((event) => this.emit(event));
+
       // Initialize executor
       this.executor = createScenarioExecutor();
 

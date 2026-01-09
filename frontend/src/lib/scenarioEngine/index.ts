@@ -183,10 +183,10 @@ export type {
 } from './components';
 
 // =============================================================================
-// TEST PROMPT LIBRARY EXPORTS
+// SCENARIO LIBRARY EXPORTS
 // =============================================================================
 
-export type { TestPrompt } from './scenarios';
+// Note: TestPrompt type removed - scenarios now use Scenario type directly
 export {
   // All tests
   ALL_TESTS,

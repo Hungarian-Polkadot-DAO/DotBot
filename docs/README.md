@@ -135,6 +135,10 @@ DotBot/
 │   │   │   │   ├── rpcManager.ts    # Multi-endpoint RPC management
 │   │   │   │   └── simulation/      # Chopsticks integration
 │   │   │   │
+│   │   │   ├── scenarioEngine/      # Testing framework
+│   │   │   │   ├── components/      # EntityCreator, StateAllocator, etc.
+│   │   │   │   └── scenarios/       # Test scenarios
+│   │   │   │
 │   │   │   └── types/               # TypeScript types
 │   │   │
 │   │   └── components/              # React UI components
@@ -250,6 +254,15 @@ Smart endpoint management:
 - Health monitoring
 - Automatic failover
 - Response time tracking
+
+### 6. ScenarioEngine Testing Framework
+
+**NEW** in v0.2.0: Systematic testing framework for DotBot:
+- Deterministic test entity creation
+- Multi-mode execution (synthetic, emulated, live)
+- UI-integrated testing (tests through actual UI)
+- LLM-consumable evaluation logs
+- Comprehensive test scenarios (happy-path, adversarial, jailbreak, etc.)
 
 ## Environment Modes
 

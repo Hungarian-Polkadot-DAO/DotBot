@@ -13,6 +13,15 @@ import type {
   ScenarioMode,
 } from '../types';
 
+import { Keyring } from '@polkadot/keyring';
+import { 
+  cryptoWaitReady,
+  encodeAddress,
+  decodeAddress,
+  blake2AsU8a,
+} from '@polkadot/util-crypto';
+import { u8aConcat } from '@polkadot/util';
+
 // =============================================================================
 // PREDEFINED ENTITIES
 // =============================================================================
@@ -75,8 +84,8 @@ export class EntityCreator {
   async initialize(): Promise<void> {
     if (this.initialized) return;
     
-    // TODO: Initialize @polkadot/keyring and crypto
-    // await cryptoWaitReady();
+    // Initialize crypto libraries (required for keypair generation)
+    await cryptoWaitReady();
     
     this.initialized = true;
   }
@@ -109,16 +118,28 @@ export class EntityCreator {
   async createKeypairEntity(name: string): Promise<TestEntity> {
     this.ensureInitialized();
     
-    // TODO: Implement actual keypair generation
-    // const mnemonic = mnemonicGenerate();
-    // const pair = keyring.addFromMnemonic(mnemonic);
+    // Use Substrate derivation path for deterministic keypair generation
+    // Format: //{seedPrefix}/{name} creates a deterministic keypair
+    const derivationPath = `//${this.config.seedPrefix}/${name}`;
+    
+    // Create keyring and add keypair from derivation path
+    const keyring = new Keyring({ type: 'sr25519', ss58Format: this.config.ss58Format });
+    const pair = keyring.addFromUri(derivationPath);
+    
+    // Get address (already encoded with correct SS58 format from keyring)
+    const address = pair.address;
+    
+    // For predefined entities (Alice, Bob, etc.), we can optionally generate a mnemonic
+    // for display/export purposes, but the actual keypair is derived from the path
+    // In synthetic/emulated modes, we generate a deterministic mnemonic for reference
+    const mnemonic = this.config.mode !== 'live' 
+      ? this.generateDeterministicMnemonic(name)
+      : undefined;
     
     const entity: TestEntity = {
       name,
-      address: this.generatePlaceholderAddress(name),
-      mnemonic: this.config.mode !== 'live' 
-        ? this.generateDeterministicMnemonic(name)
-        : undefined,
+      address,
+      mnemonic,
       type: 'keypair',
     };
     
@@ -152,12 +173,12 @@ export class EntityCreator {
       );
     }
     
-    // TODO: Calculate actual multisig address
-    // const multisigAddress = createMultisigAddress(signatories, threshold, ss58Format);
+    // Calculate actual multisig address
+    const multisigAddress = this.calculateMultisigAddress(signatories, threshold);
     
     const entity: TestEntity = {
       name,
-      address: this.generateMultisigPlaceholderAddress(name, signatories, threshold),
+      address: multisigAddress,
       type: 'multisig',
       signatories,
       threshold,
@@ -285,60 +306,103 @@ export class EntityCreator {
 
   /**
    * Generate a deterministic mnemonic from entity name
-   * This ensures same entities get same addresses across runs
+   * 
+   * Note: The actual keypair is derived from the Substrate derivation path
+   * (//{seedPrefix}/{name}). This mnemonic is generated for reference/display
+   * purposes in synthetic/emulated modes, but the keypair itself doesn't use it.
+   * 
+   * For true determinism, we use a seed-based approach that generates the same
+   * mnemonic for the same entity name.
    */
   private generateDeterministicMnemonic(name: string): string {
-    // TODO: Implement proper deterministic mnemonic generation
-    // This is a placeholder that should be replaced with:
-    // mnemonicGenerate(12, seedFromString(`${this.config.seedPrefix}/${name}`))
-    return `${this.config.seedPrefix} ${name.toLowerCase()} seed phrase placeholder twelve words`;
+    // Create a deterministic seed from the entity name
+    const seedString = `${this.config.seedPrefix}/${name}`;
+    
+    // Use the seed string to generate deterministic entropy
+    // We'll create a 16-byte entropy array (for 12-word mnemonic)
+    const entropy = new Uint8Array(16);
+    let hash = 0;
+    
+    // Fill entropy deterministically from seed string
+    for (let i = 0; i < 16; i++) {
+      const char = seedString.charCodeAt(i % seedString.length);
+      hash = ((hash << 5) - hash) + char + i;
+      hash = hash & hash;
+      entropy[i] = Math.abs(hash) % 256;
+    }
+    
+    // Convert entropy to mnemonic using mnemonicGenerate
+    // Note: mnemonicGenerate() is random, but we can use the entropy to seed it
+    // Actually, mnemonicGenerate doesn't accept entropy - it generates random
+    // So we'll use a workaround: generate from a deterministic mini secret
+    
+    // Better approach: Use the seed string directly with keyring derivation
+    // But for mnemonic display, we'll generate a deterministic one
+    // We can use mnemonicToMiniSecret with a deterministic input, then reverse
+    
+    // For now, generate a deterministic mnemonic by using the seed as a basis
+    // This is a simplified approach - in production you might want to use
+    // a proper seed-to-mnemonic conversion
+    
+    // Generate mnemonic deterministically by using seed hash
+    // We'll create a pseudo-mnemonic that's deterministic but not BIP39 compliant
+    // For actual use, the keypair comes from the derivation path, not this mnemonic
+    const words: string[] = [];
+    hash = 0;
+    for (let i = 0; i < 12; i++) {
+      hash = ((hash << 7) - hash) + seedString.charCodeAt(i % seedString.length) + i * 17;
+      hash = hash & hash;
+      // Create a deterministic "word" (in practice, you'd map to BIP39 word list)
+      const wordHash = Math.abs(hash);
+      words.push(`deterministic-${wordHash.toString(36)}`);
+    }
+    
+    return words.join(' ');
   }
 
   /**
-   * Generate a placeholder address (will be replaced with real implementation)
+   * Calculate multisig address from signatories and threshold
+   * 
+   * Multisig addresses in Substrate are calculated deterministically from:
+   * - Signatory addresses (sorted)
+   * - Threshold
+   * - Chain SS58 format
+   * 
+   * The address is derived using blake2b hash of concatenated signatory public keys + threshold.
+   * Note: This is a simplified implementation. For production use, you may want to use
+   * the actual multisig module's address derivation via API, but this deterministic
+   * approach works for testing scenarios.
    */
-  private generatePlaceholderAddress(name: string): string {
-    // TODO: Generate real address from mnemonic
-    // Placeholder format for development
-    const prefix = this.config.ss58Format === 0 ? '1' : '5';
-    const hash = this.simpleHash(name);
-    return `${prefix}${hash}`;
-  }
-
-  /**
-   * Generate a placeholder multisig address
-   */
-  private generateMultisigPlaceholderAddress(
-    name: string,
+  private calculateMultisigAddress(
     signatories: string[],
     threshold: number
   ): string {
-    // TODO: Calculate real multisig address
-    const prefix = this.config.ss58Format === 0 ? '1' : '5';
-    const hash = this.simpleHash(`${name}-${signatories.join('-')}-${threshold}`);
-    return `${prefix}Multisig${hash.slice(0, 30)}`;
+    // Sort signatories for deterministic address (multisig addresses require sorted signatories)
+    const sortedSignatories = [...signatories].sort();
+    
+    // Decode all signatory addresses to public keys
+    const signatoryPublicKeys = sortedSignatories.map(addr => decodeAddress(addr));
+    
+    // Combine all signatory public keys
+    const combinedPublicKeys = u8aConcat(...signatoryPublicKeys);
+    
+    // Add threshold as 4 bytes (little-endian)
+    const thresholdBytes = new Uint8Array(4);
+    new DataView(thresholdBytes.buffer).setUint32(0, threshold, true);
+    
+    // Concatenate public keys + threshold
+    const combined = u8aConcat(combinedPublicKeys, thresholdBytes);
+    
+    // Hash using blake2b (256 bits = 32 bytes)
+    const hash = blake2AsU8a(combined, 256);
+    
+    // Use first 32 bytes as the multisig public key
+    const multisigPublicKey = hash.slice(0, 32);
+    
+    // Encode with correct SS58 format
+    return encodeAddress(multisigPublicKey, this.config.ss58Format);
   }
 
-  /**
-   * Simple hash for placeholder addresses
-   */
-  private simpleHash(input: string): string {
-    let hash = 0;
-    for (let i = 0; i < input.length; i++) {
-      const char = input.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    // Convert to base58-like string
-    const chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-    let result = '';
-    let n = Math.abs(hash);
-    while (result.length < 40) {
-      result += chars[n % chars.length];
-      n = Math.floor(n / chars.length) + input.charCodeAt(result.length % input.length);
-    }
-    return result;
-  }
 }
 
 // =============================================================================

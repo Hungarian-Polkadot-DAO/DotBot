@@ -2257,6 +2257,535 @@ const result = buildSafeBatchExtrinsic(
 
 ---
 
+## ScenarioEngine API
+
+**NEW** in v0.2.0: Testing and evaluation framework for DotBot.
+
+### Overview
+
+ScenarioEngine enables systematic testing of DotBot's LLM-driven behavior through the actual UI. It provides:
+
+- **EntityCreator**: Creates deterministic test accounts
+- **StateAllocator**: Sets up initial state (balances, on-chain, local storage)
+- **ScenarioExecutor**: Executes scenarios through DotBot UI
+- **Evaluator**: Evaluates results and generates LLM-consumable logs
+
+**Execution Modes:**
+- `'synthetic'`: Fully mocked (fastest, for unit tests)
+- `'emulated'`: Uses Chopsticks for realistic simulation
+- `'live'`: Real chain interaction (requires testnet)
+
+---
+
+### ScenarioEngine
+
+Main orchestrator that coordinates all components.
+
+```typescript
+import { ScenarioEngine } from './lib/scenarioEngine';
+
+const engine = new ScenarioEngine();
+await engine.initialize();
+```
+
+#### `ScenarioEngine.initialize()`
+
+Initialize the engine and all components.
+
+```typescript
+async initialize(): Promise<void>
+```
+
+**Example:**
+```typescript
+const engine = new ScenarioEngine();
+await engine.initialize();
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `ScenarioEngine.runScenario()`
+
+Run a single scenario.
+
+```typescript
+async runScenario(scenario: Scenario): Promise<ScenarioResult>
+```
+
+**Parameters:**
+- `scenario` (Scenario): Complete scenario definition
+
+**Returns:**
+- `ScenarioResult`: Result with evaluation, score, and recommendations
+
+**Example:**
+```typescript
+const scenario: Scenario = {
+  id: 'test-001',
+  name: 'Happy Path Transfer',
+  description: 'Basic transfer test',
+  category: 'happy-path',
+  steps: [
+    { type: 'prompt', input: 'Send 5 DOT to Alice' }
+  ],
+  expectations: [
+    { responseType: 'execution' },
+    { shouldContain: ['transfer', 'Alice'] }
+  ]
+};
+
+const result = await engine.runScenario(scenario);
+console.log(`Score: ${result.evaluation.score}/100`);
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+### EntityCreator
+
+Creates deterministic test entities (keypairs, multisigs, proxies).
+
+```typescript
+import { createEntityCreator } from './lib/scenarioEngine';
+
+const entityCreator = createEntityCreator('synthetic', {
+  seedPrefix: 'test',
+  ss58Format: 42, // Westend
+});
+```
+
+#### `createEntityCreator()`
+
+Factory function to create an EntityCreator instance.
+
+```typescript
+function createEntityCreator(
+  mode: ScenarioMode,
+  options?: Partial<EntityCreatorConfig>
+): EntityCreator
+```
+
+**Parameters:**
+- `mode` (ScenarioMode): Execution mode ('synthetic' | 'emulated' | 'live')
+- `options.seedPrefix` (string, optional): Prefix for derivation paths. Default: 'scenario'
+- `options.ss58Format` (number, optional): SS58 address format. Default: 42 (Substrate)
+
+**Returns:**
+- `EntityCreator`: Entity creator instance
+
+**Example:**
+```typescript
+const entityCreator = createEntityCreator('synthetic', {
+  seedPrefix: 'test',
+  ss58Format: 42,
+});
+
+// Create deterministic keypair
+const alice = await entityCreator.createKeypairEntity('Alice');
+console.log(alice.address); // Same address every time
+
+// Create multisig
+const multisig = await entityCreator.createMultisigEntity('MyMultisig', {
+  signatories: ['Alice', 'Bob'],
+  threshold: 2,
+});
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `EntityCreator.createKeypairEntity()`
+
+Create a deterministic keypair entity.
+
+```typescript
+async createKeypairEntity(name: string): Promise<TestEntity>
+```
+
+**Parameters:**
+- `name` (string): Entity name (used in derivation path)
+
+**Returns:**
+- `TestEntity`: Entity with address, keypair, mnemonic
+
+**Note:** Same name + seedPrefix → same address (deterministic)
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `EntityCreator.createMultisigEntity()`
+
+Create a deterministic multisig entity.
+
+```typescript
+async createMultisigEntity(
+  name: string,
+  config: { signatories: string[]; threshold: number }
+): Promise<TestEntity>
+```
+
+**Parameters:**
+- `name` (string): Entity name
+- `config.signatories` (string[]): Signatory entity names
+- `config.threshold` (number): Required signatures
+
+**Returns:**
+- `TestEntity`: Multisig entity with calculated address
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+### StateAllocator
+
+Sets up initial state for scenario execution.
+
+```typescript
+import { createStateAllocator } from './lib/scenarioEngine';
+
+const allocator = createStateAllocator('emulated', 'westend', {
+  entityResolver: (name) => entities.get(name),
+  rpcManagerProvider: () => ({ relayChainManager, assetHubManager }),
+});
+```
+
+#### `createStateAllocator()`
+
+Factory function to create a StateAllocator instance.
+
+```typescript
+function createStateAllocator(
+  mode: ScenarioMode,
+  chain: ScenarioChain,
+  config: StateAllocatorConfig
+): StateAllocator
+```
+
+**Parameters:**
+- `mode` (ScenarioMode): Execution mode
+- `chain` (ScenarioChain): Target chain ('polkadot' | 'kusama' | 'westend' | 'asset-hub-polkadot' | 'asset-hub-westend')
+- `config.entityResolver` (function): Resolves entity by name
+- `config.rpcManagerProvider` (function, optional): Provides RPC managers for live/emulated modes
+
+**Returns:**
+- `StateAllocator`: State allocator instance
+
+**Example:**
+```typescript
+const allocator = createStateAllocator('emulated', 'westend', {
+  entityResolver: (name) => {
+    if (name === 'Alice') return aliceEntity;
+    if (name === 'Bob') return bobEntity;
+    return undefined;
+  },
+  rpcManagerProvider: () => ({
+    relayChainManager: westendRelayManager,
+    assetHubManager: westendAssetHubManager,
+  }),
+});
+
+await allocator.initialize();
+await allocator.allocateBalance('Alice', '100 DOT');
+await allocator.allocateLocalState({
+  'chat-snapshot-123': JSON.stringify(chatSnapshot),
+});
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `StateAllocator.allocateBalance()`
+
+Allocate balance to an entity.
+
+```typescript
+async allocateBalance(
+  entityName: string,
+  amount: string
+): Promise<AllocationResult>
+```
+
+**Parameters:**
+- `entityName` (string): Entity name
+- `amount` (string): Amount (e.g., '100 DOT', '50 WND')
+
+**Returns:**
+- `AllocationResult`: Result with success status, warnings, errors
+
+**Mode Behavior:**
+- **Synthetic**: Tracks in memory
+- **Emulated**: Sets via Chopsticks `setStorage()`
+- **Live**: Creates real transfer transaction
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `StateAllocator.allocateLocalState()`
+
+Set localStorage items.
+
+```typescript
+async allocateLocalState(
+  items: Record<string, string>
+): Promise<AllocationResult>
+```
+
+**Parameters:**
+- `items` (Record<string, string>): Key-value pairs for localStorage
+
+**Example:**
+```typescript
+await allocator.allocateLocalState({
+  'chat-snapshot-123': JSON.stringify({
+    chatId: '123',
+    environment: 'testnet',
+    messages: [...],
+  }),
+});
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+### ScenarioExecutor
+
+Executes scenarios through DotBot UI.
+
+```typescript
+import { createScenarioExecutor } from './lib/scenarioEngine';
+
+const executor = createScenarioExecutor();
+executor.setDependencies({
+  api: relayApi,
+  assetHubApi: assetHubApi,
+  dotbot: dotbotInstance,
+  getEntityAddress: (name) => entities.get(name)?.address,
+});
+```
+
+#### `createScenarioExecutor()`
+
+Factory function to create a ScenarioExecutor instance.
+
+```typescript
+function createScenarioExecutor(
+  config?: Partial<ExecutorConfig>
+): ScenarioExecutor
+```
+
+**Returns:**
+- `ScenarioExecutor`: Executor instance
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `ScenarioExecutor.executeScenario()`
+
+Execute a complete scenario.
+
+```typescript
+async executeScenario(scenario: Scenario): Promise<StepResult[]>
+```
+
+**Parameters:**
+- `scenario` (Scenario): Scenario to execute
+
+**Returns:**
+- `StepResult[]`: Results for each step
+
+**Events Emitted:**
+- `inject-prompt`: When injecting prompt into UI
+- `log`: Progress logs
+- `step-complete`: When step completes
+
+**Example:**
+```typescript
+executor.addEventListener((event) => {
+  if (event.type === 'inject-prompt') {
+    // Inject prompt into UI textarea
+    const textarea = document.querySelector('textarea');
+    textarea.value = event.prompt;
+    textarea.dispatchEvent(new Event('input'));
+  }
+});
+
+const results = await executor.executeScenario(scenario);
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+### Evaluator
+
+Evaluates scenario results against expectations.
+
+```typescript
+import { createEvaluator } from './lib/scenarioEngine';
+
+const evaluator = createEvaluator({
+  strictMode: false, // 70% threshold
+});
+```
+
+#### `createEvaluator()`
+
+Factory function to create an Evaluator instance.
+
+```typescript
+function createEvaluator(
+  config?: Partial<EvaluatorConfig>
+): Evaluator
+```
+
+**Parameters:**
+- `config.strictMode` (boolean, optional): If true, requires 100% pass. Default: false (70% threshold)
+
+**Returns:**
+- `Evaluator`: Evaluator instance
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `Evaluator.evaluate()`
+
+Evaluate scenario results.
+
+```typescript
+evaluate(
+  scenario: Scenario,
+  stepResults: StepResult[]
+): EvaluationResult
+```
+
+**Parameters:**
+- `scenario` (Scenario): Scenario definition
+- `stepResults` (StepResult[]): Step execution results
+
+**Returns:**
+- `EvaluationResult`: Evaluation with score, expectations met, recommendations
+
+**Events Emitted:**
+- `log`: LLM-consumable evaluation logs (summary, breakdown, recommendations)
+
+**Example:**
+```typescript
+evaluator.addEventListener((event) => {
+  if (event.type === 'log') {
+    console.log(event.message); // LLM-consumable format
+  }
+});
+
+const result = evaluator.evaluate(scenario, stepResults);
+console.log(`Score: ${result.score}/100`);
+console.log(`Passed: ${result.passed}`);
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `Evaluator.generateReport()`
+
+Generate detailed evaluation report.
+
+```typescript
+generateReport(
+  scenario: Scenario,
+  stepResults: StepResult[]
+): EvaluationReport
+```
+
+**Returns:**
+- `EvaluationReport`: Complete report with performance metrics, raw data
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+### Scenario Types
+
+#### `Scenario`
+
+Complete test scenario definition.
+
+```typescript
+interface Scenario {
+  id: string;
+  name: string;
+  description: string;
+  category: ScenarioCategory;
+  tags?: string[];
+  environment?: ScenarioEnvironment; // Optional
+  steps: ScenarioStep[];
+  expectations: ScenarioExpectation[];
+}
+```
+
+**Scenario Categories:**
+- `'happy-path'`: Basic functionality
+- `'adversarial'`: Prompt injection tests
+- `'jailbreak'`: Advanced manipulation
+- `'ambiguity'`: Clarification handling
+- `'edge-case'`: Runtime limits
+- `'context-awareness'`: Conversation context
+- `'knowledge-base'`: Domain knowledge
+- `'stress'`: Performance tests
+- `'multi-step'`: Complex flows
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `ScenarioStep`
+
+Individual step in a scenario.
+
+```typescript
+type ScenarioStep =
+  | { type: 'prompt'; input: string; delayBefore?: number }
+  | { type: 'action'; action: ScenarioAction }
+  | { type: 'wait'; duration: number }
+  | { type: 'assert'; assertion: ScenarioAssertion };
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
+#### `ScenarioExpectation`
+
+What to verify in the response.
+
+```typescript
+interface ScenarioExpectation {
+  responseType?: 'execution' | 'error' | 'clarification';
+  shouldContain?: string[];
+  shouldNotContain?: string[];
+  shouldMention?: string[];
+  shouldAskFor?: string[];
+  shouldWarn?: string[];
+  shouldReject?: boolean;
+  expectedAgent?: string;
+  customValidator?: string; // JavaScript code
+  description?: string;
+}
+```
+
+**Version Added:** v0.2.0 (January 2026)
+
+---
+
 ## Examples
 
 ### Complete Transfer Example
@@ -2794,6 +3323,7 @@ const array = dotbot.currentChat.getExecutionArray(execMessage.executionId);
 - Message component with avatar, name, date structure
 - Multiple execution flows per conversation
 - Execution flow rebuild and resume capability
+- ScenarioEngine testing framework (EntityCreator, StateAllocator, ScenarioExecutor, Evaluator)
 
 **Improvements:**
 - Better developer UX (DotBot manages ChatInstanceManager internally)

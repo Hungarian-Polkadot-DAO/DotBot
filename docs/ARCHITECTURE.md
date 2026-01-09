@@ -395,6 +395,83 @@ lib/
 
 ---
 
+### ScenarioEngine (`frontend/src/lib/scenarioEngine/`)
+
+**Purpose**: Testing and evaluation framework for DotBot. Enables systematic testing of prompt handling, security, and functionality through the actual UI.
+
+**Structure:**
+```
+scenarioEngine/
+├── ScenarioEngine.ts          # Main orchestrator
+├── types.ts                   # Core types (Scenario, StepResult, etc.)
+├── index.ts                   # Public API exports
+├── components/
+│   ├── EntityCreator.ts       # Creates test accounts (keypairs, multisigs, proxies)
+│   ├── StateAllocator.ts      # Sets up initial state (balances, on-chain, local)
+│   ├── ScenarioExecutor.ts    # Executes scenarios
+│   └── Evaluator.ts           # Evaluates results against expectations
+└── scenarios/
+    └── testPrompts.ts         # Pre-built test scenarios
+```
+
+**Key Components:**
+
+1. **EntityCreator**
+   - Creates deterministic test entities (Alice, Bob, multisigs, proxies)
+   - Uses Substrate derivation paths for deterministic addresses
+   - Generates keypairs, calculates multisig addresses, creates proxy accounts
+   - Mode-aware (synthetic/emulated/live)
+
+2. **StateAllocator**
+   - Sets up initial state for scenario execution
+   - **Synthetic mode**: Tracks balances/assets in memory
+   - **Emulated mode**: Uses Chopsticks to set chain state
+   - **Live mode**: Creates real transactions (with warnings)
+   - Integrates with RpcManager for reliable connections
+   - Restores chat history from snapshots
+
+3. **ScenarioExecutor**
+   - Executes scenarios **through** the DotBot UI (not around it)
+   - Emits events that UI components subscribe to
+   - Handles prompt injection, background actions, assertions
+   - Two-step execution pattern (prepare → user approval → execute)
+   - Pluggable and UI-independent (works in console too)
+
+4. **Evaluator**
+   - Evaluates scenario results against expectations
+   - Generates LLM-consumable logs for analysis
+   - Scores scenarios (0-100) with configurable thresholds
+   - Provides detailed breakdowns and recommendations
+   - Category-specific insights (security alerts, etc.)
+
+**Key Concepts:**
+
+1. **Execution Modes**
+   - **Synthetic**: Fully mocked, no chain interaction (fastest, for unit tests)
+   - **Emulated**: Uses Chopsticks for realistic simulation (balanced)
+   - **Live**: Real chain interaction (most realistic, requires testnet)
+
+2. **Scenario Structure**
+   - `Scenario`: Complete test definition (steps, expectations, environment)
+   - `ScenarioStep`: Individual action (prompt, action, wait, assert)
+   - `ScenarioExpectation`: What to verify (response type, content, security)
+
+3. **Event-Driven Architecture**
+   - All components emit `ScenarioEngineEvent` for observability
+   - Frontend subscribes to events to display progress/logs
+   - LLM-consumable logs for automated analysis
+
+**Responsibilities:**
+- Create test entities with deterministic addresses
+- Set up initial blockchain and local state
+- Execute prompts through real DotBot UI
+- Evaluate responses against expectations
+- Generate detailed evaluation reports
+
+**Design Principle**: ScenarioEngine tests DotBot **through** the UI, not around it. This ensures tests reflect real user experience and catch UI-level issues.
+
+---
+
 ## Design Decisions
 
 ### Decision 1: Explicit Chain Selection for DOT Transfers
@@ -1483,6 +1560,12 @@ class AgentError extends Error {
 - Test signing flow
 - Test broadcasting flow
 
+**ScenarioEngine:**
+- EntityCreator: Deterministic address generation, multisig calculation
+- StateAllocator: Balance/asset allocation, chat history restoration
+- ScenarioExecutor: Step execution, event emission, UI callbacks
+- Evaluator: Expectation evaluation, scoring, report generation
+
 ### Integration Tests
 
 - Real RPC connections
@@ -1596,6 +1679,135 @@ await dotbot.startExecution(executionMessage.executionId);
 
 ---
 
+### Decision 11: ScenarioEngine Architecture
+
+**Context:**
+- Need systematic testing framework for DotBot's LLM-driven behavior
+- Must test through actual UI (not bypass it) to catch real issues
+- Need deterministic test entities for reproducible tests
+- Want to test across different execution modes (synthetic, emulated, live)
+- Need LLM-consumable evaluation logs for automated analysis
+
+**Decision:**
+Implement ScenarioEngine as a pluggable testing framework with four core components:
+1. **EntityCreator**: Deterministic test account generation
+2. **StateAllocator**: Initial state setup (balances, on-chain, local storage)
+3. **ScenarioExecutor**: Executes scenarios through DotBot UI via events
+4. **Evaluator**: Evaluates results and generates LLM-consumable logs
+
+**Rationale:**
+1. **UI Integration**: Testing through UI catches real user experience issues
+2. **Deterministic Entities**: Same seed → same addresses (reproducible tests)
+3. **Pluggable Design**: Works in browser, console, or CI environments
+4. **Event-Driven**: Observable execution for debugging and analysis
+5. **LLM-Consumable Logs**: Structured logs enable automated test analysis
+6. **Mode Flexibility**: Synthetic for speed, emulated for realism, live for confidence
+
+**Implementation:**
+```typescript
+// EntityCreator: Deterministic keypair generation
+const entityCreator = createEntityCreator('synthetic', {
+  seedPrefix: 'test',
+  ss58Format: 42, // Westend
+});
+const alice = await entityCreator.createKeypairEntity('Alice');
+// Same seed → same address every time
+
+// StateAllocator: Set up initial state
+const allocator = createStateAllocator('emulated', 'westend', {
+  entityResolver: (name) => entities.get(name),
+  rpcManagerProvider: () => ({ relayChainManager, assetHubManager }),
+});
+await allocator.allocateBalance('Alice', '100 DOT');
+
+// ScenarioExecutor: Execute through UI
+const executor = createScenarioExecutor();
+executor.setDependencies({ api, dotbot });
+executor.addEventListener((event) => {
+  // UI subscribes to events (inject-prompt, log, etc.)
+});
+await executor.executeScenario(scenario);
+
+// Evaluator: Evaluate results
+const evaluator = createEvaluator();
+evaluator.addEventListener((event) => {
+  // LLM-consumable logs
+});
+const result = evaluator.evaluate(scenario, stepResults);
+```
+
+**Key Design Choices:**
+
+1. **Deterministic Entity Creation**
+   - Uses Substrate derivation paths: `//{seedPrefix}/{name}`
+   - Same input → same address (critical for reproducible tests)
+   - Multisig addresses calculated deterministically from sorted signatories
+
+2. **RPC Manager Integration**
+   - StateAllocator uses RpcManager (not direct connections)
+   - Leverages health checks, failover, round-robin
+   - ExecutionSession locks API instance during transactions
+
+3. **Event-Driven Execution**
+   - Executor emits events, UI subscribes
+   - No direct UI dependencies (works in console)
+   - LLM-consumable logs for automated analysis
+
+4. **Pluggable Dependencies**
+   - Executor accepts DotBot instance, API, entity resolvers
+   - StateAllocator accepts RPC manager provider
+   - Enables testing in any environment
+
+**Alternatives Considered:**
+
+1. ❌ **Separate Test Harness (Bypass UI)**
+   - Problem: Doesn't catch UI-level issues
+   - Problem: Tests don't reflect real user experience
+   - Problem: UI changes break tests even if logic is correct
+
+2. ❌ **Non-Deterministic Entities**
+   - Problem: Tests not reproducible
+   - Problem: Hard to debug (addresses change each run)
+   - Problem: Can't hardcode addresses in scenarios
+
+3. ❌ **Direct API Connections**
+   - Problem: Doesn't leverage RPC management infrastructure
+   - Problem: No health checks or failover
+   - Problem: Duplicates existing functionality
+
+4. ✅ **Event-Driven Through UI with Deterministic Entities**
+   - Tests real user experience
+   - Reproducible and debuggable
+   - Leverages existing infrastructure
+   - Pluggable and environment-agnostic
+
+**Consequences:**
+
+✅ **Benefits:**
+- Tests reflect real user experience
+- Reproducible test results
+- LLM-consumable evaluation logs
+- Works in multiple environments (browser, console, CI)
+- Comprehensive test coverage (unit + integration)
+
+⚠️ **Trade-offs:**
+- Requires UI integration (but that's the point - test through UI)
+- More complex than simple unit tests (but more valuable)
+- Event-driven architecture adds some complexity (but enables observability)
+
+**Testing Strategy:**
+- Unit tests for each component (EntityCreator, StateAllocator, ScenarioExecutor, Evaluator)
+- Integration tests for end-to-end scenarios (optional, can use unit tests)
+- Manual verification scripts (removed - unit tests sufficient)
+
+**History:**
+- v0.2.0 (PR #50+, January 2026): Initial ScenarioEngine implementation
+  - EntityCreator with deterministic keypair generation
+  - StateAllocator with multi-mode support
+  - ScenarioExecutor with event-driven UI integration
+  - Evaluator with LLM-consumable logging
+
+---
 
 ## References
 

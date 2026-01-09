@@ -260,8 +260,8 @@ export interface Scenario {
   /** Tags for filtering */
   tags?: string[];
   
-  /** Environment configuration */
-  environment: ScenarioEnvironment;
+  /** Environment configuration (optional - can be provided at runtime) */
+  environment?: ScenarioEnvironment;
   
   /** Entities to create */
   entities?: EntityConfig[];

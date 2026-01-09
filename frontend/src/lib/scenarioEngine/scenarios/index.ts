@@ -5,7 +5,8 @@
  * These are simple test data objects that get converted to full Scenarios by the engine.
  */
 
-export type { TestPrompt } from './testPrompts';
+// TestPrompt type removed - scenarios now use Scenario type directly
+// export type { TestPrompt } from './testPrompts';
 
 export {
   // Test collections
