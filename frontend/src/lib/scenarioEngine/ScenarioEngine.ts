@@ -22,6 +22,9 @@ import type {
   ScenarioEngineEvent,
   ScenarioEngineEventListener,
   TestEntity,
+  EntityConfig,
+  ScenarioChain,
+  ScenarioMode,
 } from './types';
 
 import {
@@ -285,6 +288,36 @@ export class ScenarioEngine {
     if (this.executor) {
       this.executor.stop();
     }
+  }
+
+  /**
+   * Create test entities without running a scenario
+   * 
+   * Useful for pre-populating entities before running tests
+   */
+  async createEntities(
+    entityConfigs: EntityConfig[],
+    environment: { chain: ScenarioChain; mode: ScenarioMode }
+  ): Promise<void> {
+    this.log('info', `Creating ${entityConfigs.length} entities...`);
+    
+    // Create entity creator if not already created
+    if (!this.entityCreator) {
+      this.entityCreator = createEntityCreator(environment.mode, {
+        ss58Format: this.getSS58Format(environment.chain),
+      });
+      await this.entityCreator.initialize();
+    }
+
+    // Create entities from configs
+    await this.entityCreator.createFromConfigs(entityConfigs);
+
+    // Update state with entities
+    this.updateState({
+      entities: this.entityCreator.getAllEntities(),
+    });
+
+    this.log('info', `Created ${this.state.entities.size} entities`);
   }
 
   // ===========================================================================
