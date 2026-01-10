@@ -22,7 +22,7 @@ export interface SimulationContext {
  * Check if simulation should be enabled
  */
 export function shouldSimulate(): boolean {
-  return false;
+  return true;
 }
 
 /**
