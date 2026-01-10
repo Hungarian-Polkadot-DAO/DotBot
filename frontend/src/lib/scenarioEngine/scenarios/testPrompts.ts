@@ -6,40 +6,34 @@
  */
 
 import type { Scenario } from '../types';
+import {
+  transferScenario,
+  insufficientBalanceScenario,
+} from './scenarioHelpers';
 
 // =============================================================================
 // 1. HAPPY PATH TESTS (Basic Functionality)
 // =============================================================================
 
 export const HAPPY_PATH_TESTS: Scenario[] = [
-  // Basic transfers
-  { 
+  // Basic transfer that should PASS (small amount)
+  // NOW USING HELPER - 80% less code!
+  transferScenario({
     id: "happy-path-001",
-    name: "Basic DOT Transfer to Alice",
-    description: "Tests basic transfer of 5 DOT to Alice using natural language",
-    category: "happy-path",
-    tags: ["transfer", "basic", "alice"],
-    
-    steps: [
-      {
-        id: "step-1",
-        type: "prompt",
-        input: "Send 5 DOT to Alice"
-      }
-    ],
-    
-    expectations: [
-      {
-        responseType: "execution",
-        expectedAgent: "AssetTransferAgent",
-        expectedFunction: "transfer",
-        expectedParams: { 
-          amount: "5", 
-          recipient: "Alice" 
-        }
-      }
-    ]
-  },
+    name: "Small Transfer to Alice (Should Pass)",
+    amount: "0.2",
+    recipient: "Alice",
+    token: "WND",
+  }),
+  
+  // Basic transfer that should FAIL (insufficient balance)
+  // NOW USING HELPER - Clean and concise!
+  insufficientBalanceScenario({
+    id: "happy-path-002",
+    name: "Large Transfer to Alice (Should Fail)",
+    amount: "100",
+    recipient: "Alice",
+  }),
   
   // TODO: Convert remaining scenarios to proper Scenario format
   // { 
@@ -373,6 +367,7 @@ export const ALL_TESTS: Scenario[] = [
   ...STRESS_TESTS,
   ...CONTEXT_AWARENESS_TESTS,
   ...KNOWLEDGE_TESTS,
+  // State allocation tests moved to end
 ];
 
 // =============================================================================

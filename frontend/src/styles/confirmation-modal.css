@@ -1,0 +1,242 @@
+/* Confirmation Modal Styles */
+
+/* Prevent interaction with body content when modal is open */
+body.modal-open {
+  overflow: hidden !important;
+  position: fixed;
+  width: 100%;
+  height: 100%;
+  /* Prevent text selection on entire page */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Prevent all pointer events on body content except modal */
+body.modal-open > *:not(.confirmation-modal-overlay) {
+  pointer-events: none !important;
+}
+
+/* Specifically prevent interaction with chat history cards when modal is open */
+body.modal-open .chat-history-card,
+body.modal-open .chat-history-card * {
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  cursor: default !important;
+}
+
+/* Dim the selected card when modal is open */
+body.modal-open .chat-history-card.selected {
+  opacity: 0.5 !important;
+  filter: brightness(0.7);
+}
+
+/* Allow selection and interaction only within the modal */
+body.modal-open .confirmation-modal-overlay,
+body.modal-open .confirmation-modal-overlay * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+  pointer-events: auto !important;
+}
+
+.confirmation-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  touch-action: none;
+  /* Ensure overlay captures all events */
+  cursor: default;
+}
+
+/* Prevent any interaction with elements behind the overlay */
+.confirmation-modal-overlay::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  pointer-events: auto;
+}
+
+.confirmation-modal {
+  background-color: var(--bg-primary);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 450px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  position: relative;
+  z-index: 10001;
+}
+
+.confirmation-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.confirmation-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.confirmation-modal-icon {
+  flex-shrink: 0;
+}
+
+.confirmation-modal-icon-danger {
+  color: var(--error-color, #ef4444);
+}
+
+.confirmation-modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.confirmation-modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.confirmation-modal-close:hover:not(:disabled) {
+  background-color: var(--bg-message-user);
+  color: var(--text-primary);
+}
+
+.confirmation-modal-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.confirmation-modal-content {
+  padding: 24px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.confirmation-modal-message {
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.confirmation-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+}
+
+.confirmation-modal-button {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  outline: none;
+}
+
+.confirmation-modal-button-cancel {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.confirmation-modal-button-cancel:hover:not(:disabled) {
+  background-color: var(--bg-message-user);
+}
+
+.confirmation-modal-button-confirm {
+  color: white;
+}
+
+.confirmation-modal-button-danger {
+  background-color: var(--error-color, #ef4444);
+}
+
+.confirmation-modal-button-danger:hover:not(:disabled) {
+  background-color: var(--error-color-hover, #dc2626);
+}
+
+.confirmation-modal-button-warning {
+  background-color: var(--warning-color, #f59e0b);
+}
+
+.confirmation-modal-button-warning:hover:not(:disabled) {
+  background-color: var(--warning-color-hover, #d97706);
+}
+
+.confirmation-modal-button-info {
+  background-color: var(--brand-pink);
+}
+
+.confirmation-modal-button-info:hover:not(:disabled) {
+  background-color: var(--brand-pink-hover, #d91a72);
+}
+
+.confirmation-modal-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .confirmation-modal {
+  background-color: var(--bg-primary);
+  border-color: var(--border-primary);
+}
+
+[data-theme="dark"] .confirmation-modal-header,
+[data-theme="dark"] .confirmation-modal-footer {
+  border-color: var(--border-primary);
+}
+

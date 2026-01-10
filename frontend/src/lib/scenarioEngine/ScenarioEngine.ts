@@ -1,14 +1,48 @@
 /**
  * ScenarioEngine
  * 
- * Main orchestrator for DotBot scenario testing and evaluation.
- * Coordinates EntityCreator, StateAllocator, ScenarioExecutor, and Evaluator.
+ * **ARCHITECTURE PRINCIPLE**: ScenarioEngine is a CONTROLLER, not a replacement for DotBot.
  * 
- * Usage:
+ * ## Core Design Principle
+ * 
+ * ScenarioEngine **CONTROLS** DotBot, it does NOT create duplicate state or replace DotBot.
+ * - ✅ ScenarioEngine creates test entities (Alice, Bob, multisigs)
+ * - ✅ ScenarioEngine funds accounts on the REAL chain (live mode)
+ * - ✅ ScenarioEngine injects prompts to DotBot's UI
+ * - ✅ ScenarioEngine evaluates DotBot's responses
+ * - ❌ ScenarioEngine does NOT create mock balances that shadow DotBot's view
+ * - ❌ ScenarioEngine does NOT create parallel APIs or state
+ * 
+ * ## Current Implementation Status
+ * 
+ * **LIVE Mode**: ✅ READY
+ * - Creates real test entities with deterministic addresses
+ * - Funds accounts on real Westend testnet via batch transfers
+ * - DotBot sees the same state (real chain)
+ * - Tests work correctly
+ * 
+ * **SYNTHETIC Mode**: ⚠️ TODO (Disabled)
+ * - Future: Mock DotBot's LLM responses entirely
+ * - Don't actually query chain or run DotBot
+ * - Fast unit testing
+ * - Requires: Response mocking system
+ * 
+ * **EMULATED Mode**: ⚠️ TODO (Disabled)
+ * - Future: Create Chopsticks fork AND reconnect DotBot to it
+ * - DotBot must use Chopsticks API, not real chain API
+ * - Realistic integration testing without testnet costs
+ * - Requires: DotBot reconfiguration support
+ * 
+ * ## Usage (Live Mode)
+ * 
  * ```typescript
- * const engine = new ScenarioEngine({ enableOverlay: true });
+ * const engine = new ScenarioEngine();
  * await engine.initialize();
  * 
+ * // Set wallet for funding (user must approve)
+ * engine.setWalletForLiveMode(account, signer);
+ * 
+ * // Run scenario - will fund accounts on real testnet
  * const result = await engine.runScenario(myScenario);
  * console.log(result.evaluation.summary);
  * ```
@@ -22,13 +56,19 @@ import type {
   ScenarioEngineEvent,
   ScenarioEngineEventListener,
   TestEntity,
+  EntityConfig,
+  ScenarioChain,
+  ScenarioMode,
 } from './types';
+
+import type { DotBot, DotBotEventListener, ChatResult } from '../dotbot';
 
 import {
   EntityCreator,
   createEntityCreator,
   StateAllocator,
   createStateAllocator,
+  FundingRequiredError,
   ScenarioExecutor,
   createScenarioExecutor,
   Evaluator,
@@ -45,7 +85,7 @@ import type { ApiPromise } from '@polkadot/api';
 const DEFAULT_CONFIG: Required<ScenarioEngineConfig> = {
   defaultEnvironment: {
     chain: 'westend',
-    mode: 'synthetic',
+    mode: 'live', // Only live mode is implemented. Synthetic/emulated are TODO.
   },
   logLevel: 'info',
   autoSaveResults: true,
@@ -69,6 +109,37 @@ export class ScenarioEngine {
   
   // Dependencies for executor
   private executorDeps: ExecutorDependencies | null = null;
+  
+  // RPC managers for StateAllocator (optional)
+  private rpcManagerProvider: (() => {
+    relayChainManager?: any;
+    assetHubManager?: any;
+  } | null) | null = null;
+  
+  // Wallet account and signer for live mode transfers
+  private walletAccount?: { address: string; name?: string; source: string };
+  private walletSigner?: any;
+  
+  // DotBot instance for event subscription
+  private dotbot: DotBot | null = null;
+  private dotbotEventListener: DotBotEventListener | null = null;
+  
+  // Report builder - accumulates all execution data for display
+  private reportContent: string = '';
+  private currentStepIndex: number = -1;
+  private currentStepPrompt: string | null = null;
+  private lastDotBotResponse: ChatResult | null = null; // Track last response to avoid duplicates
+  
+  // Track running scenario for early ending
+  private runningScenario: Scenario | null = null;
+  private scenarioStartTime: number = 0;
+  
+  // Track execution subscriptions for report updates
+  private executionSubscriptions: Map<string, () => void> = new Map();
+  // Track last reported status for each execution item to avoid duplicates
+  private lastReportedStatus: Map<string, Map<string, string>> = new Map(); // executionId -> itemId -> status
+  // Track which executions have had completion events emitted (to avoid duplicates)
+  private lastExecutionCompleteState: Set<string> | null = null;
 
   constructor(config: ScenarioEngineConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -90,8 +161,10 @@ export class ScenarioEngine {
     this.updateState({ status: 'preparing' });
 
     try {
-      // Initialize evaluator (no async setup needed)
-      this.evaluator = createEvaluator();
+      // Initialize evaluator with entity resolver
+      this.evaluator = createEvaluator({
+        entityResolver: (name: string) => this.state.entities.get(name)?.address,
+      });
 
       // Forward evaluator events (LLM-consumable logs)
       this.evaluator.addEventListener((event) => this.emit(event));
@@ -99,8 +172,14 @@ export class ScenarioEngine {
       // Initialize executor
       this.executor = createScenarioExecutor();
 
-      // Forward executor events
-      this.executor.addEventListener((event) => this.emit(event));
+      // Forward executor events AND build report
+      this.executor.addEventListener((event) => {
+        // Forward to external listeners
+        this.emit(event);
+        
+        // Build report internally
+        this.handleExecutorEventForReport(event);
+      });
 
       this.log('info', 'ScenarioEngine initialized');
       this.updateState({ status: 'idle' });
@@ -123,6 +202,430 @@ export class ScenarioEngine {
       this.executor.setDependencies(deps);
     }
     this.log('debug', 'Executor dependencies set');
+  }
+  
+  /**
+   * Subscribe to DotBot events for automatic response capture
+   * 
+   * This is the DEEP integration - ScenarioEngine listens to DotBot at the library level,
+   * automatically capturing all responses without UI-level hooking.
+   * 
+   * @param dotbot The DotBot instance to subscribe to
+   */
+  subscribeToDotBot(dotbot: DotBot): void {
+    // Unsubscribe from previous DotBot if any
+    if (this.dotbot && this.dotbotEventListener) {
+      this.dotbot.removeEventListener(this.dotbotEventListener);
+    }
+    
+    this.dotbot = dotbot;
+    
+    // Create event listener that automatically notifies executor AND builds report
+    // IMPORTANT: Only handle chat-complete - it contains everything we need
+    // bot-message-added and execution-message-added fire BEFORE chat-complete and are redundant
+    this.dotbotEventListener = (event) => {
+      if (!this.executor) return;
+      
+      switch (event.type) {
+        case 'chat-started':
+          // Track when chat starts (for report)
+          if (this.currentStepPrompt) {
+            this.appendToReport(`\nDotBot: Processing prompt...\n`);
+          }
+          break;
+          
+        case 'chat-complete':
+          // PRIMARY event - contains full ChatResult with response, plan, execution status
+          // This fires AFTER bot-message-added and execution-message-added
+          // It's the authoritative source - use this and ignore the others
+          const chatResult = event.result;
+          this.lastDotBotResponse = chatResult;
+          this.executor.notifyResponseReceived(chatResult);
+          this.appendDotBotResponseToReport(chatResult);
+          break;
+          
+        case 'bot-message-added':
+          // IGNORE - chat-complete will fire after this with the same data
+          // Only used for UI display, not for scenario execution
+          break;
+          
+        case 'execution-message-added':
+          // Subscribe to execution updates to track progress in report
+          if (dotbot.currentChat && event.executionId) {
+            this.subscribeToExecutionUpdates(dotbot.currentChat, event.executionId);
+          }
+          break;
+          
+        case 'chat-error':
+          const errorResult: ChatResult = {
+            response: event.error.message,
+            executed: false,
+            success: false,
+            completed: 0,
+            failed: 1,
+          };
+          this.lastDotBotResponse = errorResult;
+          this.executor.notifyResponseReceived(errorResult);
+          this.appendDotBotResponseToReport(errorResult);
+          break;
+      }
+    };
+    
+    // Subscribe to DotBot events
+    dotbot.addEventListener(this.dotbotEventListener);
+    this.log('info', 'Subscribed to DotBot events for automatic response capture');
+  }
+  
+  /**
+   * Append DotBot response to report
+   */
+  private appendDotBotResponseToReport(result: ChatResult): void {
+    if (!result.response) return;
+    
+    this.appendToReport(`\n  ┌─ DotBot Response ─────────────────────────────────────\n`);
+    
+    // Split response into lines and indent each line
+    const lines = result.response.split('\n');
+    lines.forEach((line: string) => {
+      this.appendToReport(`  │ ${line}\n`);
+    });
+    
+    this.appendToReport(`  └───────────────────────────────────────────────────────\n`);
+    
+    // Add execution plan info if available
+    if (result.plan) {
+      this.appendToReport(`  ✓ Execution Plan: ${result.plan.steps.length} step(s)\n`);
+      if (result.plan.steps.length > 0) {
+        this.appendToReport(`    Steps:\n`);
+        result.plan.steps.forEach((step, idx) => {
+          this.appendToReport(`      ${idx + 1}. ${step.description || step.agentClassName}.${step.functionName}\n`);
+        });
+      }
+    }
+    
+    // Add execution status
+    if (result.executed) {
+      this.appendToReport(`  ✓ Executed: ${result.completed} completed, ${result.failed} failed\n`);
+    }
+  }
+  
+  /**
+   * Subscribe to execution updates for a specific execution
+   */
+  private subscribeToExecutionUpdates(chatInstance: any, executionId: string): void {
+    // Clean up existing subscription if any
+    const existingUnsubscribe = this.executionSubscriptions.get(executionId);
+    if (existingUnsubscribe) {
+      existingUnsubscribe();
+    }
+    
+    // Subscribe to execution updates
+    const unsubscribe = chatInstance.onExecutionUpdate(executionId, (state: any) => {
+      this.appendExecutionStatusToReport(state);
+    });
+    
+    this.executionSubscriptions.set(executionId, unsubscribe);
+  }
+  
+  /**
+   * Append execution status updates to report
+   */
+  private appendExecutionStatusToReport(state: any): void {
+    if (!state || !state.items || state.items.length === 0) return;
+    
+    const executionId = state.id;
+    if (!executionId) return;
+    
+    // Get or create status tracking map for this execution
+    if (!this.lastReportedStatus.has(executionId)) {
+      this.lastReportedStatus.set(executionId, new Map());
+    }
+    const statusMap = this.lastReportedStatus.get(executionId)!;
+    
+    // Track overall execution status (same logic as ExecutionFlow component)
+    const isComplete = state.items.every((item: any) => 
+      item.status === 'completed' || item.status === 'finalized' || item.status === 'failed' || item.status === 'cancelled'
+    );
+    const isExecuting = !isComplete && (
+      state.isExecuting || state.items.some((item: any) => 
+        item.status === 'executing' || item.status === 'signing' || item.status === 'broadcasting'
+      )
+    );
+    
+    // Emit dotbot-activity update when execution completes
+    if (isComplete && !this.lastExecutionCompleteState?.has(executionId)) {
+      const completedCount = state.items.filter((item: any) => 
+        item.status === 'completed' || item.status === 'finalized'
+      ).length;
+      const failedCount = state.items.filter((item: any) => item.status === 'failed').length;
+      
+      if (completedCount > 0) {
+        this.emit({
+          type: 'dotbot-activity',
+          activity: `Execution completed: ${completedCount} succeeded${failedCount > 0 ? `, ${failedCount} failed` : ''}`,
+        });
+      }
+      
+      // Track that we've emitted completion for this execution
+      if (!this.lastExecutionCompleteState) {
+        this.lastExecutionCompleteState = new Set();
+      }
+      this.lastExecutionCompleteState.add(executionId);
+    }
+    
+    // Find items with status changes (only report if status changed)
+    state.items.forEach((item: any, index: number) => {
+      const lastStatus = statusMap.get(item.id);
+      if (lastStatus === item.status) {
+        return; // Skip if status hasn't changed
+      }
+      
+      // Update tracked status
+      statusMap.set(item.id, item.status);
+      
+      const statusLabel = this.getExecutionStatusLabel(item.status);
+      
+      if (item.status === 'completed' || item.status === 'finalized') {
+        this.appendToReport(`  ✓ Step ${index + 1}: ${item.description} - ${statusLabel}\n`);
+        if (item.result?.txHash) {
+          this.appendToReport(`    Tx: ${item.result.txHash.slice(0, 16)}...${item.result.txHash.slice(-8)}\n`);
+        }
+      } else if (item.status === 'failed') {
+        this.appendToReport(`  ✗ Step ${index + 1}: ${item.description} - ${statusLabel}\n`);
+        if (item.error) {
+          this.appendToReport(`    Error: ${item.error}\n`);
+        }
+      } else if (item.status === 'signing' || item.status === 'broadcasting' || item.status === 'executing') {
+        this.appendToReport(`  → Step ${index + 1}: ${item.description} - ${statusLabel}...\n`);
+      }
+    });
+    
+    // Show completion summary (only once)
+    if (isComplete && !statusMap.has('_completed')) {
+      statusMap.set('_completed', 'true');
+      const completed = state.completedItems || 0;
+      const failed = state.failedItems || 0;
+      const total = state.totalItems || 0;
+      
+      if (failed === 0) {
+        this.appendToReport(`\n  ✅ Execution completed successfully: ${completed}/${total} step(s)\n`);
+      } else {
+        this.appendToReport(`\n  ⚠️ Execution completed with errors: ${completed} succeeded, ${failed} failed\n`);
+      }
+    }
+  }
+  
+  /**
+   * Get human-readable status label
+   */
+  private getExecutionStatusLabel(status: string): string {
+    switch (status) {
+      case 'pending': return 'Pending';
+      case 'ready': return 'Ready';
+      case 'signing': return 'Signing';
+      case 'broadcasting': return 'Broadcasting';
+      case 'executing': return 'Executing';
+      case 'in_block': return 'In Block';
+      case 'finalized': return 'Finalized';
+      case 'completed': return 'Completed';
+      case 'failed': return 'Failed';
+      case 'cancelled': return 'Cancelled';
+      default: return status;
+    }
+  }
+  
+  /**
+   * Append text to report and emit update event
+   */
+  private appendToReport(text: string): void {
+    this.reportContent += text;
+    this.emit({ type: 'report-update', content: text });
+  }
+  
+  /**
+   * Clear report
+   */
+  private clearReport(): void {
+    this.reportContent = '';
+    this.emit({ type: 'report-clear' });
+  }
+  
+  /**
+   * Get current report content
+   */
+  getReport(): string {
+    return this.reportContent;
+  }
+  
+  /**
+   * Handle executor events to build report
+   */
+  private handleExecutorEventForReport(event: any): void {
+    switch (event.type) {
+      case 'step-start':
+        this.currentStepIndex = event.index || -1;
+        this.currentStepPrompt = event.step?.input || null;
+        this.lastDotBotResponse = null; // Reset for new step
+        
+        const stepNum = (event.index || 0) + 1;
+        const stepTypeMap: Record<string, string> = {
+          'prompt': 'Prompt',
+          'action': 'Action',
+          'wait': 'Wait',
+          'assert': 'Assertion',
+        };
+        const stepTypeLabel = stepTypeMap[event.step?.type] || event.step?.type || 'Unknown';
+        
+        this.appendToReport(`\n[STEP ${stepNum}] ${stepTypeLabel}`);
+        if (event.step?.id) {
+          this.appendToReport(` (${event.step.id})`);
+        }
+        this.appendToReport(`\n`);
+        
+        if (event.step?.input) {
+          this.appendToReport(`  Input: "${event.step.input.substring(0, 100)}${event.step.input.length > 100 ? '...' : ''}"\n`);
+        } else if (event.step?.action) {
+          this.appendToReport(`  Action: ${event.step.action.type}\n`);
+          if (event.step.action.asEntity) {
+            this.appendToReport(`  As Entity: ${event.step.action.asEntity}\n`);
+          }
+        } else if (event.step?.waitMs) {
+          this.appendToReport(`  Duration: ${event.step.waitMs}ms\n`);
+        } else if (event.step?.assertion) {
+          this.appendToReport(`  Assertion Type: ${event.step.assertion.type}\n`);
+        }
+        break;
+        
+      case 'step-complete':
+        if (event.result) {
+          this.appendToReport(`  ✓ Response Type: ${event.result.response?.type || 'N/A'}\n`);
+          this.appendToReport(`  ✓ Duration: ${event.result.duration}ms\n`);
+          
+          // DotBot response should already be in report from DotBot events
+          // Only add if missing (fallback needed)
+          if (event.result.response?.content && !this.lastDotBotResponse) {
+            this.appendDotBotResponseToReport({
+              response: event.result.response.content,
+              executed: false,
+              success: event.result.success,
+              completed: 0,
+              failed: event.result.success ? 0 : 1,
+            });
+          }
+          
+          // Show execution plan from StepResult if available (more reliable than ChatResult)
+          if (event.result.executionPlan) {
+            this.appendToReport(`  ✓ Execution Plan: ${event.result.executionPlan.steps.length} step(s)\n`);
+            if (event.result.executionPlan.steps.length > 0) {
+              this.appendToReport(`    Steps:\n`);
+              event.result.executionPlan.steps.forEach((step: any, idx: number) => {
+                const stepDesc = step.description || `${step.agentClassName}.${step.functionName}`;
+                this.appendToReport(`      ${idx + 1}. ${stepDesc}\n`);
+              });
+            }
+          }
+          
+          // Show execution statistics if available
+          if (event.result.executionStats) {
+            const stats = event.result.executionStats;
+            if (stats.executed) {
+              this.appendToReport(`  ✓ Executed: ${stats.completed} completed, ${stats.failed} failed\n`);
+            }
+          }
+          
+          // Show assertion results if any
+          if (event.result.assertions && event.result.assertions.length > 0) {
+            this.appendToReport(`\n  Assertions:\n`);
+            event.result.assertions.forEach((assertion: { passed: boolean; message: string }) => {
+              const icon = assertion.passed ? '✓' : '✗';
+              this.appendToReport(`    ${icon} ${assertion.message}\n`);
+            });
+          }
+          
+          // Show errors if any
+          if (event.result.error) {
+            this.appendToReport(`  ✗ Error: ${event.result.error.message}\n`);
+            if (event.result.error.stack) {
+              const stackLines = event.result.error.stack.split('\n').slice(0, 5);
+              stackLines.forEach((line: string) => {
+                this.appendToReport(`    ${line}\n`);
+              });
+            }
+          }
+        }
+        this.appendToReport(`\n`);
+        break;
+        
+      case 'log':
+        // Only show non-debug logs in report
+        if (event.level !== 'debug') {
+          this.appendToReport(`[${event.level.toUpperCase()}] ${event.message}\n`);
+        }
+        break;
+        
+      case 'error':
+        this.appendToReport(`\n[ERROR] ${event.error}\n`);
+        if (event.step) {
+          this.appendToReport(`  Step: ${event.step.id || 'unknown'}\n`);
+        }
+        break;
+        
+      case 'dotbot-activity':
+        // DotBot activity is tracked but full response comes from DotBot events
+        // This is just for status updates
+        break;
+    }
+  }
+  
+  /**
+   * Clean up execution subscriptions
+   */
+  private cleanupExecutionSubscriptions(): void {
+    for (const unsubscribe of this.executionSubscriptions.values()) {
+      unsubscribe();
+    }
+    this.executionSubscriptions.clear();
+    this.lastReportedStatus.clear();
+  }
+  
+  /**
+   * Unsubscribe from DotBot events
+   */
+  unsubscribeFromDotBot(): void {
+    if (this.dotbot && this.dotbotEventListener) {
+      this.dotbot.removeEventListener(this.dotbotEventListener);
+      this.dotbot = null;
+      this.dotbotEventListener = null;
+      this.log('info', 'Unsubscribed from DotBot events');
+    }
+    
+    // Clean up execution subscriptions
+    this.cleanupExecutionSubscriptions();
+  }
+
+  /**
+   * Set RPC manager provider for StateAllocator
+   * 
+   * This allows StateAllocator to use the same RPC managers as DotBot,
+   * ensuring consistent connections and proper chain selection.
+   */
+  setRpcManagerProvider(provider: () => {
+    relayChainManager?: any;
+    assetHubManager?: any;
+  } | null): void {
+    this.rpcManagerProvider = provider;
+    this.log('debug', 'RPC manager provider set');
+  }
+
+  /**
+   * Set wallet account and signer for live mode transfers
+   * 
+   * This allows StateAllocator to use the user's wallet for funding scenario entities.
+   */
+  setWalletForLiveMode(walletAccount: { address: string; name?: string; source: string }, signer: any): void {
+    this.walletAccount = walletAccount;
+    this.walletSigner = signer;
+    this.log('debug', 'Wallet account and signer set for live mode');
   }
 
   /**
@@ -163,6 +666,10 @@ export class ScenarioEngine {
   async runScenario(scenario: Scenario): Promise<ScenarioResult> {
     this.log('info', `Running scenario: ${scenario.name}`);
     const startTime = Date.now();
+    
+    // Store scenario reference for early ending
+    this.runningScenario = scenario;
+    this.scenarioStartTime = startTime;
 
     try {
       // Validate
@@ -175,17 +682,44 @@ export class ScenarioEngine {
         currentStepIndex: 0,
       });
 
-      // Phase 1: Create entities
+      // Phase 1: BEGINNING - Setup
+      this.emit({ type: 'phase-start', phase: 'beginning', details: 'Setting up scenario environment' });
+      this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      this.appendToReport('[PHASE] BEGINNING - Setup\n');
+      this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      this.appendToReport('Setting up scenario environment\n\n');
+      
+      this.emit({ type: 'phase-update', phase: 'beginning', message: 'Creating test entities...' });
+      this.appendToReport('  → Creating test entities...\n');
       await this.setupEntities(scenario);
-
-      // Phase 2: Allocate state
+      
+      this.emit({ type: 'phase-update', phase: 'beginning', message: 'Allocating initial state...' });
+      this.appendToReport('  → Allocating initial state...\n');
       await this.setupState(scenario);
+      this.emit({ type: 'phase-update', phase: 'beginning', message: 'Setup complete' });
+      this.appendToReport('  → Setup complete\n');
 
-      // Phase 3: Execute steps
+      // Phase 2: CYCLE - Execute steps (unknown number of rounds)
+      this.emit({ type: 'phase-start', phase: 'cycle', details: 'Executing scenario steps' });
+      this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      this.appendToReport('[PHASE] CYCLE - Execution\n');
+      this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      this.appendToReport('Executing scenario steps\n\n');
       this.updateState({ status: 'running' });
       const stepResults = await this.executor!.executeScenario(scenario);
+      
+      // Log that execution phase completed
+      this.log('info', `Execution phase completed with ${stepResults.length} step result(s)`);
 
-      // Phase 4: Evaluate
+      // Phase 3: FINAL REPORT - Evaluate
+      this.emit({ type: 'phase-start', phase: 'final-report', details: 'Evaluating results' });
+      this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      this.appendToReport('[PHASE] FINAL REPORT - Evaluation\n');
+      this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+      this.appendToReport('Evaluating results\n\n');
+      
+      this.emit({ type: 'phase-update', phase: 'final-report', message: 'Analyzing scenario results...' });
+      this.appendToReport('  → Analyzing scenario results...\n');
       const evaluation = this.evaluator!.evaluate(scenario, stepResults);
 
       const endTime = Date.now();
@@ -205,10 +739,19 @@ export class ScenarioEngine {
         this.saveResult(result);
       }
 
+      // Add final result to report
+      this.appendToReport(`\n[COMPLETE] ${evaluation.passed ? '✅ PASSED' : '❌ FAILED'}\n`);
+      this.appendToReport(`[SCORE] ${evaluation.score}/100\n`);
+      this.appendToReport(`[DURATION] ${endTime - startTime}ms\n`);
+
       this.updateState({ status: 'completed' });
       this.emit({ type: 'scenario-complete', result });
 
       this.log('info', `Scenario completed: ${evaluation.passed ? 'PASSED' : 'FAILED'} (${evaluation.score}/100)`);
+      
+      // Clear running scenario reference
+      this.runningScenario = null;
+      this.scenarioStartTime = 0;
 
       return result;
     } catch (error) {
@@ -218,6 +761,10 @@ export class ScenarioEngine {
       this.updateState({ status: 'error', error: String(error) });
       this.emit({ type: 'error', error: String(error) });
 
+      // Clear running scenario reference
+      this.runningScenario = null;
+      this.scenarioStartTime = 0;
+      
       return {
         scenarioId: scenario.id,
         success: false,
@@ -234,6 +781,134 @@ export class ScenarioEngine {
         errors: [{ message: String(error) }],
       };
     }
+  }
+  
+  /**
+   * End scenario early and jump to evaluation
+   * 
+   * This allows the user to manually end a scenario before all steps complete.
+   * The scenario will evaluate with whatever results have been collected so far.
+   */
+  async endScenarioEarly(): Promise<ScenarioResult | null> {
+    if (!this.runningScenario || !this.scenarioStartTime) {
+      this.log('warn', 'No scenario is currently running');
+      return null;
+    }
+    
+    const scenario = this.runningScenario;
+    const startTime = this.scenarioStartTime;
+    
+    this.log('info', 'Scenario ended early by user');
+    this.appendToReport('\n[INFO] Scenario ended early by user\n');
+    
+    // Stop executor (will stop at next step check)
+    if (this.executor) {
+      this.executor.stop();
+    }
+    
+    // Get current step results
+    let stepResults = this.executor?.getContext()?.results || [];
+    
+    // Refresh execution state for any step results that have execution plans
+    // This ensures we have the latest execution status even if execution completed after step result was captured
+    if (this.dotbot?.currentChat && stepResults.length > 0) {
+      const chatInstance = this.dotbot.currentChat;
+      stepResults = await Promise.all(stepResults.map(async (result) => {
+        // If this step has an execution plan, try to find the corresponding execution message
+        // and get the latest execution state
+        if (result.executionPlan?.id) {
+          try {
+            // Find execution message that matches this plan ID
+            const executionMessages = chatInstance.messages.filter(
+              (msg: any): msg is any => msg.type === 'execution' && msg.executionPlan?.id === result.executionPlan?.id
+            );
+            
+            if (executionMessages.length > 0) {
+              const executionMessage = executionMessages[0];
+              const executionArray = chatInstance.getExecutionArray(executionMessage.executionId);
+              
+              if (executionArray) {
+                const latestState = executionArray.getState();
+                // Update execution stats from latest state
+                if (latestState.items.length > 0) {
+                  const completed = latestState.items.filter(item => 
+                    item.status === 'completed' || item.status === 'finalized'
+                  ).length;
+                  const failed = latestState.items.filter(item => item.status === 'failed').length;
+                  
+                  return {
+                    ...result,
+                    executionStats: {
+                      executed: true,
+                      success: failed === 0 && completed > 0,
+                      completed,
+                      failed,
+                    },
+                  };
+                }
+              }
+            }
+          } catch (error) {
+            // If we can't get execution state, use what we have
+            console.debug('Could not refresh execution state:', error);
+          }
+        }
+        return result;
+      }));
+    }
+    
+    // Jump to evaluation phase
+    this.emit({ type: 'phase-start', phase: 'final-report', details: 'Evaluating results (ended early)' });
+    this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    this.appendToReport('[PHASE] FINAL REPORT - Evaluation (Ended Early)\n');
+    this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    this.appendToReport('Evaluating results\n\n');
+    
+    this.emit({ type: 'phase-update', phase: 'final-report', message: 'Analyzing scenario results...' });
+    this.appendToReport('  → Analyzing scenario results...\n');
+    
+    // Evaluate with current results (now with refreshed execution state)
+    const evaluation = this.evaluator!.evaluate(scenario, stepResults);
+    
+    const endTime = Date.now();
+    
+    const result: ScenarioResult = {
+      scenarioId: scenario.id,
+      success: evaluation.passed,
+      startTime,
+      endTime,
+      duration: endTime - startTime,
+      stepResults,
+      evaluation,
+    };
+    
+    // Auto-save if enabled
+    if (this.config.autoSaveResults) {
+      this.saveResult(result);
+    }
+    
+    // Add final result to report
+    this.appendToReport(`\n[COMPLETE] ${evaluation.passed ? '✅ PASSED' : '❌ FAILED'} (Ended Early)\n`);
+    this.appendToReport(`[SCORE] ${evaluation.score}/100\n`);
+    this.appendToReport(`[DURATION] ${endTime - startTime}ms\n`);
+    
+    this.updateState({ status: 'completed' });
+    this.emit({ type: 'scenario-complete', result });
+    
+    // Clear running scenario reference
+    this.runningScenario = null;
+    this.scenarioStartTime = 0;
+    
+    this.log('info', `Scenario ended early: ${evaluation.passed ? 'PASSED' : 'FAILED'} (${evaluation.score}/100)`);
+    
+    return result;
+  }
+  
+  /**
+   * Check if a scenario is currently running
+   */
+  isScenarioRunning(): boolean {
+    return this.runningScenario !== null;
   }
 
   /**
@@ -287,6 +962,88 @@ export class ScenarioEngine {
     }
   }
 
+  /**
+   * Create test entities without running a scenario
+   * 
+   * Useful for pre-populating entities before running tests
+   * 
+   * NOTE: Entities are mode-specific. If entities exist for a different mode,
+   * they will be cleared and recreated.
+   */
+  async createEntities(
+    entityConfigs: EntityConfig[],
+    environment: { chain: ScenarioChain; mode: ScenarioMode }
+  ): Promise<void> {
+    // Check if entities exist for a different mode/chain
+    const currentEntityMode = this.state.entityMode;
+    const currentEntityChain = this.state.entityChain;
+    
+    if (currentEntityMode && currentEntityMode !== environment.mode) {
+      this.log('warn', `Clearing entities from ${currentEntityMode} mode (switching to ${environment.mode})`);
+      if (this.entityCreator) {
+        this.entityCreator.clear();
+      }
+      this.updateState({
+        entities: new Map(),
+        entityMode: undefined,
+        entityChain: undefined,
+      });
+    }
+    
+    if (currentEntityChain && currentEntityChain !== environment.chain) {
+      this.log('warn', `Clearing entities from ${currentEntityChain} chain (switching to ${environment.chain})`);
+      if (this.entityCreator) {
+        this.entityCreator.clear();
+      }
+      this.updateState({
+        entities: new Map(),
+        entityMode: undefined,
+        entityChain: undefined,
+      });
+    }
+    
+    this.log('info', `Creating ${entityConfigs.length} entities for ${environment.mode} mode on ${environment.chain}...`);
+    
+    // Create entity creator if not already created or if mode changed
+    if (!this.entityCreator || currentEntityMode !== environment.mode || currentEntityChain !== environment.chain) {
+      this.entityCreator = createEntityCreator(environment.mode, {
+        ss58Format: this.getSS58Format(environment.chain),
+      });
+      await this.entityCreator.initialize();
+    }
+
+    // Create entities from configs
+    await this.entityCreator.createFromConfigs(entityConfigs);
+
+    // Update state with entities and their mode
+    this.updateState({
+      entities: this.entityCreator.getAllEntities(),
+      entityMode: environment.mode,
+      entityChain: environment.chain,
+    });
+
+    this.log('info', `Created ${this.state.entities.size} entities for ${environment.mode} mode`);
+  }
+
+  /**
+   * Clear all entities
+   * 
+   * Removes all created entities and resets entity state.
+   */
+  clearEntities(): void {
+    if (this.entityCreator) {
+      this.entityCreator.clear();
+    }
+    
+    this.updateState({
+      entities: new Map(),
+      entityMode: undefined,
+      entityChain: undefined,
+    });
+    
+    this.log('info', 'All entities cleared');
+  }
+
   // ===========================================================================
   // SETUP PHASES
   // ===========================================================================
@@ -329,19 +1086,36 @@ export class ScenarioEngine {
       chain: environment.chain,
       entityResolver: (name) => this.entityCreator?.getEntity(name),
       chopsticksEndpoint: environment.chopsticksConfig?.endpoint,
+      rpcManagerProvider: this.rpcManagerProvider || undefined,
+      // Pass wallet account and signer for live mode
+      walletAccount: this.walletAccount,
+      signer: this.walletSigner,
     });
     await this.stateAllocator.initialize();
 
     // Allocate wallet state
     if (scenario.walletState) {
-      const result = await this.stateAllocator.allocateWalletState(scenario.walletState);
-      if (!result.success) {
-        throw new Error(`Failed to allocate wallet state: ${result.errors.join(', ')}`);
-      }
-      if (result.warnings.length > 0) {
-        for (const warning of result.warnings) {
-          this.log('warn', warning);
+      try {
+        const result = await this.stateAllocator.allocateWalletState(scenario.walletState);
+        if (!result.success) {
+          throw new Error(`Failed to allocate wallet state: ${result.errors.join(', ')}`);
         }
+        if (result.warnings.length > 0) {
+          for (const warning of result.warnings) {
+            this.log('warn', warning);
+          }
+        }
+      } catch (error) {
+        // If it's a FundingRequiredError, log it and re-throw to stop execution immediately
+        // DO NOT continue to steps - this error means funding is required
+        if (error instanceof FundingRequiredError) {
+          this.log('error', error.message);
+          this.updateState({ status: 'error', error: error.message });
+          // Re-throw to stop execution - this will be caught by runScenario's catch block
+          throw error;
+        }
+        // For other errors, re-throw as well
+        throw error;
       }
     }
 
@@ -413,10 +1187,29 @@ export class ScenarioEngine {
   }
 
   /**
+   * Get entity by address
+   */
+  getEntityByAddress(address: string): TestEntity | undefined {
+    for (const entity of this.state.entities.values()) {
+      if (entity.address === address) {
+        return entity;
+      }
+    }
+    return undefined;
+  }
+
+  /**
    * Get all entities
    */
   getEntities(): Map<string, TestEntity> {
     return new Map(this.state.entities);
+  }
+
+  /**
+   * Get the executor (for UI callbacks)
+   */
+  getExecutor(): ScenarioExecutor | null {
+    return this.executor;
   }
 
   private validateScenario(scenario: Scenario): void {

@@ -24,8 +24,8 @@ export const ASSET_TRANSFER_AGENT: AgentDefinition = {
       detailedDescription: `Creates a transfer extrinsic to send DOT or tokens from the sender's
         account to a recipient. The agent automatically validates addresses, checks balances,
         estimates fees, and can optionally use transferKeepAlive to ensure the sender account
-        remains alive after the transfer. Amounts can be specified in human-readable format
-        (e.g., "1.5" DOT) or in Planck (smallest unit).`,
+        remains alive after the transfer. Amounts MUST be specified in human-readable format
+        (e.g., "5", "1.5", "0.1") - the agent automatically converts to Planck internally.`,
       parameters: [
         {
           name: 'address',
@@ -53,9 +53,9 @@ export const ASSET_TRANSFER_AGENT: AgentDefinition = {
           name: 'amount',
           type: 'string | number',
           required: true,
-          description: 'Amount to transfer (can be human-readable like "1.5" or in Planck)',
-          examples: ['1.5', '1000000000000', '0.1', 2.5],
-          constraints: 'Must be greater than zero',
+          description: 'Amount to transfer in human-readable format (e.g., "5", "1.5", "0.1"). The agent automatically converts to Planck internally.',
+          examples: ['5', '1.5', '0.1', '100', 2.5],
+          constraints: 'Must be greater than zero. Use human-readable format, not Planck values.',
         },
         {
           name: 'keepAlive',
@@ -120,7 +120,7 @@ export const ASSET_TRANSFER_AGENT: AgentDefinition = {
           name: 'transfers',
           type: 'Array<{ recipient: string, amount: string | number }>',
           required: true,
-          description: 'Array of transfers, each with recipient and amount. Example: [{ recipient: "15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5", amount: "1.0" }, { recipient: "1FRMM8PEiWXYax7rpS6X4XZX1aAAxSWx1CrKTyrVYhV24fg", amount: "2.5" }]',
+          description: 'Array of transfers, each with recipient and amount in human-readable format. Example: [{ recipient: "15oF4uVJwmo4TdGW7VfQxNLavjCXviqxT9S1MgbjMNHr6Sp5", amount: "1.0" }, { recipient: "1FRMM8PEiWXYax7rpS6X4XZX1aAAxSWx1CrKTyrVYhV24fg", amount: "2.5" }]. Amounts should be human-readable (e.g., "5", "1.5") - agents convert to Planck internally.',
           constraints: 'Must have at least 1 transfer, maximum 100 transfers',
         },
         {

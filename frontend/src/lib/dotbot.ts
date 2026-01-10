@@ -92,6 +92,19 @@ export interface ChatResult {
 }
 
 /**
+ * DotBot event types for external observers (e.g., ScenarioEngine)
+ */
+export type DotBotEvent = 
+  | { type: 'chat-started'; message: string }
+  | { type: 'user-message-added'; message: string; timestamp: number }
+  | { type: 'bot-message-added'; message: string; timestamp: number }
+  | { type: 'execution-message-added'; executionId: string; plan?: ExecutionPlan; timestamp: number }
+  | { type: 'chat-complete'; result: ChatResult }
+  | { type: 'chat-error'; error: Error };
+
+export type DotBotEventListener = (event: DotBotEvent) => void;
+
+/**
  * Conversation message for maintaining chat history
  */
 export interface ConversationMessage {
@@ -153,6 +166,9 @@ export class DotBot {
   private chatManager: ChatInstanceManager;
   public currentChat: ChatInstance | null = null;
   private chatPersistenceEnabled: boolean;
+  
+  // Event emitter for external observers (e.g., ScenarioEngine)
+  private eventListeners: Set<DotBotEventListener> = new Set();
   
   private constructor(
     api: ApiPromise, 
@@ -579,9 +595,13 @@ export class DotBot {
    * ```
    */
   async chat(message: string, options?: ChatOptions): Promise<ChatResult> {
+    // Emit chat started event
+    this.emit({ type: 'chat-started', message });
+    
     // Save user message
     if (this.currentChat) {
       await this.currentChat.addUserMessage(message);
+      this.emit({ type: 'user-message-added', message, timestamp: Date.now() });
     }
     
     // Get LLM response
@@ -590,13 +610,48 @@ export class DotBot {
     // Extract execution plan
     const plan = this.extractExecutionPlan(llmResponse);
     
+    let result: ChatResult;
+    
     // No execution needed - just a conversation
     if (!plan || plan.steps.length === 0) {
-      return await this.handleConversationResponse(llmResponse);
+      result = await this.handleConversationResponse(llmResponse);
+    } else {
+      // Execute blockchain operations
+      result = await this.handleExecutionResponse(llmResponse, plan, options);
     }
     
-    // Execute blockchain operations
-    return await this.handleExecutionResponse(llmResponse, plan, options);
+    // Emit chat complete event
+    this.emit({ type: 'chat-complete', result });
+    
+    return result;
+  }
+  
+  /**
+   * Add event listener for DotBot events
+   * Used by ScenarioEngine and other observers to track all DotBot activity
+   */
+  addEventListener(listener: DotBotEventListener): void {
+    this.eventListeners.add(listener);
+  }
+  
+  /**
+   * Remove event listener
+   */
+  removeEventListener(listener: DotBotEventListener): void {
+    this.eventListeners.delete(listener);
+  }
+  
+  /**
+   * Emit event to all listeners
+   */
+  private emit(event: DotBotEvent): void {
+    for (const listener of this.eventListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error('DotBot event listener error:', error);
+      }
+    }
   }
   
   /**
@@ -638,6 +693,7 @@ export class DotBot {
     // Save bot response
     if (this.currentChat) {
       await this.currentChat.addBotMessage(cleanedResponse);
+      this.emit({ type: 'bot-message-added', message: cleanedResponse, timestamp: Date.now() });
       
       // Auto-generate title if needed
       if (!this.currentChat.title || this.currentChat.title.startsWith('Chat -')) {
@@ -670,14 +726,18 @@ export class DotBot {
       console.error('Execution preparation failed:', error);
       const errorMsg = error instanceof Error ? error.message : String(error);
       
-      return {
-        response: `Unable to prepare your transaction:\n\n${errorMsg}\n\nPlease check the parameters and try again.`,
-        plan,
-        executed: false,
-        success: false,
-        completed: 0,
-        failed: 1
-      };
+      // Let the LLM generate a helpful error response
+      // This ensures context-aware, user-friendly error messages
+      const errorContextMessage = `I tried to prepare the transaction you requested ("${plan.originalRequest || 'your request'}"), but it failed with this error:\n\n${errorMsg}\n\nPlease provide a helpful, user-friendly explanation of what went wrong and what the user can do to fix it. Be specific about the issue (e.g., if it's insufficient balance, mention their current balance from context and what's needed). Respond with helpful TEXT only - do NOT generate another ExecutionPlan.`;
+      
+      // Get LLM response for the error
+      const errorResponse = await this.getLLMResponse(errorContextMessage, options);
+      
+      // Emit error event
+      this.emit({ type: 'chat-error', error: error instanceof Error ? error : new Error(errorMsg) });
+      
+      // Handle as conversation response (text, not execution)
+      return await this.handleConversationResponse(errorResponse);
     }
     
     // Generate friendly message (pre-execution)
@@ -731,6 +791,14 @@ export class DotBot {
       const state = executionArray.getState();
       const execMessage = await this.currentChat.addExecutionMessage(state, plan);
       this.currentChat.setExecutionArray(state.id, executionArray);
+      
+      // Emit execution message added event
+      this.emit({ 
+        type: 'execution-message-added', 
+        executionId: state.id, 
+        plan, 
+        timestamp: Date.now() 
+      });
       
       // Subscribe to updates to keep ExecutionMessage in sync
       executionArray.onStatusUpdate(() => {

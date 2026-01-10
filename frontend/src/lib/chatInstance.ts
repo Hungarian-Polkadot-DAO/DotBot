@@ -38,6 +38,8 @@ export class ChatInstance {
   // Track multiple ExecutionArrays by their ID
   private executionArrays: Map<string, ExecutionArray> = new Map();
   private executionCallbacks: Map<string, Set<(state: ExecutionArrayState) => void>> = new Map();
+  // Track subscription cleanup functions per execution array
+  private executionSubscriptions: Map<string, () => void> = new Map();
   
   // Legacy: most recent execution (for backward compatibility)
   public get currentExecution(): ExecutionArray | null {
@@ -343,6 +345,31 @@ export class ChatInstance {
    */
   setExecutionArray(executionId: string, executionArray: ExecutionArray): void {
     this.executionArrays.set(executionId, executionArray);
+    
+    // Clean up any existing subscription for this execution
+    const existingUnsubscribe = this.executionSubscriptions.get(executionId);
+    if (existingUnsubscribe) {
+      existingUnsubscribe();
+    }
+    
+    // Notify any existing callbacks immediately with current state
+    const callbacks = this.executionCallbacks.get(executionId);
+    if (callbacks && callbacks.size > 0) {
+      const state = executionArray.getState();
+      callbacks.forEach(cb => cb(state));
+    }
+    
+    // Set up subscription to notify callbacks on future updates
+    // This subscription will be cleaned up when the execution array is removed or when all callbacks are removed
+    const unsubscribe = executionArray.onStatusUpdate(() => {
+      const updatedState = executionArray.getState();
+      const callbacks = this.executionCallbacks.get(executionId);
+      if (callbacks) {
+        callbacks.forEach(cb => cb(updatedState));
+      }
+    });
+    
+    this.executionSubscriptions.set(executionId, unsubscribe);
   }
   
   /**
@@ -643,30 +670,24 @@ export class ChatInstance {
     const callbacks = this.executionCallbacks.get(executionId)!;
     callbacks.add(callback);
 
-    // Subscribe to execution array if it exists
+    // If execution array exists, call callback immediately with current state
+    // Subscription is already set up in setExecutionArray, so we don't need to set it up here
     const executionArray = this.executionArrays.get(executionId);
     if (executionArray) {
-      const unsubscribe = executionArray.onStatusUpdate(() => {
-        const state = executionArray.getState();
-        callbacks.forEach(cb => cb(state));
-      });
-
-      // Call immediately with current state
       callback(executionArray.getState());
-
-      return () => {
-        callbacks.delete(callback);
-        if (callbacks.size === 0) {
-          this.executionCallbacks.delete(executionId);
-        }
-        unsubscribe();
-      };
     }
 
+    // Return cleanup function
     return () => {
       callbacks.delete(callback);
       if (callbacks.size === 0) {
         this.executionCallbacks.delete(executionId);
+        // Clean up subscription if no more callbacks
+        const unsubscribe = this.executionSubscriptions.get(executionId);
+        if (unsubscribe) {
+          unsubscribe();
+          this.executionSubscriptions.delete(executionId);
+        }
       }
     };
   }

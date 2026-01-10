@@ -40,6 +40,8 @@ When constructing an execution array:
 4. **Request missing parameters** early in the sequence
 5. **Group related operations** logically
 
+**Important**: Agents automatically validate balances before creating extrinsics. If a balance check fails, the agent will throw an error with details about available vs required balance. When this happens, you should respond with helpful TEXT explaining the issue to the user, not generate another ExecutionPlan.
+
 ### Example Execution Array
 
 User: "Send 5 DOT to Alice, then swap 10 DOT for USDC"
@@ -54,6 +56,7 @@ Execution Array:
 - If a parameter is missing, create a step with type "user_input" to request it
 - Use results from previous steps as parameters for subsequent steps
 - Validate parameter types and constraints before adding to execution array
+- For amount parameters: Always use human-readable format (e.g., "5", "1.5", "0.1"). The agents automatically convert to Planck internally - never provide Planck values directly.
 
 ### Error Handling
 

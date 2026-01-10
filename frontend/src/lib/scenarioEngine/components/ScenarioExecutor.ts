@@ -45,7 +45,7 @@ import type { ApiPromise } from '@polkadot/api';
 import type { SubmittableExtrinsic } from '@polkadot/api/types';
 import { BN } from '@polkadot/util';
 import { KeyringSigner } from '../../executionEngine/signers/keyringSigner';
-import type { ExecutionPlan } from '../../prompts/system/execution/types';
+import type { ExecutionPlan, ExecutionStep } from '../../prompts/system/execution/types';
 import type {
   Scenario,
   ScenarioStep,
@@ -119,7 +119,7 @@ export interface ExecutorDependencies {
   queryBalance?: (address: string) => Promise<string>;
   
   /** Optional: Entity keypair resolver (for signing background actions) */
-  getEntityKeypair?: (entityName: string) => { mnemonic: string } | undefined;
+  getEntityKeypair?: (entityName: string) => { uri: string } | undefined;
   
   /** Optional: Entity address resolver (for getting entity addresses) */
   getEntityAddress?: (entityName: string) => string | undefined;
@@ -265,13 +265,14 @@ export class ScenarioExecutor {
         this.context.results.push(errorResult);
         this.emit({ type: 'error', error: String(error), step });
 
-        // Stop on error unless configured otherwise
-        if (!scenario.constraints?.maxRetries) {
-          break;
-        }
+        // Don't stop on error - continue to next step
+        // User can manually end scenario if needed via "End Scenario" button
+        // Scenarios don't auto-quit - they wait for user interaction
       }
     }
 
+    // All steps completed
+    this.emit({ type: 'log', level: 'info', message: `All ${scenario.steps.length} step(s) completed` });
     return this.context.results;
   }
 
@@ -358,27 +359,94 @@ export class ScenarioExecutor {
     step: ScenarioStep,
     startTime: number
   ): Promise<StepResult> {
-    const input = step.input;
+    let input = step.input;
     if (!input) {
       throw new Error('Prompt step requires input');
     }
 
+    // Replace entity names with addresses in the prompt
+    // Example: "Send 5 WND to Alice" -> "Send 5 WND to 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+    if (this.deps?.getEntityAddress) {
+      // Find entity names in the prompt (simple pattern matching for common names)
+      const entityNamePattern = /\b(Alice|Bob|Charlie|Dave|Eve|Ferdie|Grace|Heinz|Ida|Judith|Ken|Larry|Mary|Nina|Oscar|Peggy|Quinn|Rita|Steve|Trent|Ursula|Victor|Wendy|Xavier|Yvonne|Zoe)\b/gi;
+      input = input.replace(entityNamePattern, (match) => {
+        const address = this.deps?.getEntityAddress?.(match);
+        if (address) {
+          this.emit({ type: 'log', level: 'debug', message: `Replaced entity "${match}" with address ${address}` });
+          return address;
+        }
+        return match; // Keep original if address not found
+      });
+    }
+
     this.emit({ type: 'log', level: 'debug', message: `Executing prompt: "${input}"` });
 
-    // Tell UI to inject the prompt
+    // Tell UI to inject the prompt (fills ChatInput, doesn't send - user submits manually)
     this.emit({
       type: 'inject-prompt',
       prompt: input,
     });
 
-    // Wait for UI to process (fill ChatInput and submit)
+    // Wait for UI to process (fill ChatInput)
     await this.waitForPromptProcessed();
     
-    // Wait for response from DotBot (via UI)
+    // Wait for user to submit and get response from DotBot (via UI)
+    this.emit({ 
+      type: 'dotbot-activity', 
+      activity: 'Processing user prompt...',
+      details: `Prompt: "${input.substring(0, 80)}${input.length > 80 ? '...' : ''}"`
+    });
+    
     const chatResult = await this.waitForResponseReceived();
     const response = chatResult?.response || '';
+    
+    // Capture execution plan if available (check this FIRST for accurate response type)
+    const executionPlan = chatResult?.plan ? {
+      id: chatResult.plan.id,
+      steps: chatResult.plan.steps.map((s: ExecutionStep) => ({
+        agentClassName: s.agentClassName,
+        functionName: s.functionName,
+        parameters: s.parameters,
+        description: s.description,
+        executionType: s.executionType,
+      })),
+      requiresApproval: chatResult.plan.requiresApproval,
+    } : undefined;
+
+    // Determine response type: prioritize execution plan over text analysis
+    const responseType = executionPlan ? 'execution' : this.detectResponseType(response);
+    const responsePreview = response.substring(0, 100);
+    
+    // Log detailed response information
+    if (responseType === 'execution') {
+      this.emit({ 
+        type: 'dotbot-activity', 
+        activity: 'Generated execution plan',
+        details: chatResult?.plan ? `Plan has ${chatResult.plan.steps?.length || 0} step(s)` : 'Execution plan created'
+      });
+    } else if (responseType === 'error') {
+      this.emit({ 
+        type: 'dotbot-activity', 
+        activity: 'Responded with error',
+        details: `${responsePreview}${response.length > 100 ? '...' : ''}`
+      });
+    } else {
+      this.emit({ 
+        type: 'dotbot-activity', 
+        activity: `Responded with ${responseType}`,
+        details: `${responsePreview}${response.length > 100 ? '...' : ''}`
+      });
+    }
 
     const endTime = Date.now();
+
+    // Capture execution statistics if available
+    const executionStats = chatResult ? {
+      executed: chatResult.executed,
+      success: chatResult.success,
+      completed: chatResult.completed,
+      failed: chatResult.failed,
+    } : undefined;
 
     return {
       stepId: step.id,
@@ -387,10 +455,12 @@ export class ScenarioExecutor {
       endTime,
       duration: endTime - startTime,
       response: {
-        type: this.detectResponseType(response),
+        type: responseType, // Use the correctly determined type
         content: response,
         parsed: this.tryParseResponse(response),
       },
+      executionPlan,
+      executionStats,
     };
   }
 
@@ -403,11 +473,13 @@ export class ScenarioExecutor {
       throw new Error('Action step requires action');
     }
 
-    this.emit({ type: 'log', level: 'debug', message: `Executing action: ${action.type}` });
+    this.emit({ type: 'log', level: 'info', message: `Executing action: ${action.type}${action.asEntity ? ` (as ${action.asEntity})` : ''}` });
 
     await this.performAction(action);
 
     const endTime = Date.now();
+    
+    this.emit({ type: 'log', level: 'info', message: `Action completed: ${action.type} (${endTime - startTime}ms)` });
 
     return {
       stepId: step.id,
@@ -448,11 +520,19 @@ export class ScenarioExecutor {
       throw new Error('Assert step requires assertion');
     }
 
-    this.emit({ type: 'log', level: 'debug', message: `Checking assertion: ${assertion.type}` });
+    this.emit({ type: 'log', level: 'info', message: `Checking assertion: ${assertion.type}` });
 
     const assertionResult = await this.checkAssertion(assertion);
 
     const endTime = Date.now();
+    
+    // Log assertion result
+    const icon = assertionResult.passed ? '✓' : '✗';
+    this.emit({ 
+      type: 'log', 
+      level: assertionResult.passed ? 'info' : 'warn', 
+      message: `${icon} Assertion: ${assertionResult.message}` 
+    });
 
     return {
       stepId: step.id,
@@ -545,6 +625,18 @@ export class ScenarioExecutor {
 
       case 'submit-extrinsic':
         // Submit any extrinsic as a specific entity
+        // Log multisig address if creating a multisig
+        const extrinsicParams = action.params?.extrinsic as any;
+        if (extrinsicParams?.pallet === 'multisig' && extrinsicParams?.method === 'asMultiThreshold1') {
+          const multisigEntity = this.deps?.getEntityAddress?.('MultisigAccount');
+          if (multisigEntity) {
+            this.emit({ 
+              type: 'log', 
+              level: 'info', 
+              message: `📋 Creating multisig on-chain: ${multisigEntity}` 
+            });
+          }
+        }
         await this.submitExtrinsic(action);
         break;
 
@@ -777,7 +869,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${action.asEntity}`);
     }
 
@@ -796,8 +888,10 @@ export class ScenarioExecutor {
       message: `Signing multisig as ${action.asEntity} (background)` 
     });
 
-    // Create signer from entity mnemonic
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    // Create signer from entity URI (ensures address matches)
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);
@@ -847,7 +941,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${action.asEntity}`);
     }
 
@@ -867,7 +961,9 @@ export class ScenarioExecutor {
       message: `Executing multisig as ${action.asEntity}` 
     });
 
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);
@@ -913,7 +1009,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(fromEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${fromEntity}`);
     }
 
@@ -923,7 +1019,9 @@ export class ScenarioExecutor {
       message: `Funding ${targetAddress} with ${amount} from ${fromEntity} (background)` 
     });
 
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const fromAddress = this.deps?.getEntityAddress?.(fromEntity);
     if (!fromAddress) {
       throw new Error(`Entity address not found for ${fromEntity}`);
@@ -972,7 +1070,7 @@ export class ScenarioExecutor {
     }
 
     const entityKeypair = this.deps?.getEntityKeypair?.(action.asEntity);
-    if (!entityKeypair?.mnemonic) {
+    if (!entityKeypair?.uri) {
       throw new Error(`Entity keypair not found for ${action.asEntity}`);
     }
 
@@ -982,7 +1080,9 @@ export class ScenarioExecutor {
       message: `Submitting extrinsic as ${action.asEntity}` 
     });
 
-    const signer = KeyringSigner.fromMnemonic(entityKeypair.mnemonic);
+    // Use API's registry SS58 format to ensure correct address encoding
+    const ss58Format = this.deps!.api.registry.chainSS58 ?? 42;
+    const signer = KeyringSigner.fromUri(entityKeypair.uri, 'sr25519', {}, ss58Format);
     const entityAddress = this.deps?.getEntityAddress?.(action.asEntity);
     if (!entityAddress) {
       throw new Error(`Entity address not found for ${action.asEntity}`);
@@ -1126,36 +1226,29 @@ export class ScenarioExecutor {
   }
 
   /**
-   * Wait for the UI to process a prompt (fill ChatInput and submit)
+   * Wait for the UI to process a prompt (fill ChatInput)
+   * Note: This only waits for the input to be filled, not for user submission
+   * User submission is handled separately via waitForResponseReceived()
+   * 
+   * NO TIMEOUT - scenarios wait indefinitely for user interaction
    */
   private waitForPromptProcessed(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       this.promptProcessedResolver = resolve;
-      
-      // Timeout
-      setTimeout(() => {
-        if (this.promptProcessedResolver) {
-          this.promptProcessedResolver = null;
-          reject(new Error('Timeout waiting for prompt to be processed by UI'));
-        }
-      }, this.config.responseTimeout);
+      // No timeout - wait indefinitely for user to interact
     });
   }
 
   /**
    * Wait for the UI to receive a response from DotBot
+   * 
+   * NO TIMEOUT - scenarios wait indefinitely for DotBot responses
+   * User can manually end scenario early if needed
    */
   private waitForResponseReceived(): Promise<any> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       this.responseReceivedResolver = resolve;
-      
-      // Timeout
-      setTimeout(() => {
-        if (this.responseReceivedResolver) {
-          this.responseReceivedResolver = null;
-          reject(new Error('Timeout waiting for response from DotBot'));
-        }
-      }, this.config.responseTimeout);
+      // No timeout - wait indefinitely for DotBot response
     });
   }
 

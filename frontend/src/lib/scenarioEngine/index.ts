@@ -4,11 +4,41 @@
  * A testing and evaluation framework for DotBot.
  * Enables systematic testing of prompt handling, security, and functionality.
  * 
+ * ## Architecture Principle
+ * 
+ * **ScenarioEngine CONTROLS DotBot, it does NOT replace it.**
+ * 
+ * - ✅ ScenarioEngine creates test entities and funds them on the REAL chain
+ * - ✅ ScenarioEngine injects prompts through DotBot's UI
+ * - ✅ ScenarioEngine evaluates DotBot's responses
+ * - ❌ ScenarioEngine does NOT create duplicate/shadow state
+ * - ❌ ScenarioEngine does NOT mock what DotBot sees
+ * 
+ * ## Current Implementation Status
+ * 
+ * **Live Mode**: ✅ **READY**
+ * - Creates test entities with deterministic addresses
+ * - Funds accounts on real Westend testnet (user approves batch transfer)
+ * - DotBot queries real chain and sees these balances
+ * - Tests work correctly - no duplicate state issues
+ * 
+ * **Synthetic Mode**: ⚠️ **TODO** (Disabled)
+ * - Future: Mock DotBot's LLM responses entirely
+ * - Don't run real DotBot - just verify response structure
+ * - Fast unit testing without chain interaction
+ * 
+ * **Emulated Mode**: ⚠️ **TODO** (Disabled)
+ * - Future: Create Chopsticks fork AND reconnect DotBot to it
+ * - Requires: DotBot API reconfiguration support
+ * - Realistic testing without testnet costs
+ * 
+ * See: `/SCENARIO_ENGINE_ARCHITECTURAL_ANALYSIS.md` for detailed analysis
+ * 
  * ## Overview
  * 
  * The ScenarioEngine provides:
  * - **EntityCreator**: Creates test accounts (Alice, Bob, multisigs, etc.)
- * - **StateAllocator**: Sets up initial state (balances, on-chain state)
+ * - **StateAllocator**: Funds accounts on real chain (Live mode)
  * - **ScenarioExecutor**: Runs prompts against the DotBot UI
  * - **Evaluator**: Evaluates responses against expectations
  * 
@@ -186,7 +216,6 @@ export type {
 // SCENARIO LIBRARY EXPORTS
 // =============================================================================
 
-// Note: TestPrompt type removed - scenarios now use Scenario type directly
 export {
   // All tests
   ALL_TESTS,
@@ -200,6 +229,7 @@ export {
   STRESS_TESTS,
   CONTEXT_AWARENESS_TESTS,
   KNOWLEDGE_TESTS,
+  STATE_ALLOCATION_TESTS,
   
   // Helper functions
   getTestsByType,

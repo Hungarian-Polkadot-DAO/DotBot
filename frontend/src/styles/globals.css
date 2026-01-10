@@ -418,6 +418,30 @@ body {
   border-bottom: 1px solid var(--border-primary);
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settings-button:hover {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 .main-body {
   flex: 1;
   display: flex;
@@ -634,6 +658,122 @@ body {
   border-radius: 16px 16px 16px 4px;
 }
 
+/* Markdown styles for messages */
+.message-bubble .message-markdown-inline-code {
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 0.9em;
+  color: var(--text-primary);
+}
+
+.message.user .message-bubble .message-markdown-inline-code {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.message-bubble .message-markdown-code-block {
+  display: block;
+  background-color: rgba(0, 0, 0, 0.1);
+  padding: 12px;
+  border-radius: 8px;
+  font-family: 'Courier New', 'Consolas', monospace;
+  font-size: 0.9em;
+  overflow-x: auto;
+  margin: 8px 0;
+  color: var(--text-primary);
+}
+
+.message-bubble .message-markdown-code-block code {
+  background: transparent;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.message.user .message-bubble .message-markdown-code-block {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.message-bubble .message-markdown-link {
+  color: var(--brand-pink);
+  text-decoration: underline;
+  transition: opacity 0.2s;
+}
+
+.message-bubble .message-markdown-link:hover {
+  opacity: 0.8;
+}
+
+.message-bubble .message-markdown-list {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.message-bubble .message-markdown-list li {
+  margin: 4px 0;
+}
+
+.message-bubble .message-markdown-list-ordered {
+  list-style-type: decimal;
+}
+
+.message-bubble .message-markdown-blockquote {
+  border-left: 3px solid var(--brand-pink);
+  padding-left: 16px;
+  margin: 8px 0;
+  opacity: 0.8;
+  font-style: italic;
+}
+
+.message-bubble .message-markdown-heading {
+  margin: 12px 0 8px 0;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message-bubble .message-markdown-h1 {
+  font-size: 1.5em;
+}
+
+.message-bubble .message-markdown-h2 {
+  font-size: 1.3em;
+}
+
+.message-bubble .message-markdown-h3 {
+  font-size: 1.1em;
+}
+
+.message-bubble p {
+  margin: 8px 0;
+}
+
+.message-bubble p:first-child {
+  margin-top: 0;
+}
+
+.message-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.message-bubble strong {
+  font-weight: 600;
+}
+
+.message-bubble em {
+  font-style: italic;
+}
+
+.message-bubble hr {
+  border: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 12px 0;
+}
+
+.message.user .message-bubble hr {
+  border-top-color: rgba(255, 255, 255, 0.2);
+}
+
 
 /* Action Badge styles - width: fill 720px, height: 56px, radius: 40px, padding: 12px 16px, gap: 10px */
 .action-badge {
@@ -716,6 +856,35 @@ body {
   max-width: 720px;
   margin: 0 auto;
   position: relative;
+  transition: all 0.3s ease;
+}
+
+/* Visual effect when ScenarioEngine injects a prompt */
+.chat-input-injected {
+  animation: injectionPulse 2s ease-out;
+}
+
+@keyframes injectionPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 255, 65, 0);
+  }
+  15% {
+    transform: scale(1.02);
+    box-shadow: 0 0 20px 5px rgba(0, 255, 65, 0.4);
+  }
+  30% {
+    transform: scale(1);
+    box-shadow: 0 0 10px 2px rgba(0, 255, 65, 0.2);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(0, 255, 65, 0);
+  }
+}
+
+.chat-input-injected .action-badge {
+  border-color: rgba(0, 255, 65, 0.5) !important;
 }
 
 .input-form {

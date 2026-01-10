@@ -58,14 +58,16 @@ export class KeyringSigner implements Signer {
    * 
    * @param uri URI string
    * @param type Key type
-   * @param options Signer options
+   * @param options Signer options (can include ss58Format)
+   * @param ss58Format Optional SS58 format for address encoding (defaults to 42 for Westend)
    */
   static fromUri(
     uri: string,
     type: 'sr25519' | 'ed25519' = 'sr25519',
-    options: SignerOptions = {}
+    options: SignerOptions = {},
+    ss58Format?: number
   ): KeyringSigner {
-    const keyring = new Keyring({ type });
+    const keyring = new Keyring({ type, ss58Format });
     const pair = keyring.addFromUri(uri);
     return new KeyringSigner(pair, options);
   }

@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { User } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import dotbotFavicon from '../../assets/dotbot-favicon.svg';
 import type { TextMessage, SystemMessage } from '../../lib';
 
@@ -56,7 +57,55 @@ const Message: React.FC<MessageProps> = ({ message }) => {
       </div>
       <div className="message-content">
         <div className="message-bubble">
-          {content}
+          <ReactMarkdown
+            components={{
+              // Style code blocks - react-markdown wraps code blocks in <pre><code>
+              code: ({ className, children, ...props }: any) => {
+                const isInline = !className;
+                return (
+                  <code 
+                    className={isInline ? "message-markdown-inline-code" : undefined}
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                );
+              },
+              // Style pre elements (code blocks)
+              pre: ({ children, ...props }: any) => (
+                <pre className="message-markdown-code-block" {...props}>
+                  {children}
+                </pre>
+              ),
+              // Style links
+              a: ({ ...props }: any) => (
+                <a className="message-markdown-link" target="_blank" rel="noopener noreferrer" {...props} />
+              ),
+              // Style lists
+              ul: ({ ...props }: any) => (
+                <ul className="message-markdown-list" {...props} />
+              ),
+              ol: ({ ...props }: any) => (
+                <ol className="message-markdown-list message-markdown-list-ordered" {...props} />
+              ),
+              // Style blockquotes
+              blockquote: ({ ...props }: any) => (
+                <blockquote className="message-markdown-blockquote" {...props} />
+              ),
+              // Style headings
+              h1: ({ ...props }: any) => (
+                <h1 className="message-markdown-heading message-markdown-h1" {...props} />
+              ),
+              h2: ({ ...props }: any) => (
+                <h2 className="message-markdown-heading message-markdown-h2" {...props} />
+              ),
+              h3: ({ ...props }: any) => (
+                <h3 className="message-markdown-heading message-markdown-h3" {...props} />
+              ),
+            }}
+          >
+            {content}
+          </ReactMarkdown>
         </div>
       </div>
     </div>

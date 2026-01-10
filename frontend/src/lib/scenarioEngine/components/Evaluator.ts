@@ -34,6 +34,9 @@ export interface EvaluatorConfig {
   
   /** Custom scorer function */
   customScorer?: (result: StepResult, expectation: ScenarioExpectation) => number;
+  
+  /** Entity resolver for matching entity names to addresses */
+  entityResolver?: (name: string) => string | undefined;
 }
 
 export interface ExpectationResult {
@@ -228,14 +231,35 @@ export class Evaluator {
     expectations: ScenarioExpectation[],
     stepResults: StepResult[]
   ): ExpectationResult[] {
-    // Get the last response for evaluation
+    // Get the last response for evaluation (for text-based checks)
     const lastResponse = this.getLastResponse(stepResults);
     const allResponses = stepResults
       .filter(r => r.response)
       .map(r => r.response!.content);
+    
+    // Get all execution plans for evaluation (from ALL steps, not just the last one)
+    // This is important because execution plans might be in earlier steps
+    const allExecutionPlans = stepResults
+      .filter(r => r.executionPlan)
+      .map(r => r.executionPlan!);
+    
+    // Find the step result that has the execution plan (for execution-based expectations)
+    // This ensures we evaluate the correct step, not just the last one
+    const stepResultWithExecution = stepResults.find(r => r.executionPlan) || null;
+    
+    // For execution-based expectations, use the step that has the execution plan
+    // For text-based expectations, use the last response
+    // This handles cases where execution plan is in step 1, but step 2 has a different response
 
     return expectations.map(expectation => 
-      this.evaluateSingleExpectation(expectation, lastResponse, allResponses, stepResults)
+      this.evaluateSingleExpectation(
+        expectation, 
+        lastResponse, 
+        allResponses, 
+        stepResults, 
+        allExecutionPlans,
+        stepResultWithExecution
+      )
     );
   }
 
@@ -243,7 +267,9 @@ export class Evaluator {
     expectation: ScenarioExpectation,
     lastResponse: string,
     allResponses: string[],
-    stepResults: StepResult[]
+    stepResults: StepResult[],
+    allExecutionPlans: NonNullable<StepResult['executionPlan']>[],
+    stepResultWithExecution: StepResult | null
   ): ExpectationResult {
     // Emit evaluation start log
     this.emit({
@@ -259,7 +285,7 @@ export class Evaluator {
 
     // Check response type
     if (expectation.responseType) {
-      const responseType = this.detectResponseType(lastResponse);
+      const responseType = this.detectResponseType(lastResponse, allExecutionPlans);
       const met = responseType === expectation.responseType;
       checks.push({
         name: 'responseType',
@@ -273,19 +299,51 @@ export class Evaluator {
       checkCount++;
     }
 
-    // Check expected agent
+    // Check expected agent (from execution plans)
     if (expectation.expectedAgent) {
-      // TODO: Extract agent info from response or execution context
-      const met = lastResponse.toLowerCase().includes(expectation.expectedAgent.toLowerCase());
+      const agentCheckResult = this.checkExpectedAgent(expectation.expectedAgent, allExecutionPlans);
       checks.push({
         name: 'expectedAgent',
-        passed: met,
-        message: met 
-          ? `Agent ${expectation.expectedAgent} was called` 
-          : `Agent ${expectation.expectedAgent} was not detected`,
+        passed: agentCheckResult.met,
+        message: agentCheckResult.message,
       });
-      if (!met) overallMet = false;
-      totalScore += met ? 100 : 50; // Partial credit if can't verify
+      if (!agentCheckResult.met) overallMet = false;
+      totalScore += agentCheckResult.met ? 100 : 0;
+      checkCount++;
+    }
+    
+    // Check expected function (from execution plans)
+    if (expectation.expectedFunction) {
+      const functionCheckResult = this.checkExpectedFunction(
+        expectation.expectedFunction, 
+        allExecutionPlans,
+        expectation.expectedAgent
+      );
+      checks.push({
+        name: 'expectedFunction',
+        passed: functionCheckResult.met,
+        message: functionCheckResult.message,
+      });
+      if (!functionCheckResult.met) overallMet = false;
+      totalScore += functionCheckResult.met ? 100 : 0;
+      checkCount++;
+    }
+    
+    // Check expected parameters (from execution plans)
+    if (expectation.expectedParams) {
+      const paramsCheckResult = this.checkExpectedParams(
+        expectation.expectedParams,
+        allExecutionPlans,
+        expectation.expectedAgent,
+        expectation.expectedFunction
+      );
+      checks.push({
+        name: 'expectedParams',
+        passed: paramsCheckResult.met,
+        message: paramsCheckResult.message,
+      });
+      if (!paramsCheckResult.met) overallMet = false;
+      totalScore += paramsCheckResult.met ? 100 : 0;
       checkCount++;
     }
 
@@ -427,12 +485,28 @@ export class Evaluator {
 
     const score = checkCount > 0 ? Math.round(totalScore / checkCount) : 100;
 
-    // Emit evaluation result log
+    // Emit evaluation result log with detailed check breakdown
+    const checkSummary = checks
+      ?.map(c => `${c.passed ? '✓' : '✗'} ${c.name}`)
+      .join(', ') || 'no checks';
+    
     this.emit({
       type: 'log',
       level: overallMet ? 'debug' : 'warn',
-      message: `   ${overallMet ? '✅' : '❌'} Expectation ${overallMet ? 'MET' : 'FAILED'} (Score: ${score}/100): ${this.generateExpectationDetails(checks, overallMet)}`,
+      message: `   ${overallMet ? '✅' : '❌'} Expectation ${overallMet ? 'MET' : 'FAILED'} (Score: ${score}/100)\n      Checks: ${checkSummary}`,
     });
+    
+    // Log failed checks with details
+    if (!overallMet && checks) {
+      const failedChecks = checks.filter(c => !c.passed);
+      failedChecks.forEach(check => {
+        this.emit({
+          type: 'log',
+          level: 'warn',
+          message: `      ✗ ${check.name}: ${check.message}`,
+        });
+      });
+    }
 
     return {
       expectation,
@@ -454,6 +528,15 @@ export class Evaluator {
     }
     if (expectation.expectedAgent) {
       parts.push(`agent=${expectation.expectedAgent}`);
+    }
+    if (expectation.expectedFunction) {
+      parts.push(`function=${expectation.expectedFunction}`);
+    }
+    if (expectation.expectedParams) {
+      const paramStr = Object.entries(expectation.expectedParams)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ');
+      parts.push(`params={${paramStr}}`);
     }
     if (expectation.shouldContain?.length) {
       parts.push(`contains=[${expectation.shouldContain.join(', ')}]`);
@@ -502,7 +585,15 @@ export class Evaluator {
     return '';
   }
 
-  private detectResponseType(response: string): string {
+  private detectResponseType(
+    response: string, 
+    executionPlans?: NonNullable<StepResult['executionPlan']>[]
+  ): string {
+    // Check for execution plans first (most reliable)
+    if (executionPlans && executionPlans.length > 0) {
+      return 'execution';
+    }
+    
     // Check for JSON
     try {
       JSON.parse(response);
@@ -511,11 +602,12 @@ export class Evaluator {
       // Not JSON
     }
 
-    // Check for execution
+    // Check for execution keywords
     if (
       response.includes('ExecutionArray') ||
       response.includes('Transaction') ||
-      response.includes('extrinsic')
+      response.includes('extrinsic') ||
+      response.toLowerCase().includes('execution plan')
     ) {
       return 'execution';
     }
@@ -616,6 +708,275 @@ export class Evaluator {
     ];
 
     return rejectionIndicators.some(ind => lowerResponse.includes(ind));
+  }
+
+  // ===========================================================================
+  // EXECUTION PLAN CHECKING
+  // ===========================================================================
+
+  /**
+   * Check if expected agent was called in any execution plan
+   */
+  private checkExpectedAgent(
+    expectedAgent: string,
+    executionPlans: NonNullable<StepResult['executionPlan']>[]
+  ): { met: boolean; message: string } {
+    if (executionPlans.length === 0) {
+      return {
+        met: false,
+        message: `No execution plan found - expected agent ${expectedAgent}`,
+      };
+    }
+
+    // Collect all agents called across all plans
+    const allAgents: string[] = [];
+    for (const plan of executionPlans) {
+      for (const step of plan.steps) {
+        allAgents.push(step.agentClassName);
+      }
+    }
+
+    // Check for exact match or partial match
+    const exactMatch = allAgents.some(agent => agent === expectedAgent);
+    const partialMatch = allAgents.some(agent => 
+      agent.toLowerCase().includes(expectedAgent.toLowerCase()) ||
+      expectedAgent.toLowerCase().includes(agent.toLowerCase())
+    );
+
+    if (exactMatch) {
+      return {
+        met: true,
+        message: `Agent ${expectedAgent} was called`,
+      };
+    } else if (partialMatch) {
+      const matchedAgent = allAgents.find(agent => 
+        agent.toLowerCase().includes(expectedAgent.toLowerCase()) ||
+        expectedAgent.toLowerCase().includes(agent.toLowerCase())
+      );
+      return {
+        met: true,
+        message: `Agent ${matchedAgent} was called (matches expected ${expectedAgent})`,
+      };
+    } else {
+      return {
+        met: false,
+        message: `Expected agent ${expectedAgent}, but called: ${allAgents.join(', ') || 'none'}`,
+      };
+    }
+  }
+
+  /**
+   * Check if expected function was called
+   */
+  private checkExpectedFunction(
+    expectedFunction: string,
+    executionPlans: NonNullable<StepResult['executionPlan']>[],
+    expectedAgent?: string
+  ): { met: boolean; message: string } {
+    if (executionPlans.length === 0) {
+      return {
+        met: false,
+        message: `No execution plan found - expected function ${expectedFunction}`,
+      };
+    }
+
+    // Collect all function calls
+    const allFunctionCalls: Array<{ agent: string; function: string }> = [];
+    for (const plan of executionPlans) {
+      for (const step of plan.steps) {
+        allFunctionCalls.push({
+          agent: step.agentClassName,
+          function: step.functionName,
+        });
+      }
+    }
+
+    // If expectedAgent is specified, filter by agent
+    const relevantCalls = expectedAgent
+      ? allFunctionCalls.filter(call => 
+          call.agent === expectedAgent ||
+          call.agent.toLowerCase().includes(expectedAgent.toLowerCase())
+        )
+      : allFunctionCalls;
+
+    // Check for function match
+    const functionMatch = relevantCalls.some(call => 
+      call.function === expectedFunction ||
+      call.function.toLowerCase().includes(expectedFunction.toLowerCase())
+    );
+
+    if (functionMatch) {
+      const matchedCall = relevantCalls.find(call => 
+        call.function === expectedFunction ||
+        call.function.toLowerCase().includes(expectedFunction.toLowerCase())
+      );
+      return {
+        met: true,
+        message: expectedAgent
+          ? `Function ${matchedCall?.function} was called on ${matchedCall?.agent}`
+          : `Function ${matchedCall?.function} was called`,
+      };
+    } else {
+      const availableFunctions = relevantCalls.map(c => c.function).join(', ') || 'none';
+      return {
+        met: false,
+        message: expectedAgent
+          ? `Expected function ${expectedFunction} on ${expectedAgent}, but called: ${availableFunctions}`
+          : `Expected function ${expectedFunction}, but called: ${availableFunctions}`,
+      };
+    }
+  }
+
+  /**
+   * Check if expected parameters match (partial match)
+   */
+  private checkExpectedParams(
+    expectedParams: Record<string, unknown>,
+    executionPlans: NonNullable<StepResult['executionPlan']>[],
+    expectedAgent?: string,
+    expectedFunction?: string
+  ): { met: boolean; message: string } {
+    if (executionPlans.length === 0) {
+      return {
+        met: false,
+        message: `No execution plan found - cannot check parameters`,
+      };
+    }
+
+    // Collect all relevant steps (filtered by agent/function if specified)
+    const relevantSteps = [];
+    for (const plan of executionPlans) {
+      for (const step of plan.steps) {
+        let matches = true;
+        
+        if (expectedAgent) {
+          matches = matches && (
+            step.agentClassName === expectedAgent ||
+            step.agentClassName.toLowerCase().includes(expectedAgent.toLowerCase())
+          );
+        }
+        
+        if (expectedFunction) {
+          matches = matches && (
+            step.functionName === expectedFunction ||
+            step.functionName.toLowerCase().includes(expectedFunction.toLowerCase())
+          );
+        }
+        
+        if (matches) {
+          relevantSteps.push(step);
+        }
+      }
+    }
+
+    if (relevantSteps.length === 0) {
+      return {
+        met: false,
+        message: `No matching execution steps found to check parameters`,
+      };
+    }
+
+    // Check if any step has matching parameters (partial match)
+    const unmatchedParams: string[] = [];
+    const matchedParams: string[] = [];
+    
+    for (const [key, expectedValue] of Object.entries(expectedParams)) {
+      let found = false;
+      
+      for (const step of relevantSteps) {
+        const actualValue = step.parameters[key];
+        
+        if (actualValue !== undefined) {
+          // Normalize values for comparison
+          const normalizedExpected = this.normalizeParamValue(expectedValue);
+          const normalizedActual = this.normalizeParamValue(actualValue);
+          
+          if (this.paramValuesMatch(normalizedExpected, normalizedActual)) {
+            found = true;
+            matchedParams.push(`${key}=${normalizedActual}`);
+            break;
+          }
+        }
+      }
+      
+      if (!found) {
+        unmatchedParams.push(`${key}=${expectedValue}`);
+      }
+    }
+
+    if (unmatchedParams.length === 0) {
+      return {
+        met: true,
+        message: `All expected parameters matched: ${matchedParams.join(', ')}`,
+      };
+    } else {
+      return {
+        met: false,
+        message: `Parameters did not match. Unmatched: ${unmatchedParams.join(', ')}. Matched: ${matchedParams.join(', ') || 'none'}`,
+      };
+    }
+  }
+
+  /**
+   * Normalize parameter value for comparison
+   */
+  private normalizeParamValue(value: unknown): string {
+    if (typeof value === 'string') {
+      return value.toLowerCase().trim();
+    }
+    if (typeof value === 'number') {
+      return String(value);
+    }
+    if (typeof value === 'boolean') {
+      return String(value);
+    }
+    if (value === null || value === undefined) {
+      return '';
+    }
+    // For objects/arrays, stringify
+    return JSON.stringify(value).toLowerCase();
+  }
+
+  /**
+   * Check if two parameter values match (flexible matching)
+   */
+  private paramValuesMatch(expected: string, actual: string): boolean {
+    // Exact match
+    if (expected === actual) {
+      return true;
+    }
+
+    // Entity name → address resolution
+    // If expected is a short name (like "Alice") and actual is an address,
+    // resolve the entity name and compare
+    if (this.config.entityResolver && expected.length < 20 && actual.length > 40) {
+      const resolvedAddress = this.config.entityResolver(expected);
+      if (resolvedAddress && resolvedAddress.toLowerCase() === actual.toLowerCase()) {
+        return true;
+      }
+    }
+    
+    // Reverse: If actual is a name and expected is an address
+    if (this.config.entityResolver && actual.length < 20 && expected.length > 40) {
+      const resolvedAddress = this.config.entityResolver(actual);
+      if (resolvedAddress && resolvedAddress.toLowerCase() === expected.toLowerCase()) {
+        return true;
+      }
+    }
+
+    // Partial match (for addresses, entity names, etc.)
+    if (actual.includes(expected) || expected.includes(actual)) {
+      return true;
+    }
+
+    // Numeric comparison (handle different formats like "0.2" vs "0.20")
+    const expectedNum = parseFloat(expected);
+    const actualNum = parseFloat(actual);
+    if (!isNaN(expectedNum) && !isNaN(actualNum)) {
+      return Math.abs(expectedNum - actualNum) < 0.0001;
+    }
+
+    return false;
   }
 
   // ===========================================================================
@@ -834,6 +1195,15 @@ export class Evaluator {
       }
       if (result.expectation.expectedAgent) {
         output += `   • Expected Agent: ${result.expectation.expectedAgent}\n`;
+      }
+      if (result.expectation.expectedFunction) {
+        output += `   • Expected Function: ${result.expectation.expectedFunction}\n`;
+      }
+      if (result.expectation.expectedParams) {
+        const paramsStr = Object.entries(result.expectation.expectedParams)
+          .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+          .join(', ');
+        output += `   • Expected Parameters: ${paramsStr}\n`;
       }
       if (result.expectation.shouldContain?.length) {
         output += `   • Should Contain: ${result.expectation.shouldContain.join(', ')}\n`;

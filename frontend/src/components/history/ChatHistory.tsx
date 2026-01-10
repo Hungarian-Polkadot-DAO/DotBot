@@ -17,6 +17,7 @@ interface ChatHistoryProps {
   onChatRenamed?: () => void;
   currentChatId?: string;
   refreshTrigger?: number;
+  isLoadingChat?: boolean; // Whether a chat is currently being loaded
 }
 
 const ChatHistory: React.FC<ChatHistoryProps> = ({ 
@@ -24,7 +25,8 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
   onSelectChat,
   onChatRenamed,
   currentChatId,
-  refreshTrigger
+  refreshTrigger,
+  isLoadingChat = false
 }) => {
   const [chats, setChats] = useState<ChatInstanceData[]>([]);
   const [filteredChats, setFilteredChats] = useState<ChatInstanceData[]>([]);
@@ -161,7 +163,9 @@ const ChatHistory: React.FC<ChatHistoryProps> = ({
               dotbot={dotbot}
               onClick={onSelectChat}
               onRenamed={onChatRenamed}
+              onDeleted={loadChats}
               isSelected={chat.id === currentChatId}
+              isLoading={isLoadingChat && chat.id === currentChatId}
             />
           ))}
         </div>

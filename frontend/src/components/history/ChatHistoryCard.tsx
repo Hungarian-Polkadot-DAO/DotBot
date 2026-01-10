@@ -10,6 +10,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { ChatInstanceData } from '../../lib/types/chatInstance';
 import type { DotBot } from '../../lib/dotbot';
 import EnvironmentBadge from '../wallet/EnvironmentBadge';
+import ConfirmationModal from '../common/ConfirmationModal';
+import { Trash2 } from 'lucide-react';
 import '../../styles/chat-history-card.css';
 
 interface ChatHistoryCardProps {
@@ -17,7 +19,9 @@ interface ChatHistoryCardProps {
   dotbot: DotBot;
   onClick: (chat: ChatInstanceData) => void;
   onRenamed?: () => void;
+  onDeleted?: () => void;
   isSelected?: boolean;
+  isLoading?: boolean; // Whether this chat is currently being loaded
 }
 
 const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({ 
@@ -25,11 +29,16 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
   dotbot,
   onClick,
   onRenamed,
-  isSelected = false 
+  onDeleted,
+  isSelected = false,
+  isLoading = false
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(chat.title || '');
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -90,6 +99,28 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
     }
   };
 
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click
+    setDeleteError(null);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      const chatManager = dotbot.getChatManager();
+      await chatManager.deleteInstance(chat.id);
+      setShowDeleteModal(false);
+      onDeleted?.();
+    } catch (error) {
+      console.error('Failed to delete chat:', error);
+      setDeleteError('Failed to delete chat. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const formatDate = (timestamp: number): string => {
     const date = new Date(timestamp);
     const now = new Date();
@@ -131,8 +162,8 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
 
   return (
     <div 
-      className={`chat-history-card ${isSelected ? 'selected' : ''}`}
-      onClick={() => !isEditing && onClick(chat)}
+      className={`chat-history-card ${isSelected ? 'selected' : ''} ${isLoading ? 'loading' : ''}`}
+      onClick={() => !isEditing && !isLoading && onClick(chat)}
     >
       <div className="chat-history-card-header">
         {isEditing ? (
@@ -156,9 +187,20 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
             {displayTitle}
           </h3>
         )}
-        {chat.environment === 'testnet' && (
-          <EnvironmentBadge environment={chat.environment} />
-        )}
+        <div className="chat-history-card-header-actions">
+          {chat.environment === 'testnet' && (
+            <EnvironmentBadge environment={chat.environment} />
+          )}
+          <button
+            className="chat-history-card-delete"
+            onClick={handleDeleteClick}
+            disabled={isDeleting}
+            title="Delete chat"
+            aria-label="Delete chat"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
       
       {chat.messages.length > 0 && (
@@ -175,6 +217,31 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
           </span>
         )}
       </div>
+      
+      {isLoading && (
+        <div className="chat-history-card-loading-spinner" />
+      )}
+
+      <ConfirmationModal
+        isOpen={showDeleteModal}
+        onClose={() => {
+          if (!isDeleting) {
+            setShowDeleteModal(false);
+            setDeleteError(null);
+          }
+        }}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Chat"
+        message={
+          deleteError 
+            ? deleteError
+            : `Are you sure you want to delete "${chat.title || chat.id}"? This action cannot be undone.`
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        isLoading={isDeleting}
+      />
     </div>
   );
 };

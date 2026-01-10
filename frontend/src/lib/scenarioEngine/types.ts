@@ -68,7 +68,10 @@ export interface TestEntity {
   /** SS58 address */
   address: string;
   
-  /** Mnemonic (only available in synthetic/emulated modes) */
+  /** Substrate URI for keypair derivation (//Alice, etc.) - used for signing */
+  uri?: string;
+  
+  /** Mnemonic (deprecated - use URI instead) */
   mnemonic?: string;
   
   /** Entity type */
@@ -296,6 +299,7 @@ export type ScenarioCategory =
   | 'context-awareness'
   | 'knowledge-base'
   | 'multi-step'
+  | 'state-allocation'
   | 'custom';
 
 /** A single step in a scenario */
@@ -464,6 +468,27 @@ export interface StepResult {
     parsed?: Record<string, unknown>;
   };
   
+  /** Execution plan (if DotBot created a plan) */
+  executionPlan?: {
+    id: string;
+    steps: {
+      agentClassName: string;
+      functionName: string;
+      parameters: Record<string, any>;
+      description: string;
+      executionType: string;
+    }[];
+    requiresApproval: boolean;
+  };
+  
+  /** Execution statistics (if plan was executed) */
+  executionStats?: {
+    executed: boolean;
+    success: boolean;
+    completed: number;
+    failed: number;
+  };
+  
   /** Error if step failed */
   error?: {
     message: string;
@@ -564,6 +589,12 @@ export interface ScenarioEngineState {
   /** Entities created */
   entities: Map<string, TestEntity>;
   
+  /** Mode that entities belong to (entities are mode-specific) */
+  entityMode?: ScenarioMode;
+  
+  /** Chain that entities belong to */
+  entityChain?: ScenarioChain;
+  
   /** Results so far */
   partialResults?: Partial<ScenarioResult>;
   
@@ -580,15 +611,21 @@ export interface ScenarioEngineState {
  * - `inject-prompt`: Tell the UI to fill ChatInput with a prompt
  *   - Autopilot mode: UI auto-submits immediately
  *   - Half-autopilot mode: UI fills, waits for user to press Enter
+ * - `report-update`: Report content has been updated (for display components)
  */
 export type ScenarioEngineEvent = 
   | { type: 'state-change'; state: ScenarioEngineState }
+  | { type: 'phase-start'; phase: 'beginning' | 'cycle' | 'final-report'; details?: string }
+  | { type: 'phase-update'; phase: 'beginning' | 'cycle' | 'final-report'; message: string; progress?: { current: number; total?: number } }
+  | { type: 'dotbot-activity'; activity: string; details?: string }  // Track what DotBot is doing
   | { type: 'step-start'; step: ScenarioStep; index: number }
   | { type: 'step-complete'; step: ScenarioStep; result: StepResult }
   | { type: 'scenario-complete'; result: ScenarioResult }
   | { type: 'error'; error: string; step?: ScenarioStep }
   | { type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }
-  | { type: 'inject-prompt'; prompt: string }  // Tell UI to inject a prompt into ChatInput;
+  | { type: 'inject-prompt'; prompt: string }  // Tell UI to inject a prompt into ChatInput
+  | { type: 'report-update'; content: string }  // Report content updated (append-only)
+  | { type: 'report-clear' };  // Report cleared
 
 /** Listener for engine events */
 export type ScenarioEngineEventListener = (event: ScenarioEngineEvent) => void;

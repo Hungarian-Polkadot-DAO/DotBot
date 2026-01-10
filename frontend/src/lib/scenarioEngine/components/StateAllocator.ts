@@ -3,40 +3,61 @@
  * 
  * Sets up initial state for scenario execution.
  * 
- * ## Responsibilities
+ * **ARCHITECTURE PRINCIPLE**: StateAllocator prepares the REAL environment for testing.
+ * It does NOT create duplicate/shadow state. It modifies what DotBot will see.
  * 
- * ### Wallet/Account Balances
- * - **Synthetic**: Mock data only
- * - **Emulated**: Use Chopsticks `dev_setStorage` to set balances
- * - **Live**: Actually fund accounts from dev account or faucet
+ * ## Current Implementation Status
  * 
- * ### On-chain Entities (Multisigs, Proxies)
- * - **Synthetic**: Mock multisig addresses
- * - **Emulated**: Create multisig addresses, mock on-chain data
- * - **Live**: Submit actual multisig creation transactions to Westend
+ * ### LIVE Mode: ✅ READY
  * 
- * ### Governance & Staking
- * - **Synthetic/Emulated**: Mock state
- * - **Live**: Set up actual proposals, nominations (if needed)
+ * **Wallet/Account Balances**:
+ * - Batch transfers from user's wallet to test accounts (single signature)
+ * - Creates REAL balances on REAL Westend testnet
+ * - DotBot queries the REAL chain and sees these balances
+ * - ✅ No duplicate state - DotBot and tests see the same thing
  * 
- * ### Local Storage & Chat History
- * - All modes: Populate browser localStorage with test data
+ * **On-chain Entities (Multisigs, Proxies)**:
+ * - Submit actual multisig creation transactions to Westend
+ * - Creates REAL multisigs on REAL chain
+ * - DotBot queries the REAL chain and sees these multisigs
  * 
- * ## Example: Multisig Demo Setup on Westend (Live Mode)
+ * **Local Storage & Chat History**:
+ * - Populate browser localStorage with test data
+ * - DotBot reads this localStorage normally
+ * 
+ * ### SYNTHETIC Mode: ⚠️ TODO (Disabled)
+ * 
+ * Future implementation would:
+ * - NOT create duplicate state
+ * - Instead: Mock DotBot's LLM responses entirely (the LLM responses itself shouldn't be mocked)
+ * - Don't run real DotBot at all - just verify response structure
+ * - Fast unit testing without any chain interaction
+ * 
+ * ### EMULATED Mode: ⚠️ TODO (Disabled)
+ * 
+ * Future implementation would:
+ * - Create Chopsticks fork
+ * - Use `setStorage` to set balances on fork
+ * - **Reconfigure DotBot's API** to use Chopsticks fork (not real chain)
+ * - DotBot must query Chopsticks, not real chain
+ * - ✅ No duplicate state - DotBot uses fork, StateAllocator sets up fork
+ * 
+ * ## Example: Live Mode Usage
+ * 
  * ```typescript
+ * // User's wallet will be used to fund entities
  * await stateAllocator.allocateWalletState({
  *   accounts: [
- *     { entityName: "Alice", balance: "100 DOT" },  // Fund from dev account
- *     { entityName: "Bob", balance: "50 DOT" },
- *     { entityName: "Charlie", balance: "50 DOT" }
+ *     { entityName: "Alice", balance: "100 WND" },  // Real transfer on Westend
+ *     { entityName: "Bob", balance: "50 WND" },
+ *     { entityName: "Charlie", balance: "50 WND" }
  *   ]
  * });
+ * // All transfers are batched into a single transaction
+ * // User signs once via wallet extension (Talisman, Subwallet, etc.)
  * 
- * // Create multisig on-chain (submits tx to Westend)
- * const multisigAddress = await stateAllocator.createMultisig({
- *   signatories: [Alice.address, Bob.address, Charlie.address],
- *   threshold: 2
- * });
+ * // Now DotBot can query the chain and see these balances!
+ * // No duplicate state - it's all on the real chain.
  * ```
  */
 
@@ -55,7 +76,6 @@ import type {
 } from '../types';
 import type { ApiPromise } from '@polkadot/api';
 import { ApiPromise as ApiPromiseClass, WsProvider } from '@polkadot/api';
-import { Keyring } from '@polkadot/keyring';
 import { BN } from '@polkadot/util';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { ChatInstanceManager } from '../../chatInstanceManager';
@@ -67,6 +87,26 @@ import type { ConversationItem, TextMessage, SystemMessage } from '../../types/c
 // =============================================================================
 // TYPES
 // =============================================================================
+
+/**
+ * Custom error for funding requirements
+ * This error type signals that execution should stop immediately
+ * Used when user's wallet doesn't have sufficient balance for transfers
+ */
+export class FundingRequiredError extends Error {
+  constructor(
+    message: string,
+    public readonly walletAddress: string,
+    public readonly faucetLink: string,
+    public readonly currentBalance?: string,
+    public readonly requiredBalance?: string
+  ) {
+    super(message);
+    this.name = 'FundingRequiredError';
+    // Ensure this error is not caught and ignored
+    Object.setPrototypeOf(this, FundingRequiredError.prototype);
+  }
+}
 
 export interface StateAllocatorConfig {
   /** Execution mode */
@@ -89,6 +129,22 @@ export interface StateAllocatorConfig {
   
   /** RPC endpoint (for live mode, optional if rpcManagerProvider provided) */
   rpcEndpoint?: string;
+  
+  /** SS58 format for address encoding (0 = Polkadot, 42 = Westend) */
+  ss58Format?: number;
+  
+  /** Seed prefix for deterministic generation */
+  seedPrefix?: string;
+  
+  /** User's wallet account (for live mode transfers) */
+  walletAccount?: {
+    address: string;
+    name?: string;
+    source: string;
+  };
+  
+  /** Signer for live mode transactions (browser wallet) */
+  signer?: any; // Signer from executionEngine/signers/types
 }
 
 export interface AllocationResult {
@@ -109,6 +165,9 @@ export interface AllocationResult {
   
   /** Transaction hashes (for live mode) */
   txHashes?: string[];
+  
+  /** Pending transfers to batch (for live mode) */
+  pendingTransfers?: Array<{ address: string; planck: string }>;
 }
 
 // =============================================================================
@@ -119,12 +178,21 @@ export class StateAllocator {
   private config: StateAllocatorConfig;
   private initialized: boolean = false;
   private chopsticksChain: any = null; // Chopsticks chain instance for emulated mode
+  private chopsticksApi: ApiPromise | null = null; // API instance for Chopsticks fork (emulated mode)
   private api: ApiPromise | null = null; // Polkadot.js API for live mode
   private executionSession: any = null; // Execution session for live mode (keeps API alive)
   private chatManager: ChatInstanceManager;
 
   constructor(config: StateAllocatorConfig) {
-    this.config = config;
+    // Set defaults for ss58Format and seedPrefix
+    const ss58Format = config.ss58Format ?? (config.chain === 'polkadot' || config.chain === 'asset-hub-polkadot' ? 0 : 42);
+    const seedPrefix = config.seedPrefix ?? 'dotbot-scenario';
+    
+    this.config = {
+      ...config,
+      ss58Format,
+      seedPrefix,
+    };
     this.chatManager = new ChatInstanceManager();
   }
 
@@ -177,7 +245,18 @@ export class StateAllocator {
         db: storage,
       });
 
+      // Diagnostic: Log available methods for debugging
+      const availableMethods = Object.keys(this.chopsticksChain).filter(key => 
+        typeof this.chopsticksChain[key] === 'function'
+      );
       console.log(`[StateAllocator] Connected to Chopsticks fork for ${this.config.chain} using ${rpcEndpoint}`);
+      console.log(`[StateAllocator] Chain object methods: ${availableMethods.join(', ')}`);
+      console.log(`[StateAllocator] Chain has api: ${!!this.chopsticksChain.api}`);
+      
+      // Note: We use the setStorage utility function directly with the chain object
+      // No separate API instance is needed for setting storage
+      // If we need to query balances later, we can create an API instance then
+      console.log(`[StateAllocator] Chopsticks chain ready. Will use setStorage utility for state manipulation.`);
     } catch (error) {
       throw new Error(`Failed to connect to Chopsticks: ${error}`);
     }
@@ -200,7 +279,15 @@ export class StateAllocator {
           const session = await manager.createExecutionSession();
           this.executionSession = session; // Keep session alive
           this.api = session.api;
-          console.log(`[StateAllocator] Connected to RPC for ${this.config.chain} via RPC manager`);
+          
+          // Verify API is connected to the correct chain
+          await this.api.isReady;
+          const runtimeChain = this.api.runtimeChain?.toString() || 'Unknown';
+          const specName = this.api.runtimeVersion?.specName?.toString() || 'unknown';
+          const chainType = this.isAssetHubChain() ? 'Asset Hub' : 'Relay Chain';
+          console.log(`[StateAllocator] Connected to ${chainType} for ${this.config.chain} via RPC manager`);
+          console.log(`[StateAllocator] API runtime: ${runtimeChain} (${specName})`);
+          
           return;
         }
       }
@@ -312,6 +399,82 @@ export class StateAllocator {
       errors: [],
     };
 
+    // For live mode, check user's wallet balance
+    // First, calculate how much we actually need by checking each account's current balance
+    if (this.config.mode === 'live') {
+      if (!this.config.walletAccount || !this.config.signer) {
+        throw new Error('Wallet account and signer are required for live mode transfers');
+      }
+      
+      try {
+        const chainName = this.isAssetHubChain() ? 'Asset Hub' : 'Relay Chain';
+        console.log(`[StateAllocator] Checking wallet balance and account balances on ${chainName} (chain: ${this.config.chain})`);
+        
+        await this.api!.isReady;
+        
+        // Calculate total needed by checking each account's current balance
+        let totalNeeded = new BN(0);
+        for (const accountConfig of config.accounts) {
+          const entity = this.config.entityResolver(accountConfig.entityName);
+          if (!entity) continue;
+          
+          const requiredBalance = this.parseBalance(accountConfig.balance);
+          const currentBalance = await this.getCurrentBalance(entity.address);
+          const requiredBN = new BN(requiredBalance.planck);
+          
+          if (currentBalance.lt(requiredBN)) {
+            const needed = requiredBN.sub(currentBalance);
+            totalNeeded = totalNeeded.add(needed);
+            console.log(`[StateAllocator] ${accountConfig.entityName} needs ${this.formatBalance(needed.toString())} (has ${this.formatBalance(currentBalance.toString())}, needs ${accountConfig.balance})`);
+          } else {
+            console.log(`[StateAllocator] ${accountConfig.entityName} already has sufficient balance (${this.formatBalance(currentBalance.toString())} >= ${accountConfig.balance})`);
+          }
+        }
+        
+        // Check wallet balance
+        const accountInfo = await this.api!.query.system.account(this.config.walletAccount.address);
+        const accountData = (accountInfo as any).data;
+        const freeBalance = new BN(accountData.free.toString());
+        const reservedBalance = new BN(accountData.reserved.toString());
+        const availableBalance = freeBalance.sub(reservedBalance);
+        
+        const token = this.config.chain.includes('polkadot') ? 'DOT' : 'WND';
+        console.log(`[StateAllocator] Wallet balance on ${chainName}: ${this.formatBalance(availableBalance.toString(), token)}`);
+        
+        // If no transfers needed, skip wallet balance check
+        if (totalNeeded.isZero()) {
+          console.log(`[StateAllocator] All accounts have sufficient balances, no transfers needed`);
+        } else {
+          // Reserve some balance for fees (rough estimate: 0.1 DOT per transfer, minimum 0.1 DOT)
+          const transferCount = config.accounts.length;
+          const feeReserve = this.parseBalance('0.1 DOT').planck;
+          const requiredBalance = totalNeeded.add(new BN(feeReserve));
+          
+          if (availableBalance.lt(requiredBalance)) {
+            const needed = this.formatBalance(requiredBalance.sub(availableBalance).toString());
+            const current = this.formatBalance(availableBalance.toString(), token);
+            throw new FundingRequiredError(
+              `⚠️  INSUFFICIENT BALANCE\n\n` +
+              `   Chain: ${chainName} (${this.config.chain})\n` +
+              `   Your Wallet: ${this.config.walletAccount.address}\n\n` +
+              `   Current Balance: ${current}\n` +
+              `   Required: ${needed} (for ${transferCount} entities + fees)\n\n` +
+              `   Please fund your wallet and try again.`,
+              this.config.walletAccount.address,
+              this.config.chain === 'westend' ? 'https://faucet.polkadot.io/westend' : 'https://faucet.polkadot.io',
+              current,
+              needed
+            );
+          }
+        }
+      } catch (error) {
+        if (error instanceof FundingRequiredError) {
+          throw error;
+        }
+        throw new Error(`Failed to check wallet balance: ${error}`);
+      }
+    }
+
     for (const accountConfig of config.accounts) {
       try {
         // Resolve entity name to address
@@ -338,10 +501,25 @@ export class StateAllocator {
           );
         }
       } catch (error) {
+        // If it's a FundingRequiredError, re-throw it immediately to stop execution
+        if (error instanceof FundingRequiredError) {
+          throw error;
+        }
         result.errors.push(
           `Failed to allocate state for "${accountConfig.entityName}": ${error}`
         );
         result.success = false;
+      }
+    }
+
+    // For live mode, batch all transfers into a single transaction
+    if (this.config.mode === 'live') {
+      if (result.pendingTransfers && result.pendingTransfers.length > 0) {
+        console.log(`[StateAllocator] Batching ${result.pendingTransfers.length} transfers for accounts that need funding`);
+        await this.batchTransfers(result.pendingTransfers, result);
+        result.pendingTransfers = []; // Clear after batching
+      } else {
+        console.log(`[StateAllocator] All accounts already have sufficient balances, skipping transfers`);
       }
     }
 
@@ -463,23 +641,83 @@ export class StateAllocator {
     result: AllocationResult
   ): Promise<void> {
     const parsedBalance = this.parseBalance(balance);
+    const requiredBN = new BN(parsedBalance.planck);
     
     switch (this.config.mode) {
       case 'synthetic':
-        // In synthetic mode, we just track the expected balance
-        result.balances.set(address, { free: parsedBalance.planck });
-        console.log(`[StateAllocator] Synthetic balance for ${address}: ${balance}`);
-        break;
+        // TODO: Synthetic mode disabled
+        // Future implementation: Don't create state at all
+        // Instead: Mock DotBot's LLM responses entirely
+        throw new Error('Synthetic mode is not implemented yet. Use live mode.');
         
       case 'emulated':
-        // In emulated mode, use Chopsticks to set balance
-        await this.setChopsticksBalance(address, parsedBalance.planck, result);
-        break;
+        // TODO: Emulated mode disabled
+        // Future implementation:
+        // 1. Create Chopsticks fork
+        // 2. Set balances on fork using setStorage
+        // 3. Reconfigure DotBot to use Chopsticks API (not real chain)
+        // This ensures DotBot sees the same state we set up
+        throw new Error('Emulated mode is not implemented yet. Use live mode.');
         
       case 'live':
-        // In live mode, transfer from faucet or funded account
-        await this.transferLiveBalance(address, parsedBalance.planck, result);
+        // LIVE MODE: Create REAL balances on REAL chain
+        // DotBot will query the real chain and see these balances
+        // ✅ No duplicate state - everything is on the real chain
+        const currentBalance = await this.getCurrentBalance(address);
+        if (currentBalance.lt(requiredBN)) {
+          // Only transfer the difference
+          const needed = requiredBN.sub(currentBalance);
+          if (!result.pendingTransfers) {
+            result.pendingTransfers = [];
+          }
+          result.pendingTransfers.push({ address, planck: needed.toString() });
+          console.log(`[StateAllocator] Live: Will transfer ${this.formatBalance(needed.toString())} to ${address} (has ${this.formatBalance(currentBalance.toString())}, needs ${balance})`);
+        } else {
+          console.log(`[StateAllocator] Live: ${address} already has sufficient balance (${this.formatBalance(currentBalance.toString())} >= ${balance}), skipping transfer`);
+        }
+        result.balances.set(address, { free: parsedBalance.planck });
         break;
+    }
+  }
+
+  /**
+   * Get current balance for an address
+   */
+  private async getCurrentBalance(address: string): Promise<BN> {
+    switch (this.config.mode) {
+      case 'synthetic':
+        // In synthetic mode, return 0 (no real balance to check)
+        return new BN(0);
+        
+      case 'emulated':
+        // Query balance from Chopsticks API
+        if (!this.chopsticksChain) {
+          throw new Error('Chopsticks chain not initialized');
+        }
+        if (!this.chopsticksApi) {
+          // Create API instance if not exists
+          this.chopsticksApi = await this.chopsticksChain.api;
+        }
+        if (!this.chopsticksApi) {
+          throw new Error('Failed to create Chopsticks API instance');
+        }
+        await this.chopsticksApi.isReady;
+        const emulatedAccountInfo = await this.chopsticksApi.query.system.account(address);
+        const emulatedData = (emulatedAccountInfo as any).data;
+        return new BN(emulatedData.free.toString());
+        
+      case 'live':
+        // Query balance from live API
+        if (!this.api) {
+          throw new Error('API not initialized for live mode');
+        }
+        await this.api.isReady;
+        const accountInfo = await this.api.query.system.account(address);
+        const accountData = (accountInfo as any).data;
+        return new BN(accountData.free.toString());
+        
+      default:
+        return new BN(0);
     }
   }
 
@@ -493,12 +731,16 @@ export class StateAllocator {
     }
 
     try {
+      // Import the setStorage utility from Chopsticks
+      // This is the correct way to set storage when using Chopsticks as a library
+      const { setStorage } = await import('@acala-network/chopsticks-core');
+      
       // Decode address to get account ID
       const accountId = decodeAddress(address);
-      
-      // Set account balance using Chopsticks storage manipulation
-      // Format: System.Account(AccountId) -> AccountInfo { data: { free, reserved, frozen, miscFrozen } }
-      await this.chopsticksChain.setStorage({
+
+      // Use the setStorage utility function with StorageConfig format
+      // This is the correct way to set storage in Chopsticks when using it as a library
+      await setStorage(this.chopsticksChain, {
         System: {
           Account: [
             [
@@ -518,54 +760,74 @@ export class StateAllocator {
       });
 
       result.balances.set(address, { free: planck });
-      console.log(`[StateAllocator] Chopsticks balance set for ${address}: ${planck} planck`);
+      console.log(`[StateAllocator] Set balance via setStorage utility for ${address}: ${planck} planck`);
     } catch (error) {
       result.errors.push(`Failed to set Chopsticks balance for ${address}: ${error}`);
       throw error;
     }
   }
 
-  private async transferLiveBalance(
-    address: string,
-    planck: string,
+  /**
+   * Batch all transfers into a single transaction (live mode only)
+   * 
+   * Uses a pluggable Signer interface, allowing different signing implementations:
+   * - BrowserWalletSigner: Uses wallet extensions (Talisman, Subwallet, etc.)
+   * - KeyringSigner: Uses @polkadot/keyring for CLI/backend/testing
+   * - Custom signers: Implement the Signer interface for custom behavior
+   * 
+   * The user signs once via their wallet extension, and all transfers execute together.
+   */
+  private async batchTransfers(
+    transfers: Array<{ address: string; planck: string }>,
     result: AllocationResult
   ): Promise<void> {
-    if (!this.api) {
-      throw new Error('API not initialized for live mode');
+    if (!this.api || !this.config.walletAccount || !this.config.signer) {
+      throw new Error('API, wallet account, and signer required for live mode transfers');
     }
 
     try {
-      // For live mode, we need a funded account to transfer from
-      // This should be provided via config or use a faucet
-      // For now, we'll use a deterministic dev account based on the scenario seed
-      const devAccount = this.getDevAccount();
-      
-      if (!devAccount) {
-        result.warnings.push(
-          `Live balance transfer requires a funded dev account. ` +
-          `Please fund ${address} manually or configure a dev account.`
-        );
-        // Still track the expected balance
-        result.balances.set(address, { free: planck });
-        return;
-      }
+      await this.api.isReady;
 
-      // Create transfer extrinsic
-      const amountBN = new BN(planck);
-      const transferExtrinsic = this.api.tx.balances.transferKeepAlive(
-        address,
-        amountBN
+      console.log(`[StateAllocator] Batching ${transfers.length} transfers into single transaction`);
+      
+      // Create all transfer extrinsics
+      const transferExtrinsics = transfers.map(({ address, planck }) => {
+        const amountBN = new BN(planck);
+        return this.api!.tx.balances.transferKeepAlive(address, amountBN);
+      });
+
+      // Create batch transaction - all transfers execute atomically
+      const batchExtrinsic = this.api.tx.utility.batchAll(transferExtrinsics);
+
+      console.log(`[StateAllocator] ⏳ Waiting for wallet signature...`);
+      console.log(`[StateAllocator] From: ${this.config.walletAccount.address}`);
+      console.log(`[StateAllocator] Transfers: ${transfers.length} accounts`);
+      console.log(`[StateAllocator] Please approve the transaction in your wallet extension (Talisman/Subwallet/etc.)`);
+
+      // Sign using the pluggable signer (BrowserWalletSigner in live mode)
+      // This will trigger the wallet extension popup
+      const signedExtrinsic = await this.config.signer.signExtrinsic(
+        batchExtrinsic,
+        this.config.walletAccount.address
       );
 
-      // Sign and send transaction
+      console.log(`[StateAllocator] ✅ Transaction signed! Sending to network...`);
+
+      // Send the signed batch transaction
       const hash = await new Promise<string>((resolve, reject) => {
-        transferExtrinsic.signAndSend(devAccount, (txResult: any) => {
-          if (txResult.status.isInBlock || txResult.status.isFinalized) {
-            resolve(txResult.txHash.toString());
+        signedExtrinsic.send((txResult: any) => {
+          if (txResult.status.isInBlock) {
+            console.log(`[StateAllocator] ✅ Batch transaction in block: ${txResult.txHash.toHex()}`);
+            resolve(txResult.txHash.toHex());
+          } else if (txResult.status.isFinalized) {
+            console.log(`[StateAllocator] ✅ Batch transaction finalized: ${txResult.txHash.toHex()}`);
           } else if (txResult.isError) {
-            reject(new Error(`Transaction failed: ${txResult.status.toString()}`));
+            reject(new Error('Batch transaction failed'));
           }
-        }).catch(reject);
+        }).catch((error: any) => {
+          console.error('[StateAllocator] ❌ Batch send failed:', error);
+          reject(error);
+        });
       });
 
       // Track transaction hash
@@ -574,35 +836,13 @@ export class StateAllocator {
       }
       result.txHashes.push(hash);
 
-      result.balances.set(address, { free: planck });
-      console.log(`[StateAllocator] Live transfer to ${address}: ${planck} planck (tx: ${hash})`);
+      console.log(`[StateAllocator] ✅ Batch transfer complete (tx: ${hash})`);
     } catch (error) {
-      result.errors.push(`Failed to transfer live balance to ${address}: ${error}`);
-      // Still track expected balance even if transfer fails
-      result.balances.set(address, { free: planck });
+      result.errors.push(`Failed to batch transfers: ${error}`);
       throw error;
     }
   }
 
-  /**
-   * Get or create a dev account for live mode transfers
-   * Uses a deterministic account based on scenario seed
-   */
-  private getDevAccount(): any | null {
-    // For live mode, we need a real funded account
-    // This could be:
-    // 1. A configured dev account mnemonic in config
-    // 2. A deterministic account from scenario seed
-    // 3. A faucet account
-    
-    // For now, return null and let the caller handle it
-    // In a real implementation, this would:
-    // - Check config for devAccountMnemonic
-    // - Or use a deterministic account from scenario seed
-    // - Or use a faucet service
-    
-    return null;
-  }
 
   // ===========================================================================
   // ASSET ALLOCATION
@@ -652,7 +892,10 @@ export class StateAllocator {
 
       // For Asset Hub, set asset balance using Assets pallet
       // Format: Assets.Account(AssetId, AccountId) -> AssetAccount { balance, ... }
-      await this.chopsticksChain.setStorage({
+      // Use the setStorage utility function from Chopsticks
+      const { setStorage } = await import('@acala-network/chopsticks-core');
+      
+      await setStorage(this.chopsticksChain, {
         Assets: {
           Account: [
             [
@@ -846,6 +1089,27 @@ export class StateAllocator {
     const planck = whole + paddedFraction;
     // Remove leading zeros but keep at least one digit
     return planck.replace(/^0+/, '') || '0';
+  }
+
+  /**
+   * Format planck value to human-readable balance
+   */
+  private formatBalance(planck: string, token?: string): string {
+    const decimals = this.getDecimals(token);
+    const planckBN = new BN(planck);
+    const divisor = new BN(10).pow(new BN(decimals));
+    const whole = planckBN.div(divisor);
+    const fraction = planckBN.mod(divisor);
+    
+    // Format with appropriate decimals
+    const fractionStr = fraction.toString().padStart(decimals, '0');
+    const trimmedFraction = fractionStr.replace(/0+$/, '');
+    
+    if (trimmedFraction === '') {
+      return `${whole.toString()} ${token || (this.config.chain.includes('polkadot') ? 'DOT' : 'WND')}`;
+    }
+    
+    return `${whole.toString()}.${trimmedFraction} ${token || (this.config.chain.includes('polkadot') ? 'DOT' : 'WND')}`;
   }
 }
 

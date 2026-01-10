@@ -483,7 +483,7 @@ describe('ScenarioExecutor', () => {
         api: mockApi,
         getEntityKeypair: (name: string) => {
           if (name === 'Alice') {
-            return { mnemonic: 'test mnemonic for Alice' };
+            return { uri: '//Alice' };
           }
           return undefined;
         },
