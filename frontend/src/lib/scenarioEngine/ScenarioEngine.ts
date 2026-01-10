@@ -133,6 +133,11 @@ export class ScenarioEngine {
   // Track running scenario for early ending
   private runningScenario: Scenario | null = null;
   private scenarioStartTime: number = 0;
+  
+  // Track execution subscriptions for report updates
+  private executionSubscriptions: Map<string, () => void> = new Map();
+  // Track last reported status for each execution item to avoid duplicates
+  private lastReportedStatus: Map<string, Map<string, string>> = new Map(); // executionId -> itemId -> status
 
   constructor(config: ScenarioEngineConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -241,8 +246,10 @@ export class ScenarioEngine {
           break;
           
         case 'execution-message-added':
-          // IGNORE - chat-complete will fire after this with the same plan
-          // Only used for UI display, not for scenario execution
+          // Subscribe to execution updates to track progress in report
+          if (dotbot.currentChat && event.executionId) {
+            this.subscribeToExecutionUpdates(dotbot.currentChat, event.executionId);
+          }
           break;
           
         case 'chat-error':
@@ -295,6 +302,108 @@ export class ScenarioEngine {
     // Add execution status
     if (result.executed) {
       this.appendToReport(`  ✓ Executed: ${result.completed} completed, ${result.failed} failed\n`);
+    }
+  }
+  
+  /**
+   * Subscribe to execution updates for a specific execution
+   */
+  private subscribeToExecutionUpdates(chatInstance: any, executionId: string): void {
+    // Clean up existing subscription if any
+    const existingUnsubscribe = this.executionSubscriptions.get(executionId);
+    if (existingUnsubscribe) {
+      existingUnsubscribe();
+    }
+    
+    // Subscribe to execution updates
+    const unsubscribe = chatInstance.onExecutionUpdate(executionId, (state: any) => {
+      this.appendExecutionStatusToReport(state);
+    });
+    
+    this.executionSubscriptions.set(executionId, unsubscribe);
+  }
+  
+  /**
+   * Append execution status updates to report
+   */
+  private appendExecutionStatusToReport(state: any): void {
+    if (!state || !state.items || state.items.length === 0) return;
+    
+    const executionId = state.id;
+    if (!executionId) return;
+    
+    // Get or create status tracking map for this execution
+    if (!this.lastReportedStatus.has(executionId)) {
+      this.lastReportedStatus.set(executionId, new Map());
+    }
+    const statusMap = this.lastReportedStatus.get(executionId)!;
+    
+    // Track overall execution status
+    const isExecuting = state.isExecuting || state.items.some((item: any) => 
+      item.status === 'executing' || item.status === 'signing' || item.status === 'broadcasting'
+    );
+    const isComplete = !isExecuting && state.items.every((item: any) => 
+      item.status === 'completed' || item.status === 'finalized' || item.status === 'failed' || item.status === 'cancelled'
+    );
+    
+    // Find items with status changes (only report if status changed)
+    state.items.forEach((item: any, index: number) => {
+      const lastStatus = statusMap.get(item.id);
+      if (lastStatus === item.status) {
+        return; // Skip if status hasn't changed
+      }
+      
+      // Update tracked status
+      statusMap.set(item.id, item.status);
+      
+      const statusLabel = this.getExecutionStatusLabel(item.status);
+      
+      if (item.status === 'completed' || item.status === 'finalized') {
+        this.appendToReport(`  ✓ Step ${index + 1}: ${item.description} - ${statusLabel}\n`);
+        if (item.result?.txHash) {
+          this.appendToReport(`    Tx: ${item.result.txHash.slice(0, 16)}...${item.result.txHash.slice(-8)}\n`);
+        }
+      } else if (item.status === 'failed') {
+        this.appendToReport(`  ✗ Step ${index + 1}: ${item.description} - ${statusLabel}\n`);
+        if (item.error) {
+          this.appendToReport(`    Error: ${item.error}\n`);
+        }
+      } else if (item.status === 'signing' || item.status === 'broadcasting' || item.status === 'executing') {
+        this.appendToReport(`  → Step ${index + 1}: ${item.description} - ${statusLabel}...\n`);
+      }
+    });
+    
+    // Show completion summary (only once)
+    if (isComplete && !statusMap.has('_completed')) {
+      statusMap.set('_completed', 'true');
+      const completed = state.completedItems || 0;
+      const failed = state.failedItems || 0;
+      const total = state.totalItems || 0;
+      
+      if (failed === 0) {
+        this.appendToReport(`\n  ✅ Execution completed successfully: ${completed}/${total} step(s)\n`);
+      } else {
+        this.appendToReport(`\n  ⚠️ Execution completed with errors: ${completed} succeeded, ${failed} failed\n`);
+      }
+    }
+  }
+  
+  /**
+   * Get human-readable status label
+   */
+  private getExecutionStatusLabel(status: string): string {
+    switch (status) {
+      case 'pending': return 'Pending';
+      case 'ready': return 'Ready';
+      case 'signing': return 'Signing';
+      case 'broadcasting': return 'Broadcasting';
+      case 'executing': return 'Executing';
+      case 'in_block': return 'In Block';
+      case 'finalized': return 'Finalized';
+      case 'completed': return 'Completed';
+      case 'failed': return 'Failed';
+      case 'cancelled': return 'Cancelled';
+      default: return status;
     }
   }
   
@@ -422,6 +531,17 @@ export class ScenarioEngine {
   }
   
   /**
+   * Clean up execution subscriptions
+   */
+  private cleanupExecutionSubscriptions(): void {
+    for (const unsubscribe of this.executionSubscriptions.values()) {
+      unsubscribe();
+    }
+    this.executionSubscriptions.clear();
+    this.lastReportedStatus.clear();
+  }
+  
+  /**
    * Unsubscribe from DotBot events
    */
   unsubscribeFromDotBot(): void {
@@ -431,6 +551,9 @@ export class ScenarioEngine {
       this.dotbotEventListener = null;
       this.log('info', 'Unsubscribed from DotBot events');
     }
+    
+    // Clean up execution subscriptions
+    this.cleanupExecutionSubscriptions();
   }
 
   /**

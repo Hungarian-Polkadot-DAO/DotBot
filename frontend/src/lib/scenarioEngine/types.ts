@@ -468,6 +468,27 @@ export interface StepResult {
     parsed?: Record<string, unknown>;
   };
   
+  /** Execution plan (if DotBot created a plan) */
+  executionPlan?: {
+    id: string;
+    steps: {
+      agentClassName: string;
+      functionName: string;
+      parameters: Record<string, any>;
+      description: string;
+      executionType: string;
+    }[];
+    requiresApproval: boolean;
+  };
+  
+  /** Execution statistics (if plan was executed) */
+  executionStats?: {
+    executed: boolean;
+    success: boolean;
+    completed: number;
+    failed: number;
+  };
+  
   /** Error if step failed */
   error?: {
     message: string;

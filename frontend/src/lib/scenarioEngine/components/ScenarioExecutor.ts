@@ -45,7 +45,7 @@ import type { ApiPromise } from '@polkadot/api';
 import type { SubmittableExtrinsic } from '@polkadot/api/types';
 import { BN } from '@polkadot/util';
 import { KeyringSigner } from '../../executionEngine/signers/keyringSigner';
-import type { ExecutionPlan } from '../../prompts/system/execution/types';
+import type { ExecutionPlan, ExecutionStep } from '../../prompts/system/execution/types';
 import type {
   Scenario,
   ScenarioStep,
@@ -427,6 +427,27 @@ export class ScenarioExecutor {
 
     const endTime = Date.now();
 
+    // Capture execution plan if available
+    const executionPlan = chatResult?.plan ? {
+      id: chatResult.plan.id,
+      steps: chatResult.plan.steps.map((s: ExecutionStep) => ({
+        agentClassName: s.agentClassName,
+        functionName: s.functionName,
+        parameters: s.parameters,
+        description: s.description,
+        executionType: s.executionType,
+      })),
+      requiresApproval: chatResult.plan.requiresApproval,
+    } : undefined;
+
+    // Capture execution statistics if available
+    const executionStats = chatResult ? {
+      executed: chatResult.executed,
+      success: chatResult.success,
+      completed: chatResult.completed,
+      failed: chatResult.failed,
+    } : undefined;
+
     return {
       stepId: step.id,
       success: true,
@@ -438,6 +459,8 @@ export class ScenarioExecutor {
         content: response,
         parsed: this.tryParseResponse(response),
       },
+      executionPlan,
+      executionStats,
     };
   }
 

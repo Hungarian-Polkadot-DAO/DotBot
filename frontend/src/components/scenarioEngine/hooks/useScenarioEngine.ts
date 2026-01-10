@@ -172,15 +172,17 @@ export const useScenarioEngine = ({
       } else if (event.type === 'inject-prompt') {
         handlePromptInjection(event.prompt);
         onStatusChange?.('Waiting for user to submit prompt...');
-        // Track DotBot activity
+        // Track DotBot activity (just for UI status, not report)
         setExecutionPhase(prev => {
           const updated = {
             ...prev,
-            dotbotActivity: `Prompt injected: "${event.prompt.substring(0, 50)}${event.prompt.length > 50 ? '...' : ''}"`,
+            dotbotActivity: `Waiting for user to submit prompt...`,
           };
           onPhaseChange?.(updated);
           return updated;
         });
+        // Report content is handled by ScenarioEngine - no need to append here
+        // The "Prompt injected" message should NOT appear in the report
       } else if (event.type === 'log') {
         // Report content is handled by ScenarioEngine - no need to append here
         // Update status based on log messages
