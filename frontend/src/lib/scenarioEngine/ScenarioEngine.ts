@@ -129,6 +129,10 @@ export class ScenarioEngine {
   private currentStepIndex: number = -1;
   private currentStepPrompt: string | null = null;
   private lastDotBotResponse: ChatResult | null = null; // Track last response to avoid duplicates
+  
+  // Track running scenario for early ending
+  private runningScenario: Scenario | null = null;
+  private scenarioStartTime: number = 0;
 
   constructor(config: ScenarioEngineConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -492,6 +496,10 @@ export class ScenarioEngine {
   async runScenario(scenario: Scenario): Promise<ScenarioResult> {
     this.log('info', `Running scenario: ${scenario.name}`);
     const startTime = Date.now();
+    
+    // Store scenario reference for early ending
+    this.runningScenario = scenario;
+    this.scenarioStartTime = startTime;
 
     try {
       // Validate
@@ -567,6 +575,10 @@ export class ScenarioEngine {
       this.emit({ type: 'scenario-complete', result });
 
       this.log('info', `Scenario completed: ${evaluation.passed ? 'PASSED' : 'FAILED'} (${evaluation.score}/100)`);
+      
+      // Clear running scenario reference
+      this.runningScenario = null;
+      this.scenarioStartTime = 0;
 
       return result;
     } catch (error) {
@@ -576,6 +588,10 @@ export class ScenarioEngine {
       this.updateState({ status: 'error', error: String(error) });
       this.emit({ type: 'error', error: String(error) });
 
+      // Clear running scenario reference
+      this.runningScenario = null;
+      this.scenarioStartTime = 0;
+      
       return {
         scenarioId: scenario.id,
         success: false,
@@ -592,6 +608,86 @@ export class ScenarioEngine {
         errors: [{ message: String(error) }],
       };
     }
+  }
+  
+  /**
+   * End scenario early and jump to evaluation
+   * 
+   * This allows the user to manually end a scenario before all steps complete.
+   * The scenario will evaluate with whatever results have been collected so far.
+   */
+  async endScenarioEarly(): Promise<ScenarioResult | null> {
+    if (!this.runningScenario || !this.scenarioStartTime) {
+      this.log('warn', 'No scenario is currently running');
+      return null;
+    }
+    
+    const scenario = this.runningScenario;
+    const startTime = this.scenarioStartTime;
+    
+    this.log('info', 'Scenario ended early by user');
+    this.appendToReport('\n[INFO] Scenario ended early by user\n');
+    
+    // Stop executor (will stop at next step check)
+    if (this.executor) {
+      this.executor.stop();
+    }
+    
+    // Get current step results
+    const stepResults = this.executor?.getContext()?.results || [];
+    
+    // Jump to evaluation phase
+    this.emit({ type: 'phase-start', phase: 'final-report', details: 'Evaluating results (ended early)' });
+    this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    this.appendToReport('[PHASE] FINAL REPORT - Evaluation (Ended Early)\n');
+    this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    this.appendToReport('Evaluating results\n\n');
+    
+    this.emit({ type: 'phase-update', phase: 'final-report', message: 'Analyzing scenario results...' });
+    this.appendToReport('  → Analyzing scenario results...\n');
+    
+    // Evaluate with current results
+    const evaluation = this.evaluator!.evaluate(scenario, stepResults);
+    
+    const endTime = Date.now();
+    
+    const result: ScenarioResult = {
+      scenarioId: scenario.id,
+      success: evaluation.passed,
+      startTime,
+      endTime,
+      duration: endTime - startTime,
+      stepResults,
+      evaluation,
+    };
+    
+    // Auto-save if enabled
+    if (this.config.autoSaveResults) {
+      this.saveResult(result);
+    }
+    
+    // Add final result to report
+    this.appendToReport(`\n[COMPLETE] ${evaluation.passed ? '✅ PASSED' : '❌ FAILED'} (Ended Early)\n`);
+    this.appendToReport(`[SCORE] ${evaluation.score}/100\n`);
+    this.appendToReport(`[DURATION] ${endTime - startTime}ms\n`);
+    
+    this.updateState({ status: 'completed' });
+    this.emit({ type: 'scenario-complete', result });
+    
+    // Clear running scenario reference
+    this.runningScenario = null;
+    this.scenarioStartTime = 0;
+    
+    this.log('info', `Scenario ended early: ${evaluation.passed ? 'PASSED' : 'FAILED'} (${evaluation.score}/100)`);
+    
+    return result;
+  }
+  
+  /**
+   * Check if a scenario is currently running
+   */
+  isScenarioRunning(): boolean {
+    return this.runningScenario !== null;
   }
 
   /**

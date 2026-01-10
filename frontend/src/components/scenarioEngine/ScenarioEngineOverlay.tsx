@@ -71,6 +71,22 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
     onStatusChange: setStatusMessage,
     onPhaseChange: setExecutionPhase,
   });
+  
+  const handleEndScenario = async () => {
+    if (!engine.isScenarioRunning()) {
+      return;
+    }
+    
+    try {
+      await engine.endScenarioEarly();
+      setRunningScenario(null);
+      setStatusMessage('');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      appendToReport(`[ERROR] Failed to end scenario: ${errorMessage}\n`);
+      console.error('Failed to end scenario:', error);
+    }
+  };
 
   const toggleCategory = (category: string) => {
     setExpandedCategories(prev => {
@@ -250,6 +266,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
               statusMessage={statusMessage}
               executionPhase={executionPhase}
               onClear={clearReport}
+              onEndScenario={handleEndScenario}
             />
           )}
         </div>

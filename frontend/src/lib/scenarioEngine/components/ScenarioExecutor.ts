@@ -265,10 +265,9 @@ export class ScenarioExecutor {
         this.context.results.push(errorResult);
         this.emit({ type: 'error', error: String(error), step });
 
-        // Stop on error unless configured otherwise
-        if (!scenario.constraints?.maxRetries) {
-          break;
-        }
+        // Don't stop on error - continue to next step
+        // User can manually end scenario if needed via "End Scenario" button
+        // Scenarios don't auto-quit - they wait for user interaction
       }
     }
 
@@ -1205,35 +1204,26 @@ export class ScenarioExecutor {
    * Wait for the UI to process a prompt (fill ChatInput)
    * Note: This only waits for the input to be filled, not for user submission
    * User submission is handled separately via waitForResponseReceived()
+   * 
+   * NO TIMEOUT - scenarios wait indefinitely for user interaction
    */
   private waitForPromptProcessed(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       this.promptProcessedResolver = resolve;
-      
-      // Shorter timeout - just filling input should be fast
-      setTimeout(() => {
-        if (this.promptProcessedResolver) {
-          this.promptProcessedResolver = null;
-          reject(new Error('Timeout waiting for prompt to be injected into UI'));
-        }
-      }, 5000); // 5 seconds should be enough to fill input
+      // No timeout - wait indefinitely for user to interact
     });
   }
 
   /**
    * Wait for the UI to receive a response from DotBot
+   * 
+   * NO TIMEOUT - scenarios wait indefinitely for DotBot responses
+   * User can manually end scenario early if needed
    */
   private waitForResponseReceived(): Promise<any> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       this.responseReceivedResolver = resolve;
-      
-      // Timeout
-      setTimeout(() => {
-        if (this.responseReceivedResolver) {
-          this.responseReceivedResolver = null;
-          reject(new Error('Timeout waiting for response from DotBot'));
-        }
-      }, this.config.responseTimeout);
+      // No timeout - wait indefinitely for DotBot response
     });
   }
 

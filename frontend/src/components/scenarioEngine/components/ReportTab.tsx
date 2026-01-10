@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Square } from 'lucide-react';
 
 interface ExecutionPhase {
   phase: 'beginning' | 'cycle' | 'final-report' | null;
@@ -21,6 +21,7 @@ interface ReportTabProps {
   statusMessage?: string;  // Current status message (e.g., "Executing prompt...")
   executionPhase?: ExecutionPhase | null;  // Current execution phase and activity
   onClear?: () => void;
+  onEndScenario?: () => void;  // Callback to end scenario early
 }
 
 export const ReportTab: React.FC<ReportTabProps> = ({
@@ -30,6 +31,7 @@ export const ReportTab: React.FC<ReportTabProps> = ({
   statusMessage,
   executionPhase,
   onClear,
+  onEndScenario,
 }) => {
   // Initialize displayedText to current report on mount (no animation for existing content)
   const [displayedText, setDisplayedText] = useState(() => report);
@@ -192,15 +194,39 @@ export const ReportTab: React.FC<ReportTabProps> = ({
     <div className="scenario-panel">
       <div className="scenario-panel-header">
         <span>{'>'} EXECUTION REPORT</span>
-        {onClear && displayedText && (
-          <button
-            onClick={handleClear}
-            className="scenario-clear-button"
-            title="Clear console"
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {isRunning && onEndScenario && (
+            <button
+              onClick={onEndScenario}
+              className="scenario-end-button"
+              title="End scenario early and jump to evaluation"
+              style={{
+                background: 'rgba(255, 165, 0, 0.2)',
+                border: '1px solid rgba(255, 165, 0, 0.5)',
+                color: '#ffa500',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <Square size={12} />
+              End Scenario
+            </button>
+          )}
+          {onClear && displayedText && (
+            <button
+              onClick={handleClear}
+              className="scenario-clear-button"
+              title="Clear console"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
       </div>
       <div className="scenario-report" ref={reportRef} onClick={handleClick}>
         <pre className="scenario-report-text">
