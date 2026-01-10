@@ -271,6 +271,8 @@ export class ScenarioExecutor {
       }
     }
 
+    // All steps completed
+    this.emit({ type: 'log', level: 'info', message: `All ${scenario.steps.length} step(s) completed` });
     return this.context.results;
   }
 

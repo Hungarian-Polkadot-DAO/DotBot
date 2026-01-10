@@ -537,6 +537,9 @@ export class ScenarioEngine {
       this.appendToReport('Executing scenario steps\n\n');
       this.updateState({ status: 'running' });
       const stepResults = await this.executor!.executeScenario(scenario);
+      
+      // Log that execution phase completed
+      this.log('info', `Execution phase completed with ${stepResults.length} step result(s)`);
 
       // Phase 3: FINAL REPORT - Evaluate
       this.emit({ type: 'phase-start', phase: 'final-report', details: 'Evaluating results' });

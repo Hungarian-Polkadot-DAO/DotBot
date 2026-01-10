@@ -5,7 +5,7 @@
  * Shows all steps that will happen and provides a single "Accept and Start" button.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2, AlertTriangle, ChevronRight, Play, X } from 'lucide-react';
 import { ExecutionItem, ExecutionArrayState } from '../../lib/executionEngine/types';
 import type { ExecutionMessage, DotBot } from '../../lib';
@@ -33,10 +33,32 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   show = true
 }) => {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  // Live execution state - updates when execution progresses
+  const [liveExecutionState, setLiveExecutionState] = useState<ExecutionArrayState | null>(null);
 
-  // Use new API if provided, otherwise fall back to legacy API
-  const executionState = executionMessage?.executionArray || state;
-  const shouldShow = executionMessage ? executionMessage.executionArray.items.length > 0 : show;
+  // Subscribe to execution updates when using new API (executionMessage + dotbot)
+  useEffect(() => {
+    if (!executionMessage || !dotbot || !dotbot.currentChat) {
+      return;
+    }
+
+    const chatInstance = dotbot.currentChat;
+    const executionId = executionMessage.executionId;
+
+    // Subscribe to execution updates
+    const unsubscribe = chatInstance.onExecutionUpdate(executionId, (updatedState) => {
+      setLiveExecutionState(updatedState);
+    });
+
+    // Cleanup subscription on unmount
+    return () => {
+      unsubscribe();
+    };
+  }, [executionMessage?.executionId, dotbot]);
+
+  // Use live state if available, otherwise fall back to snapshot or legacy state
+  const executionState = liveExecutionState || executionMessage?.executionArray || state;
+  const shouldShow = executionMessage ? (executionState?.items.length ?? 0) > 0 : show;
 
   if (!shouldShow || !executionState || executionState.items.length === 0) {
     return null;
