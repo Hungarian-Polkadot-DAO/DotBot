@@ -12,19 +12,19 @@ import type { Scenario } from '../types';
 // =============================================================================
 
 export const HAPPY_PATH_TESTS: Scenario[] = [
-  // Basic transfers
+  // Basic transfer that should PASS (small amount)
   { 
     id: "happy-path-001",
-    name: "Basic Transfer to Alice",
-    description: "Tests basic transfer of 5 WND to Alice using natural language",
+    name: "Small Transfer to Alice (Should Pass)",
+    description: "Tests basic transfer of 0.2 WND to Alice - should succeed with sufficient balance",
     category: "happy-path",
-    tags: ["transfer", "basic", "alice"],
+    tags: ["transfer", "basic", "alice", "small-amount"],
     
     steps: [
       {
         id: "step-1",
         type: "prompt",
-        input: "Send 5 WND to Alice"
+        input: "Send 0.2 WND to Alice"
       }
     ],
     
@@ -34,9 +34,34 @@ export const HAPPY_PATH_TESTS: Scenario[] = [
         expectedAgent: "AssetTransferAgent",
         expectedFunction: "transfer",
         expectedParams: { 
-          amount: "5", 
+          amount: "0.2", 
           recipient: "Alice" 
         }
+      }
+    ]
+  },
+  
+  // Basic transfer that should FAIL (insufficient balance)
+  { 
+    id: "happy-path-002",
+    name: "Large Transfer to Alice (Should Fail)",
+    description: "Tests transfer of 100 WND to Alice - should fail due to insufficient balance",
+    category: "happy-path",
+    tags: ["transfer", "basic", "alice", "insufficient-balance"],
+    
+    steps: [
+      {
+        id: "step-1",
+        type: "prompt",
+        input: "Send 100 WND to Alice"
+      }
+    ],
+    
+    expectations: [
+      {
+        responseType: "text",
+        shouldContain: ["insufficient", "balance"],
+        shouldNotContain: ["execution"]
       }
     ]
   },
