@@ -14,7 +14,6 @@ import MessageList from './MessageList';
 import ConversationItems from './ConversationItems';
 import ChatInput from './ChatInput';
 import TypingIndicator from './TypingIndicator';
-import SimulationStatus from '../simulation/SimulationStatus';
 
 interface ChatProps {
   dotbot: DotBot;
@@ -22,14 +21,6 @@ interface ChatProps {
   isTyping?: boolean;
   disabled?: boolean;
   placeholder?: string;
-  simulationStatus?: {
-    phase: string;
-    message: string;
-    progress?: number;
-    details?: string;
-    chain?: string;
-    result?: any;
-  } | null;
 }
 
 const Chat: React.FC<ChatProps> = ({
@@ -38,7 +29,6 @@ const Chat: React.FC<ChatProps> = ({
   isTyping = false,
   disabled = false,
   placeholder = "Type your message...",
-  simulationStatus
 }) => {
   const [inputValue, setInputValue] = useState('');
   const { registerSetter } = useChatInput();
@@ -68,17 +58,6 @@ const Chat: React.FC<ChatProps> = ({
           items={conversationItems}
                 dotbot={dotbot}
               />
-        
-        {/* Simulation Status */}
-        {simulationStatus && (
-          <SimulationStatus
-            phase={simulationStatus.phase as any}
-            message={simulationStatus.message}
-            progress={simulationStatus.progress}
-            details={simulationStatus.details}
-            chain={simulationStatus.chain}
-          />
-        )}
         
         {/* Typing indicator */}
         {isTyping && <TypingIndicator />}

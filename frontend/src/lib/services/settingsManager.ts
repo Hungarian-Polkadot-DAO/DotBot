@@ -39,7 +39,7 @@ export interface AppSettings {
 }
 
 const DEFAULT_SIMULATION_CONFIG: SimulationConfig = {
-  enabled: false,  // Default: simulation disabled
+  enabled: true,  // Default: simulation enabled
   timeout: 120000,  // 2 minutes
 };
 

@@ -4,8 +4,9 @@
  * Global application settings including ScenarioEngine activation.
  */
 
-import React, { useEffect } from 'react';
-import { X, Beaker } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { X, Beaker, Shield } from 'lucide-react';
+import { getSimulationConfig, updateSimulationConfig } from '../../lib/executionEngine/simulation/simulationConfig';
 import '../../styles/settings-modal.css';
 
 interface SettingsModalProps {
@@ -23,6 +24,16 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleScenarioEngine,
   isMainnet,
 }) => {
+  // Read current simulation config state
+  const [simulationConfig, setSimulationConfig] = useState(getSimulationConfig());
+
+  // Update state when modal opens to get latest config
+  useEffect(() => {
+    if (isOpen) {
+      setSimulationConfig(getSimulationConfig());
+    }
+  }, [isOpen]);
+
   // Close on ESC key
   useEffect(() => {
     if (!isOpen) return;
@@ -36,6 +47,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
+
+  const handleSimulationToggle = (enabled: boolean) => {
+    updateSimulationConfig({ enabled });
+    setSimulationConfig(getSimulationConfig());
+  };
 
   if (!isOpen) return null;
 
@@ -75,6 +91,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                   checked={scenarioEngineEnabled}
                   onChange={(e) => onToggleScenarioEngine(e.target.checked)}
                   disabled={isMainnet}
+                />
+                <span className="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          {/* Transaction Simulation Section */}
+          <div className="settings-section">
+            <div className="settings-section-header">
+              <Shield className="settings-section-icon" />
+              <h3 className="settings-section-title">Transaction Simulation</h3>
+            </div>
+
+            <div className="settings-option">
+              <div className="settings-option-info">
+                <div className="settings-option-label">Enable Transaction Simulation</div>
+                <div className="settings-option-description">
+                  Simulate transactions using Chopsticks before signing to preview effects and catch errors early.
+                  This adds 1-3 seconds of latency but improves safety by validating transactions before execution.
+                </div>
+              </div>
+              <label className="settings-toggle">
+                <input
+                  type="checkbox"
+                  checked={simulationConfig.enabled}
+                  onChange={(e) => handleSimulationToggle(e.target.checked)}
                 />
                 <span className="settings-toggle-slider"></span>
               </label>

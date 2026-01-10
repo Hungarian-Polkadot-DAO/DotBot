@@ -18,7 +18,9 @@
 
 import { ApiPromise } from '@polkadot/api';
 import { ExecutionSystem } from './executionEngine/system';
-import { ExecutionArrayState } from './executionEngine/types';
+import { ExecutionArrayState, ExecutionItem } from './executionEngine/types';
+import { ExecutionArray } from './executionEngine/executionArray';
+import { SimulationContext } from './executionEngine/simulation/executionSimulator';
 import { BrowserWalletSigner } from './executionEngine/signers/browserSigner';
 import { buildSystemPrompt } from './prompts/system/loader';
 import { ExecutionPlan } from './prompts/system/execution/types';
@@ -853,9 +855,109 @@ export class DotBot {
           }).catch(err => console.error('Failed to update execution message:', err));
         }
       });
+      
+      // Run simulation automatically if enabled (before user clicks Accept)
+      if (isSimulationEnabled()) {
+        await this.runSimulationForExecutionArray(executionArray);
+      }
     }
     
     // DO NOT EXECUTE HERE - wait for user to click "Accept & Start" in UI!
+  }
+  
+  /**
+   * Run simulation for all items in execution array
+   * Called automatically during prepareExecution() if simulation is enabled
+   * 
+   * CRITICAL: Must use the EXACT same API instance that created each extrinsic.
+   * The extrinsic's call indices are tied to the specific API instance's metadata.
+   */
+  private async runSimulationForExecutionArray(executionArray: ExecutionArray): Promise<void> {
+    const items = executionArray.getState().items;
+    const orchestrator = this.executionSystem.getOrchestrator();
+    
+    // Get the exact API instances that orchestrator uses (these created the extrinsics)
+    // Access orchestrator's private API instances via type assertion
+    const orchestratorApi = (orchestrator as any).api as ApiPromise | null;
+    const orchestratorAssetHubApi = (orchestrator as any).assetHubApi as ApiPromise | null;
+    
+    if (!orchestratorApi) {
+      console.error('Cannot run simulation: orchestrator API not initialized');
+      return;
+    }
+    
+    // Run simulation for each extrinsic item in parallel (they're independent)
+    const simulationPromises = items
+      .filter((item: ExecutionItem) => item.executionType === 'extrinsic' && item.agentResult.extrinsic)
+      .map(async (item: ExecutionItem) => {
+        const extrinsic = item.agentResult.extrinsic!;
+        
+        // CRITICAL: Determine which API created this extrinsic by checking the registry
+        // We MUST use the exact same API instance that created it, otherwise call indices won't match
+        let apiForExtrinsic: ApiPromise | null = null;
+        
+        // Check if extrinsic was created with orchestrator's relay chain API
+        if (orchestratorApi.registry === extrinsic.registry) {
+          apiForExtrinsic = orchestratorApi;
+        } 
+        // Check if extrinsic was created with orchestrator's asset hub API
+        else if (orchestratorAssetHubApi && orchestratorAssetHubApi.registry === extrinsic.registry) {
+          apiForExtrinsic = orchestratorAssetHubApi;
+        }
+        // If registries don't match, this is a problem - but try orchestrator's APIs anyway
+        // (they're the ones that created the extrinsic, so metadata should match)
+        else {
+          // Determine by method section (heuristic fallback)
+          const isAssetHubMethod = extrinsic.method.section === 'assets' || 
+                                   extrinsic.method.section === 'foreignAssets';
+          apiForExtrinsic = isAssetHubMethod && orchestratorAssetHubApi 
+            ? orchestratorAssetHubApi 
+            : orchestratorApi;
+          
+          console.warn(
+            `Registry mismatch for item ${item.id}: extrinsic registry does not match orchestrator API registries. ` +
+            `Using ${isAssetHubMethod ? 'Asset Hub' : 'Relay Chain'} API based on method section. ` +
+            `This may cause metadata mismatch errors.`
+          );
+        }
+        
+        if (!apiForExtrinsic) {
+          console.error(`Cannot determine API for item ${item.id}, skipping simulation`);
+          return;
+        }
+        
+        if (this.wallet) {
+          const { runSimulation } = await import('./executionEngine/simulation/executionSimulator');
+          
+          const simulationContext: SimulationContext = {
+            api: apiForExtrinsic,
+            accountAddress: this.wallet.address,
+            assetHubManager: this.assetHubManager,
+            relayChainManager: this.relayChainManager,
+            onStatusUpdate: this.config?.onSimulationStatus,
+          };
+          
+          try {
+            await runSimulation(extrinsic, simulationContext, executionArray, item);
+          } catch (error) {
+            // Simulation errors are handled in runSimulation - item status will be updated
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`Simulation failed for item ${item.id}:`, errorMsg);
+            
+            // If it's a metadata mismatch, log additional context
+            if (errorMsg.includes('Unable to find Call') || errorMsg.includes('findMetaCall')) {
+              console.error(
+                `Metadata mismatch detected. Extrinsic registry: ${extrinsic.registry.constructor.name}, ` +
+                `API registry: ${apiForExtrinsic.registry.constructor.name}, ` +
+                `Call index: [${extrinsic.method.callIndex[0]}, ${extrinsic.method.callIndex[1]}]`
+              );
+            }
+          }
+        }
+      });
+    
+    // Wait for all simulations to complete
+    await Promise.all(simulationPromises);
   }
 
   /**

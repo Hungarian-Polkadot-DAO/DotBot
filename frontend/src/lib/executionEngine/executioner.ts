@@ -342,7 +342,10 @@ export class Executioner {
     const extrinsic = agentResult.extrinsic;
     const apiForExtrinsic = this.getApiForExtrinsic(extrinsic);
 
-    if (isSimulationEnabled()) {
+    // Only run simulation if:
+    // 1. Simulation is enabled, AND
+    // 2. Item is still 'pending' (simulation hasn't run yet during prepareExecution)
+    if (isSimulationEnabled() && item.status === 'pending') {
       const simulationContext: SimulationContext = {
         api: apiForExtrinsic,
         accountAddress: this.account.address,
@@ -351,9 +354,11 @@ export class Executioner {
         onStatusUpdate: this.onStatusUpdate,
       };
       await runSimulation(extrinsic, simulationContext, executionArray, item);
-    } else {
+    } else if (item.status === 'pending') {
+      // Simulation disabled, mark as ready
       executionArray.updateStatus(item.id, 'ready');
     }
+    // If item is already 'ready', simulation was already done during prepareExecution - skip it
 
     if (!autoApprove) {
       const signingContext: SigningContext = {

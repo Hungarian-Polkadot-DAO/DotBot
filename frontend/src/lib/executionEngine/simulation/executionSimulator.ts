@@ -30,10 +30,35 @@ export async function runSimulation(
   try {
     const { simulateTransaction, isChopsticksAvailable } = await import('../../services/simulation');
 
+    // Create a callback that updates this specific item's simulation status
+    const itemSimulationCallback = (status: any) => {
+      executionArray.updateSimulationStatus(item.id, status);
+      // Also call the original callback if provided (for backward compatibility)
+      if (context.onStatusUpdate) {
+        context.onStatusUpdate(status);
+      }
+    };
+
+    // Create new context with item-specific callback
+    const itemContext: SimulationContext = {
+      ...context,
+      onStatusUpdate: itemSimulationCallback,
+    };
+
     if (await isChopsticksAvailable()) {
-      await runChopsticksSimulation(extrinsic, context, executionArray, item, simulateTransaction);
+      await runChopsticksSimulation(extrinsic, itemContext, executionArray, item, simulateTransaction);
     } else {
-      await runPaymentInfoValidation(extrinsic, context);
+      await runPaymentInfoValidation(extrinsic, itemContext);
+    }
+
+    // Mark simulation as complete
+    const currentSimStatus = executionArray.getItem(item.id)?.simulationStatus;
+    if (currentSimStatus) {
+      executionArray.updateSimulationStatus(item.id, {
+        ...currentSimStatus,
+        phase: 'complete',
+        message: 'Simulation completed successfully',
+      });
     }
 
     executionArray.updateStatus(item.id, 'ready');
@@ -73,6 +98,21 @@ async function runChopsticksSimulation(
       .replace(/^Chopsticks simulation failed: /, '')
       .replace(/^Simulation failed: /, '')
       .replace(/^Transaction validation failed: /, '');
+
+    // Update simulation status to show error
+    const currentSimStatus = executionArray.getItem(item.id)?.simulationStatus;
+    if (currentSimStatus) {
+      executionArray.updateSimulationStatus(item.id, {
+        ...currentSimStatus,
+        phase: 'error',
+        message: `Simulation failed: ${cleanError}`,
+        result: {
+          success: false,
+          error: cleanError,
+          wouldSucceed: false,
+        },
+      });
+    }
 
     executionArray.updateStatus(item.id, 'failed', 'Transaction simulation failed');
     executionArray.updateResult(item.id, {
@@ -153,6 +193,27 @@ function handleSimulationError(
 
   const isSimulationFailure = errorLower.includes('simulation failed') || errorLower.includes('chopsticks');
 
+  const finalError = isRuntimePanic
+    ? 'Runtime validation panic: Transaction shape is invalid for this chain'
+    : isSimulationFailure
+      ? `Simulation failed: ${errorMessage}`
+      : `Validation failed: ${errorMessage}`;
+
+  // Update simulation status to show error
+  const currentSimStatus = executionArray.getItem(item.id)?.simulationStatus;
+  if (currentSimStatus) {
+    executionArray.updateSimulationStatus(item.id, {
+      ...currentSimStatus,
+      phase: 'error',
+      message: finalError,
+      result: {
+        success: false,
+        error: finalError,
+        wouldSucceed: false,
+      },
+    });
+  }
+
   executionArray.updateStatus(
     item.id,
     'failed',
@@ -160,11 +221,7 @@ function handleSimulationError(
   );
   executionArray.updateResult(item.id, {
     success: false,
-    error: isRuntimePanic
-      ? 'Runtime validation panic: Transaction shape is invalid for this chain'
-      : isSimulationFailure
-        ? `Simulation failed: ${errorMessage}`
-        : `Validation failed: ${errorMessage}`,
+    error: finalError,
     errorCode: isRuntimePanic ? 'RUNTIME_VALIDATION_PANIC' : isSimulationFailure ? 'SIMULATION_FAILED' : 'VALIDATION_FAILED',
     rawError: errorMessage,
   });

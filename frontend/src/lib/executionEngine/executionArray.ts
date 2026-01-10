@@ -14,6 +14,7 @@ import {
   ProgressCallback,
   ErrorCallback,
   CompletionCallback,
+  SimulationStatus,
 } from './types';
 import { isSimulationEnabled } from './simulation/simulationConfig';
 
@@ -216,6 +217,22 @@ export class ExecutionArray {
     if (status === 'failed' && previousStatus !== 'failed' && error) {
       this.notifyError(item, new Error(error));
     }
+  }
+
+  /**
+   * Update simulation status for an execution item
+   */
+  updateSimulationStatus(id: string, simulationStatus: SimulationStatus | undefined): void {
+    const item = this.getItem(id);
+    if (!item) {
+      return;
+    }
+    
+    item.simulationStatus = simulationStatus;
+    
+    // Notify callbacks so UI updates
+    this.notifyStatus(item);
+    this.notifyProgress();
   }
   
   /**

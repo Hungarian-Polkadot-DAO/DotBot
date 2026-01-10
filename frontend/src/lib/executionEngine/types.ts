@@ -32,6 +32,29 @@ export type ExecutionStatus =
 export type ExecutionType = 'extrinsic' | 'data_fetch' | 'validation' | 'user_input';
 
 /**
+ * Simulation status for an execution item
+ * 
+ * Tracks the progress and results of transaction simulation.
+ * Only populated when simulation is enabled and item is being simulated.
+ */
+export interface SimulationStatus {
+  phase: 'validating' | 'simulating' | 'analyzing' | 'retrying' | 'complete' | 'initializing' | 'forking' | 'executing' | 'error';
+  message: string;
+  progress?: number;
+  details?: string;
+  chain?: string;
+  result?: {
+    success: boolean;
+    estimatedFee?: string;
+    validationMethod?: 'chopsticks' | 'paymentInfo';
+    balanceChanges?: Array<{ value: string; change: 'send' | 'receive' }>;
+    runtimeInfo?: Record<string, any>;
+    error?: string;
+    wouldSucceed?: boolean;
+  };
+}
+
+/**
  * Execution item in the array
  */
 export interface ExecutionItem {
@@ -76,6 +99,9 @@ export interface ExecutionItem {
   
   /** Index in the execution array */
   index: number;
+  
+  /** Simulation status (only populated when simulation is enabled and item is being simulated) */
+  simulationStatus?: SimulationStatus;
 }
 
 /**

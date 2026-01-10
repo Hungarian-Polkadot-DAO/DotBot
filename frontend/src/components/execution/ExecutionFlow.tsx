@@ -6,10 +6,11 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { CheckCircle2, XCircle, Clock, Loader2, AlertTriangle, ChevronRight, Play, X } from 'lucide-react';
-import { ExecutionItem, ExecutionArrayState } from '../../lib/executionEngine/types';
+import { CheckCircle2, XCircle, Clock, Loader2, AlertTriangle, ChevronRight, Play, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { ExecutionItem, ExecutionArrayState, SimulationStatus as SimulationStatusType } from '../../lib/executionEngine/types';
 import type { ExecutionMessage, DotBot } from '../../lib';
 import { isSimulationEnabled } from '../../lib/executionEngine/simulation/simulationConfig';
+import { BN } from '@polkadot/util';
 import '../../styles/execution-flow.css';
 
 export interface ExecutionFlowProps {
@@ -84,18 +85,40 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
     }
   };
 
-  // Check if simulation is enabled and if any items are being simulated (pending status)
-  // Only consider items as "simulating" if simulation is actually enabled
+  // Check if simulation is enabled and if any items are being simulated
+  // An item is simulating if it has simulationStatus and is in pending state
   const simulationEnabled = isSimulationEnabled();
-  const isSimulating = simulationEnabled && executionState.items.some(item => item.status === 'pending');
-  const simulatingCount = executionState.items.filter(item => item.status === 'pending').length;
+  const simulatingItems = executionState.items.filter(item => 
+    item.simulationStatus && item.status === 'pending'
+  );
+  const isSimulating = simulationEnabled && simulatingItems.length > 0;
+  const simulatingCount = simulatingItems.length;
   
-  // Check simulation results
-  const hasSimulationSuccess = executionState.items.some(item => item.status === 'ready');
-  const hasSimulationFailure = executionState.items.some(item => item.status === 'failed');
-  const allSimulationsComplete = !isSimulating && (hasSimulationSuccess || hasSimulationFailure);
-  const successCount = executionState.items.filter(item => item.status === 'ready').length;
-  const failureCount = executionState.items.filter(item => item.status === 'failed').length;
+  // Check simulation results - only count items that actually went through simulation
+  const simulatedItems = executionState.items.filter(item => item.simulationStatus);
+  const hasSimulationSuccess = simulatedItems.some(item => 
+    item.simulationStatus?.phase === 'complete' || 
+    (item.simulationStatus?.result?.success === true && item.status === 'ready')
+  );
+  const hasSimulationFailure = simulatedItems.some(item => 
+    item.simulationStatus?.phase === 'error' || 
+    (item.simulationStatus?.result?.success === false && item.status === 'failed')
+  );
+  const allSimulationsComplete = !isSimulating && simulatedItems.length > 0 && 
+    simulatedItems.every(item => 
+      item.simulationStatus?.phase === 'complete' || 
+      item.simulationStatus?.phase === 'error' ||
+      item.status === 'ready' || 
+      item.status === 'failed'
+    );
+  const successCount = simulatedItems.filter(item => 
+    item.simulationStatus?.phase === 'complete' || 
+    (item.simulationStatus?.result?.success === true && item.status === 'ready')
+  ).length;
+  const failureCount = simulatedItems.filter(item => 
+    item.simulationStatus?.phase === 'error' || 
+    (item.simulationStatus?.result?.success === false && item.status === 'failed')
+  ).length;
   
   // Check if flow is waiting for user approval (all items are pending/ready)
   const isWaitingForApproval = executionState.items.every(item => 
@@ -187,6 +210,213 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
     }
   };
 
+  // Inline SimulationStatus component (integrated from SimulationStatus.tsx)
+  const formatAmount = (planck: string): string => {
+    try {
+      const bn = new BN(planck);
+      const dot = bn.div(new BN(10).pow(new BN(10)));
+      const remainder = bn.mod(new BN(10).pow(new BN(10)));
+      const decimals = remainder.div(new BN(10).pow(new BN(8))).toNumber();
+      return `${dot.toString()}.${decimals.toString().padStart(2, '0')} DOT`;
+    } catch {
+      return `${planck} Planck`;
+    }
+  };
+
+  interface InlineSimulationStatusProps {
+    phase: SimulationStatusType['phase'];
+    message: string;
+    progress?: number;
+    details?: string;
+    chain?: string;
+    result?: SimulationStatusType['result'];
+  }
+
+  const InlineSimulationStatus: React.FC<InlineSimulationStatusProps> = ({
+    phase,
+    message,
+    progress,
+    details,
+    chain,
+    result
+  }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    
+    const getPhaseIcon = () => {
+      switch (phase) {
+        case 'initializing':
+        case 'validating':
+          return '🔧';
+        case 'forking':
+          return '🌿';
+        case 'executing':
+        case 'simulating':
+          return '⚡';
+        case 'analyzing':
+          return '🔍';
+        case 'complete':
+          return '✅';
+        case 'error':
+          return '❌';
+        case 'retrying':
+          return '🔄';
+        default:
+          return '⏳';
+      }
+    };
+
+    const getPhaseColor = () => {
+      switch (phase) {
+        case 'initializing':
+        case 'validating':
+          return 'var(--accent-color)';
+        case 'forking':
+          return '#10b981';
+        case 'executing':
+        case 'simulating':
+          return '#f59e0b';
+        case 'analyzing':
+          return '#3b82f6';
+        case 'complete':
+          return '#10b981';
+        case 'error':
+          return '#ef4444';
+        case 'retrying':
+          return '#8b5cf6';
+        default:
+          return '#6b7280';
+      }
+    };
+
+    const showDetails = result && (phase === 'complete' || phase === 'error');
+
+    return (
+      <div className="simulation-status">
+        <div className="simulation-status-header">
+          <span className="simulation-icon" style={{ color: getPhaseColor() }}>
+            {getPhaseIcon()}
+          </span>
+          <span className="simulation-message">{message}</span>
+          {chain && (
+            <span className="simulation-chain-badge">{chain}</span>
+          )}
+          {showDetails && (
+            <button
+              className="simulation-expand-btn"
+              onClick={() => setIsExpanded(!isExpanded)}
+              title={isExpanded ? 'Hide details' : 'Show details'}
+            >
+              {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+          )}
+        </div>
+        
+        {progress !== undefined && (
+          <div className="simulation-progress">
+            <div 
+              className="simulation-progress-bar"
+              style={{ 
+                width: `${progress}%`,
+                backgroundColor: getPhaseColor()
+              }}
+            />
+          </div>
+        )}
+        
+        {details && (
+          <div className="simulation-details">{details}</div>
+        )}
+
+        {showDetails && result && isExpanded && (
+          <div className="simulation-result-details">
+            <div className="result-section">
+              <div className="result-row">
+                <span className="result-label">Validation Method:</span>
+                <span className="result-value">
+                  {result.validationMethod === 'chopsticks' ? (
+                    <span className="method-badge chopsticks">🌿 Chopsticks (Runtime Simulation)</span>
+                  ) : (
+                    <span className="method-badge paymentinfo">⚠️ PaymentInfo (Structure Only)</span>
+                  )}
+                </span>
+              </div>
+
+              {result.estimatedFee && (
+                <div className="result-row">
+                  <span className="result-label">Estimated Fee:</span>
+                  <span className="result-value fee">{formatAmount(result.estimatedFee)}</span>
+                </div>
+              )}
+
+              {result.balanceChanges && result.balanceChanges.length > 0 && (
+                <div className="result-row">
+                  <span className="result-label">Balance Changes:</span>
+                  <div className="result-value balance-changes">
+                    {result.balanceChanges.map((change, idx) => (
+                      <div key={idx} className={`balance-change ${change.change}`}>
+                        {change.change === 'send' ? '➖' : '➕'} {formatAmount(change.value)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {result.runtimeInfo && Object.keys(result.runtimeInfo).length > 0 && (
+                <div className="result-row">
+                  <span className="result-label">Runtime Info:</span>
+                  <div className="result-value runtime-info">
+                    {result.runtimeInfo.validated !== undefined && (
+                      <div className="info-item">
+                        <span className="info-key">Validated:</span>
+                        <span className={`info-value ${result.runtimeInfo.validated ? 'success' : 'warning'}`}>
+                          {result.runtimeInfo.validated ? '✓ Yes' : '⚠ No'}
+                        </span>
+                      </div>
+                    )}
+                    {result.runtimeInfo.events !== undefined && (
+                      <div className="info-item">
+                        <span className="info-key">Events:</span>
+                        <span className="info-value">{result.runtimeInfo.events}</span>
+                      </div>
+                    )}
+                    {result.runtimeInfo.weight && (
+                      <div className="info-item">
+                        <span className="info-key">Weight:</span>
+                        <span className="info-value">{result.runtimeInfo.weight}</span>
+                      </div>
+                    )}
+                    {result.runtimeInfo.class && (
+                      <div className="info-item">
+                        <span className="info-key">Class:</span>
+                        <span className="info-value">{result.runtimeInfo.class}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {result.error && (
+                <div className="result-row error-row">
+                  <span className="result-label">Error:</span>
+                  <span className="result-value error-text">{result.error}</span>
+                </div>
+              )}
+
+              {result.wouldSucceed !== undefined && (
+                <div className="result-row">
+                  <span className="result-label">Would Succeed:</span>
+                  <span className={`result-value ${result.wouldSucceed ? 'success' : 'error'}`}>
+                    {result.wouldSucceed ? '✓ Yes' : '✗ No'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="execution-flow-container">
       {/* Header */}
@@ -220,21 +450,7 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         )}
       </div>
 
-      {/* Simulation Status Banners - Only show when simulation is enabled */}
-      {simulationEnabled && isSimulating && (
-        <div className="simulation-banner simulation-in-progress">
-          <div className="banner-icon">
-            <Loader2 className="animate-spin" size={20} />
-          </div>
-          <div className="banner-content">
-            <div className="banner-title">Simulation in Progress</div>
-            <div className="banner-description">
-              Running {simulatingCount} transaction{simulatingCount !== 1 ? 's' : ''} through blockchain simulation to verify {simulatingCount !== 1 ? 'they' : 'it'} will succeed before you sign...
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* Simulation Success Banner - Only show when all simulations complete successfully */}
       {simulationEnabled && allSimulationsComplete && hasSimulationSuccess && !hasSimulationFailure && !isExecuting && (
         <div className="simulation-banner simulation-success">
           <div className="banner-icon">
@@ -263,27 +479,32 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         </div>
       )}
 
-      {/* Show simulation disabled message when simulation is off and items are ready */}
-      {!simulationEnabled && isWaitingForApproval && executionState.items.every(item => item.status === 'ready') && (
+      {/* Show simulation disabled message when simulation is off and waiting for approval */}
+      {!simulationEnabled && isWaitingForApproval && (
         <div className="simulation-banner simulation-disabled">
           <div className="banner-icon">
             <AlertTriangle size={20} />
           </div>
           <div className="banner-content">
             <div className="banner-title">Transaction simulation is disabled</div>
+            <div className="banner-description">
+              Transactions will be sent directly to your wallet for signing without pre-execution simulation.
+            </div>
           </div>
         </div>
       )}
 
-      {/* Approval message (only show when no banner is active) */}
+      {/* Approval message (only show when no banner is active and simulation is not running) */}
       {(() => {
         const hasSimulationBanner = 
-          (simulationEnabled && isSimulating) ||
           (simulationEnabled && allSimulationsComplete && hasSimulationSuccess && !hasSimulationFailure && !isExecuting) ||
           (simulationEnabled && allSimulationsComplete && hasSimulationFailure) ||
-          (!simulationEnabled && isWaitingForApproval && executionState.items.every(item => item.status === 'ready'));
+          (!simulationEnabled && isWaitingForApproval);
         
-        return !hasSimulationBanner && !allSimulationsComplete && isWaitingForApproval && (
+        // Don't show approval message if simulation is in progress (status is shown in items)
+        const hasActiveSimulation = simulationEnabled && isSimulating;
+        
+        return !hasSimulationBanner && !hasActiveSimulation && !allSimulationsComplete && isWaitingForApproval && (
           <div className="execution-flow-intro">
             <p>Review the steps below. Once you accept, your wallet will ask you to sign each transaction.</p>
           </div>
@@ -331,16 +552,47 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
                     </div>
                   </div>
                 </div>
-                {(item.warnings?.length || item.metadata) && (
+                {(item.warnings?.length || item.metadata || item.simulationStatus) && (
                 <ChevronRight
                   className={`execution-item-chevron ${isExpanded ? 'expanded' : ''}`}
                 />
                 )}
               </div>
 
+              {/* Simulation Status - Show inline when simulation is active */}
+              {item.simulationStatus && item.status === 'pending' && (
+                <div className="execution-item-simulation">
+                  <InlineSimulationStatus
+                    phase={item.simulationStatus.phase}
+                    message={item.simulationStatus.message}
+                    progress={item.simulationStatus.progress}
+                    details={item.simulationStatus.details}
+                    chain={item.simulationStatus.chain}
+                    result={item.simulationStatus.result}
+                  />
+                </div>
+              )}
+
               {/* Item Details (Expanded) */}
               {isExpanded && (
                 <div className="execution-item-details">
+                  {/* Simulation Status - Show detailed simulation progress in expanded view too */}
+                  {item.simulationStatus && item.status !== 'pending' && (
+                    <div className="execution-detail-section">
+                      <div className="execution-detail-label">Simulation Status</div>
+                      <div className="execution-detail-value">
+                        <InlineSimulationStatus
+                          phase={item.simulationStatus.phase}
+                          message={item.simulationStatus.message}
+                          progress={item.simulationStatus.progress}
+                          details={item.simulationStatus.details}
+                          chain={item.simulationStatus.chain}
+                          result={item.simulationStatus.result}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Warnings */}
                   {item.warnings && item.warnings.length > 0 && (
                     <div className="execution-detail-section">

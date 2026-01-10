@@ -73,16 +73,8 @@ const AppContent: React.FC = () => {
   // Environment preference (for when wallet is not connected yet)
   const [preferredEnvironment, setPreferredEnvironment] = useState<Environment>('mainnet');
   
-  // Signing & Simulation
+  // Signing
   const [signingRequest, setSigningRequest] = useState<SigningRequest | BatchSigningRequest | null>(null);
-  const [simulationStatus, setSimulationStatus] = useState<{
-    phase: string;
-    message: string;
-    progress?: number;
-    details?: string;
-    chain?: string;
-    result?: any;
-  } | null>(null);
   
   const { isConnected, selectedAccount } = useWalletStore();
   
@@ -130,13 +122,7 @@ const AppContent: React.FC = () => {
         environment: preferredEnvironment,
         network: network,
         onSigningRequest: (request) => setSigningRequest(request),
-        onBatchSigningRequest: (request) => setSigningRequest(request),
-        onSimulationStatus: (status) => {
-          setSimulationStatus(status);
-          if (status.phase === 'complete' || status.phase === 'error') {
-            setTimeout(() => setSimulationStatus(null), 3000);
-          }
-        }
+        onBatchSigningRequest: (request) => setSigningRequest(request)
       });
       
       setDotbot(dotbotInstance);
@@ -415,7 +401,6 @@ const AppContent: React.FC = () => {
             scenarioEngine={scenarioEngine}
             isScenarioEngineReady={isScenarioEngineReady}
             preferredEnvironment={preferredEnvironment}
-            simulationStatus={simulationStatus}
             setIsSidebarExpanded={setIsSidebarExpanded}
             setShowChatHistory={setShowChatHistory}
             setShowSettingsModal={setShowSettingsModal}
@@ -458,7 +443,6 @@ const AppWithChatInputWrapper: React.FC<{
   scenarioEngine: ScenarioEngine;
   isScenarioEngineReady: boolean;
   preferredEnvironment: Environment;
-  simulationStatus: any;
   setIsSidebarExpanded: (v: boolean) => void;
   setShowChatHistory: (v: boolean) => void;
   setShowSettingsModal: (v: boolean) => void;
@@ -555,7 +539,6 @@ const AppWithChatInputWrapper: React.FC<{
               isTyping={props.isTyping}
               disabled={!props.dotbot}
               placeholder={props.placeholder}
-              simulationStatus={props.simulationStatus}
             />
           ) : (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
