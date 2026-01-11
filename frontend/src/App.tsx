@@ -18,10 +18,11 @@ import Chat from './components/chat/Chat';
 import ChatHistory from './components/history/ChatHistory';
 import ScenarioEngineOverlay from './components/scenarioEngine/ScenarioEngineOverlay';
 import LoadingOverlay from './components/common/LoadingOverlay';
-import { DotBot, Environment, ScenarioEngine } from './lib';
+import { DotBot, Environment, ScenarioEngine, createRpcManagersForNetwork } from './lib';
 import type { ChatInstanceData } from './lib/types/chatInstance';
-import type { ChatResult } from './lib';
+import type { ChatResult, Network } from './lib';
 import { useWalletStore } from './stores/walletStore';
+import type { RpcManager } from './lib/rpcManager';
 import { ASIOneService } from './lib/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from './lib';
 import { Settings } from 'lucide-react';
@@ -73,6 +74,13 @@ const AppContent: React.FC = () => {
   // Environment preference (for when wallet is not connected yet)
   const [preferredEnvironment, setPreferredEnvironment] = useState<Environment>('mainnet');
   
+  // Preloaded RPC managers (loaded in background before wallet connects)
+  const [preloadedRpcManagers, setPreloadedRpcManagers] = useState<{
+    relayChainManager: RpcManager;
+    assetHubManager: RpcManager;
+  } | null>(null);
+  const [isPreloadingNetwork, setIsPreloadingNetwork] = useState(false);
+  
   // Signing
   const [signingRequest, setSigningRequest] = useState<SigningRequest | BatchSigningRequest | null>(null);
   
@@ -80,12 +88,19 @@ const AppContent: React.FC = () => {
   
   // Note: useChatInput is called in AppWithChatInput component (inside provider)
 
+  // Preload network connections in background (doesn't need wallet)
+  useEffect(() => {
+    if (!preloadedRpcManagers && !isPreloadingNetwork) {
+      preloadNetworkConnections();
+    }
+  }, [preferredEnvironment]);
+
   // Initialize DotBot when wallet connects
   useEffect(() => {
     if (isConnected && selectedAccount && !dotbot && !isInitializing) {
       initializeDotBot();
     }
-  }, [isConnected, selectedAccount]);
+  }, [isConnected, selectedAccount, preloadedRpcManagers]);
 
   // Sync current chat ID when dotbot changes
   useEffect(() => {
@@ -111,19 +126,59 @@ const AppContent: React.FC = () => {
     }
   }, [signingRequest]);
 
+  const preloadNetworkConnections = async () => {
+    setIsPreloadingNetwork(true);
+    try {
+      // Derive network from environment
+      const network: Network = preferredEnvironment === 'mainnet' ? 'polkadot' : 'westend';
+      
+      // Create RPC managers (this is fast, doesn't connect yet)
+      const managers = createRpcManagersForNetwork(network);
+      
+      // Pre-connect to Relay Chain in background (this is the slow part)
+      // This happens silently - no UI feedback needed since wallet isn't connected yet
+      await managers.relayChainManager.getReadApi();
+      
+      // Optionally pre-connect to Asset Hub (non-blocking)
+      managers.assetHubManager.getReadApi().catch(() => {
+        // Silently fail, will retry during full initialization
+      });
+      
+      setPreloadedRpcManagers(managers);
+      console.log('[App] Network connections preloaded in background');
+    } catch (error) {
+      console.warn('[App] Failed to preload network connections:', error);
+      // Continue anyway, will retry during full initialization
+    } finally {
+      setIsPreloadingNetwork(false);
+    }
+  };
+
   const initializeDotBot = async () => {
     setIsInitializing(true);
+    setInitializingMessage('Initializing DotBot');
+    setInitializingSubMessage('Completing initialization...');
     try {
       // Derive network from environment (same logic as switchEnvironment)
-      const network = preferredEnvironment === 'mainnet' ? 'polkadot' : 'westend';
+      const network: Network = preferredEnvironment === 'mainnet' ? 'polkadot' : 'westend';
       
-      const dotbotInstance = await DotBot.create({
+      // Use preloaded managers if available, otherwise create new ones
+      const config: any = {
         wallet: selectedAccount!,
         environment: preferredEnvironment,
         network: network,
-        onSigningRequest: (request) => setSigningRequest(request),
-        onBatchSigningRequest: (request) => setSigningRequest(request)
-      });
+        onSigningRequest: (request: any) => setSigningRequest(request),
+        onBatchSigningRequest: (request: any) => setSigningRequest(request)
+      };
+      
+      // If we have preloaded managers, use them (saves connection time!)
+      if (preloadedRpcManagers) {
+        config.relayChainManager = preloadedRpcManagers.relayChainManager;
+        config.assetHubManager = preloadedRpcManagers.assetHubManager;
+        setInitializingSubMessage('Using preloaded network connections...');
+      }
+      
+      const dotbotInstance = await DotBot.create(config);
       
       setDotbot(dotbotInstance);
       
@@ -133,9 +188,14 @@ const AppContent: React.FC = () => {
       // For emulated mode, StateAllocator creates its own Chopsticks fork and uses setStorage.
       // For live mode, the real API is used.
         try {
+          setInitializingMessage('Initializing ScenarioEngine');
+          setInitializingSubMessage('Setting up scenario execution engine...');
           await scenarioEngine.initialize();
           const api = await dotbotInstance.getApi();
           const environment = dotbotInstance.getEnvironment();
+          
+          setInitializingMessage('Configuring ScenarioEngine');
+          setInitializingSubMessage('Setting up wallet and dependencies...');
           
           // Set wallet account and signer for live mode transfers
           if (selectedAccount) {
@@ -209,13 +269,24 @@ const AppContent: React.FC = () => {
         });
         setIsScenarioEngineReady(true);
         console.log('[ScenarioEngine] Initialized and ready');
+        setInitializingMessage('Ready');
+        setInitializingSubMessage('DotBot is ready to use');
       } catch (error) {
         console.error('[ScenarioEngine] Failed to initialize:', error);
+        setInitializingMessage('Initialization Complete');
+        setInitializingSubMessage('ScenarioEngine initialization failed, but DotBot is ready');
       }
     } catch (error) {
       console.error('Failed to initialize DotBot:', error);
+      setInitializingMessage('Initialization Failed');
+      setInitializingSubMessage(error instanceof Error ? error.message : 'Unknown error occurred');
     } finally {
-      setIsInitializing(false);
+      // Small delay to show final message before hiding overlay
+      setTimeout(() => {
+        setIsInitializing(false);
+        setInitializingMessage('');
+        setInitializingSubMessage('');
+      }, 500);
     }
   };
 
@@ -301,6 +372,9 @@ const AppContent: React.FC = () => {
   const handleEnvironmentSwitch = async (environment: Environment) => {
     // Store preference (for when wallet is not connected yet)
     setPreferredEnvironment(environment);
+    
+    // Clear preloaded managers so they get recreated for new environment
+    setPreloadedRpcManagers(null);
     
     // If DotBot is already initialized, switch environment (creates new chat)
     if (dotbot) {

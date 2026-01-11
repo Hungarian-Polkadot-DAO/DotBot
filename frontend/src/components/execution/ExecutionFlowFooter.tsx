@@ -12,6 +12,8 @@ export interface ExecutionFlowFooterProps {
   executionState: ExecutionArrayState;
   isWaitingForApproval: boolean;
   isComplete: boolean;
+  isFlowSuccessful?: boolean;
+  isFlowFailed?: boolean;
   isSimulating: boolean;
   showCancel: boolean;
   showAccept: boolean;
@@ -23,6 +25,8 @@ const ExecutionFlowFooter: React.FC<ExecutionFlowFooterProps> = ({
   executionState,
   isWaitingForApproval,
   isComplete,
+  isFlowSuccessful,
+  isFlowFailed,
   isSimulating,
   showCancel,
   showAccept,
@@ -58,12 +62,22 @@ const ExecutionFlowFooter: React.FC<ExecutionFlowFooterProps> = ({
     );
   }
 
+  // Show completion summary if flow is complete
+  let completionMessage = '';
+  if (isFlowSuccessful) {
+    completionMessage = ' ✓ All transactions succeeded!';
+  } else if (isFlowFailed) {
+    completionMessage = ` ✗ ${executionState.failedItems} transaction${executionState.failedItems !== 1 ? 's' : ''} failed`;
+  } else if (isComplete) {
+    completionMessage = ' ✓';
+  }
+
   return (
     <div className="execution-flow-footer">
       <div className="execution-flow-progress">
         <div className="progress-bar">
           <div
-            className="progress-fill"
+            className={`progress-fill ${isFlowSuccessful ? 'progress-success' : isFlowFailed ? 'progress-failed' : ''}`}
             style={{
               width: `${(executionState.completedItems / executionState.totalItems) * 100}%`
             }}
@@ -71,7 +85,7 @@ const ExecutionFlowFooter: React.FC<ExecutionFlowFooterProps> = ({
         </div>
         <div className="progress-text">
           {executionState.completedItems} / {executionState.totalItems} completed
-          {isComplete && executionState.failedItems === 0 && ' ✓'}
+          {completionMessage}
         </div>
       </div>
     </div>

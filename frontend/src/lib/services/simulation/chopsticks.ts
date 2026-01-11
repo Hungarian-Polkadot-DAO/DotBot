@@ -31,6 +31,11 @@ export type SimulationStatusCallback = (status: {
 
 /**
  * Simulates transaction execution on a forked chain state
+ * 
+ * CRITICAL FIX: To avoid runtime/metadata mismatch, Chopsticks must fork at the EXACT
+ * same block that the API instance (which created the extrinsic) is using. If Chopsticks
+ * forks at a different block with different runtime metadata, call indices won't match
+ * and simulation will fail with "Unable to find Call with index [X, Y]" errors.
  */
 export async function simulateTransaction(
   api: ApiPromise,
@@ -73,25 +78,68 @@ export async function simulateTransaction(
       throw new Error('No valid WebSocket endpoints provided. Chopsticks requires WebSocket (wss://) endpoints, not HTTP (https://)');
     }
     
+    // CRITICAL FIX: Get the block hash from the API instance that created the extrinsic
+    // This ensures Chopsticks forks at the SAME runtime version, avoiding metadata mismatch
+    // The extrinsic's call indices are tied to the API instance's metadata
+    let blockHashForFork: string | undefined = undefined;
+    try {
+      // Get the current finalized block from the API instance
+      // Using finalized block (not latest) because:
+      // 1. It's more stable (won't reorg)
+      // 2. It's more likely to exist on all endpoints
+      // 3. It matches the state the API instance is using
+      const finalizedHash = await api.rpc.chain.getFinalizedHead();
+      blockHashForFork = finalizedHash.toHex();
+      console.log(`[Chopsticks] Using finalized block for fork: ${blockHashForFork.slice(0, 12)}...`);
+    } catch (error) {
+      console.warn('[Chopsticks] Failed to get finalized block, will let Chopsticks choose:', error);
+      // If we can't get the finalized block, let Chopsticks fetch latest
+      // This is the fallback behavior (might cause metadata mismatch)
+      blockHashForFork = undefined;
+    }
     
-    // CRITICAL: Always let Chopsticks fetch the latest block from the RPC endpoint
-    // DO NOT use api.rpc.chain.getBlockHash() because:
-    // 1. The API instance might have a cached/stale block hash
-    // 2. That block might not exist on the endpoint (pruned node)
-    // 3. This causes "Cannot find header" errors in Chopsticks
-    //
-    // By passing undefined, Chopsticks will fetch the latest block from the endpoint,
-    // ensuring we always use a block that exists.
+    // Try to fork at the finalized block first (for metadata consistency)
+    // If that block doesn't exist on the endpoint (pruned node), fall back to letting Chopsticks choose
+    updateStatus('forking', 'Creating chain fork at finalized block...', 40);
     
-    updateStatus('forking', 'Creating chain fork (fetching latest block from endpoint)...', 40);
-    
-    chain = await setup({
-      endpoint: endpoints,
-      block: undefined, // Let Chopsticks fetch latest block from endpoint
-      buildBlockMode: BuildBlockMode.Batch,
-      mockSignatureHost: true,
-      db: storage,
-    });
+    try {
+      chain = await setup({
+        endpoint: endpoints,
+        block: blockHashForFork, // Fork at API's current finalized block to match metadata
+        buildBlockMode: BuildBlockMode.Batch,
+        mockSignatureHost: true,
+        db: storage,
+      });
+    } catch (setupError) {
+      const errorMessage = setupError instanceof Error ? setupError.message : String(setupError);
+      
+      // If the block doesn't exist on the endpoint (pruned node), retry without specifying block
+      if (blockHashForFork && (
+        errorMessage.includes('Cannot find header') ||
+        errorMessage.includes('not found') ||
+        errorMessage.includes('does not exist')
+      )) {
+        console.warn(
+          `[Chopsticks] Block ${blockHashForFork.slice(0, 12)}... not found on endpoint (likely pruned node). ` +
+          `Falling back to latest block. This may cause metadata mismatch if runtime versions differ.`
+        );
+        
+        updateStatus('forking', 'Block not found on endpoint, using latest block...', 40);
+        
+        // Retry without specifying block - let Chopsticks fetch latest
+        // This may cause metadata mismatch, but it's better than failing completely
+        chain = await setup({
+          endpoint: endpoints,
+          block: undefined, // Let Chopsticks fetch latest block from endpoint
+          buildBlockMode: BuildBlockMode.Batch,
+          mockSignatureHost: true,
+          db: storage,
+        });
+      } else {
+        // Re-throw if it's a different error
+        throw setupError;
+      }
+    }
     
     // Helper to convert block hash to hex string (always returns 0x-prefixed)
     const toHexString = (blockHash: any): `0x${string}` => {
@@ -220,9 +268,14 @@ export async function simulateTransaction(
       const ss58Format = api.registry.chainSS58 || 0;
       const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
 
+      // NOTE: paymentInfo is ONLY used here to get fee estimate, NOT for validation
+      // The actual transaction validation was done by Chopsticks dryRunExtrinsic above
+      // If paymentInfo fails, we continue without fee (simulation still succeeded)
       const feeInfo = await extrinsic.paymentInfo(encodedSenderAddress);
       fee = feeInfo.partialFee.toString();
     } catch (feeError) {
+      // paymentInfo can fail (wasm traps, runtime panics) but simulation already succeeded
+      // This is a known limitation - fee calculation is separate from transaction validation
       const errorMessage = feeError instanceof Error ? feeError.message : String(feeError);
       const errorClassification = classifyChopsticksError(errorMessage, 'paymentInfo', chainName);
 
@@ -232,8 +285,8 @@ export async function simulateTransaction(
         const cleanError = errorMessage
           .replace(/^4003: Client error: /, '')
           .replace(/^Execution failed: Execution aborted due to trap: /, '')
-          .replace(/WASM backtrace:.*$/s, '')
-          .replace(/error while executing at.*$/s, '')
+          .replace(/WASM backtrace:[\s\S]*$/, '')
+          .replace(/error while executing at[\s\S]*$/, '')
           .trim();
 
         return {

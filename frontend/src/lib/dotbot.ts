@@ -171,12 +171,8 @@ export class DotBot {
   private relayChainManager: RpcManager;
   private assetHubManager: RpcManager;
   
-  // Execution sessions - locked API instances for transaction lifecycle
-  // These are created during prepareExecution() and kept alive until execution completes
-  private relayChainSession: ExecutionSession | null = null;
-  private assetHubSession: ExecutionSession | null = null;
-  
   // Chat instance management (built-in) - execution lives here!
+  // NOTE: Execution sessions are now stored in ChatInstance, not here
   private chatManager: ChatInstanceManager;
   public currentChat: ChatInstance | null = null;
   private chatPersistenceEnabled: boolean;
@@ -485,6 +481,11 @@ export class DotBot {
       throw new Error(validation.error || 'Invalid network for environment');
     }
     
+    // Clean up sessions from old chat before switching
+    if (this.currentChat) {
+      this.currentChat.cleanupExecutionSessions();
+    }
+    
     // Update internal state
     this.environment = environment;
     this.network = targetNetwork;
@@ -540,6 +541,11 @@ export class DotBot {
     
     if (!chatData) {
       throw new Error(`Chat instance ${chatId} not found`);
+    }
+    
+    // Clean up sessions from old chat before loading new one
+    if (this.currentChat) {
+      this.currentChat.cleanupExecutionSessions();
     }
     
     // Check if we need to switch environment or network
@@ -614,7 +620,7 @@ export class DotBot {
     } else {
       // Only validate sessions if we're NOT rebuilding (using existing executionArray)
       // If we rebuild, prepareExecution will create new sessions
-      if (!(await this.executionSystem.validateExecutionSessions())) {
+      if (!(await this.currentChat.validateExecutionSessions())) {
         throw new Error('Execution session expired. Please prepare the execution again.');
       }
     }
@@ -624,15 +630,8 @@ export class DotBot {
       throw new Error(`Execution ${executionId} not found after preparation.`);
     }
     
-    try {
-      const executioner = this.executionSystem.getExecutioner();
-      await executioner.execute(executionArray, options);
-    } finally {
-      // Clean up execution sessions after execution completes
-      this.executionSystem.cleanupExecutionSessions();
-      this.relayChainSession = null;
-      this.assetHubSession = null;
-    }
+    const executioner = this.executionSystem.getExecutioner();
+    await executioner.execute(executionArray, options);
   }
   
   /**
@@ -830,35 +829,132 @@ export class DotBot {
    * CRITICAL: Creates execution sessions to lock API instances for the transaction lifecycle.
    * This prevents metadata mismatches if RPC endpoints fail during execution.
    * 
+   * IMPORTANT: Adds ExecutionMessage to chat IMMEDIATELY (before orchestration) so the UI
+   * can show "Preparing..." state, then orchestrates and updates the message with the executionArray.
+   * 
    * @param plan ExecutionPlan from LLM
    * @param executionId Optional execution ID to preserve when rebuilding (prevents duplicate ExecutionMessages)
    */
   private async prepareExecution(plan: ExecutionPlan, executionId?: string): Promise<void> {
+    if (!this.currentChat) {
+      throw new Error('No active chat. Cannot prepare execution.');
+    }
+    
     try {
-      // ExecutionSystem handles: session creation, orchestration, simulation
-      const executionArray = await this.executionSystem.prepareExecutionArray(
-        plan,
+      // Step 0: Generate executionId if not provided
+      const finalExecutionId = executionId || `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Step 1: Initialize execution sessions for this chat (if not already initialized)
+      await this.currentChat.initializeExecutionSessions(
         this.relayChainManager,
-        this.assetHubManager,
-        this.wallet.address,
-        this.config?.onSimulationStatus,
-        executionId
+        this.assetHubManager
       );
       
-      // Store sessions for validation in startExecution
-      const sessions = this.executionSystem.getExecutionSessions();
-      this.relayChainSession = sessions.relayChain;
-      this.assetHubSession = sessions.assetHub;
+      // Get sessions from chat
+      const sessions = this.currentChat.getExecutionSessions();
+      if (!sessions.relayChain) {
+        throw new Error('Failed to create execution sessions');
+      }
       
-      await this.addExecutionToChat(executionArray, plan);
+      // Step 2: Add ExecutionMessage to chat IMMEDIATELY (before orchestration)
+      // This allows the UI to show "Preparing transaction flow..." state
+      await this.addExecutionMessageEarly(finalExecutionId, plan);
+      
+      // Step 3: Orchestrate plan (creates ExecutionArray with items)
+      const executionArray = await this.executionSystem.orchestrateExecutionArray(
+        plan,
+        sessions.relayChain,
+        sessions.assetHub,
+        finalExecutionId
+      );
+      
+      // Step 4: Update ExecutionMessage with the executionArray (items visible, no simulation yet)
+      // This allows UI to show items in "pending" state before simulation starts
+      await this.updateExecutionInChat(executionArray, plan);
+      
+      // CRITICAL: Give UI a moment to render items before starting simulation
+      // This ensures users see: 1) Items appear, 2) Simulation starts, 3) Simulation completes
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Step 5: Run simulation if enabled (updates will flow through subscription)
+      console.log('[DotBot] 🎬 Starting simulation for execution:', finalExecutionId);
+      await this.executionSystem.runSimulation(
+        executionArray,
+        this.wallet.address,
+        sessions.relayChain,
+        sessions.assetHub,
+        this.relayChainManager,
+        this.assetHubManager,
+        this.config?.onSimulationStatus
+      );
+      console.log('[DotBot] ✅ Simulation completed for execution:', finalExecutionId);
     } catch (error) {
-      this.executionSystem.cleanupExecutionSessions();
+      // Clean up sessions on error
+      if (this.currentChat) {
+        this.currentChat.cleanupExecutionSessions();
+      }
       throw error;
     }
   }
   
   /**
+   * Add execution message to chat early (before orchestration)
+   * This shows the "Preparing..." state in the UI immediately
+   */
+  private async addExecutionMessageEarly(executionId: string, plan: ExecutionPlan): Promise<void> {
+    if (!this.currentChat) return;
+    
+    // Check if execution message already exists for this executionId
+    const existingMessage = this.currentChat.getDisplayMessages()
+      .find(m => m.type === 'execution' && (m as any).executionId === executionId) as any;
+    
+    if (!existingMessage) {
+      // Create new message with just the plan (no executionArray yet)
+      await this.currentChat.addExecutionMessage(executionId, plan);
+      this.emit({ 
+        type: 'execution-message-added', 
+        executionId, 
+        plan, 
+        timestamp: Date.now() 
+      });
+    }
+  }
+  
+  /**
+   * Update execution message in chat with the orchestrated executionArray
+   */
+  private async updateExecutionInChat(executionArray: ExecutionArray, plan: ExecutionPlan): Promise<void> {
+    if (!this.currentChat) return;
+    
+    const state = executionArray.getState();
+    
+    // Find the execution message
+    const existingMessage = this.currentChat.getDisplayMessages()
+      .find(m => m.type === 'execution' && (m as any).executionId === state.id) as any;
+    
+    if (!existingMessage) {
+      console.error('ExecutionMessage not found for update. This should not happen.');
+      return;
+    }
+    
+    // Update with the executionArray
+    await this.currentChat.updateExecutionMessage(existingMessage.id, {
+      executionArray: state,
+      executionPlan: plan,
+    });
+    
+    // Set the ExecutionArray instance in chat
+    // This automatically sets up subscriptions to notify all onExecutionUpdate callbacks
+    // The ExecutionFlow component will receive updates through its subscription
+    this.currentChat.setExecutionArray(state.id, executionArray);
+    
+    console.log('[DotBot] ✅ ExecutionArray set in chat, subscriptions active for:', state.id);
+  }
+  
+  /**
    * Add execution array to chat (chat-specific logic)
+   * 
+   * DEPRECATED: Use addExecutionMessageEarly + updateExecutionInChat instead
    */
   private async addExecutionToChat(executionArray: ExecutionArray, plan: ExecutionPlan): Promise<void> {
     if (!this.currentChat) return;

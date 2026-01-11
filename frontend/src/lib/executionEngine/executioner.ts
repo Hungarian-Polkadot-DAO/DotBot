@@ -581,11 +581,14 @@ export class Executioner {
     executionArray: ExecutionArray
   ): Promise<void> {
     if (isSimulationEnabled()) {
+      // Note: Executioner doesn't have access to ExecutionSession, so we pass undefined for sessionEndpoint
+      // This will fall back to using manager endpoints (legacy behavior)
       const simulationContext = createSimulationContext(
         apiForBatch,
         this.account!.address,
         this.assetHubManager,
         this.relayChainManager,
+        undefined, // sessionEndpoint - not available in Executioner context
         this.onStatusUpdate
       );
       for (const item of items) {

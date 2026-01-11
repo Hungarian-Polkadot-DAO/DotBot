@@ -28,12 +28,34 @@ const ExecutionFlowItem: React.FC<ExecutionFlowItemProps> = ({
   const isItemExecuting = item.status === 'executing' || item.status === 'signing' || item.status === 'broadcasting';
   const isItemCompleted = item.status === 'completed' || item.status === 'finalized';
   const isItemFailed = item.status === 'failed';
+  const isItemPending = item.status === 'pending';
+  const hasSimulationStatus = !!item.simulationStatus;
+  
+  // Determine if simulation has started (any phase) or completed
+  const simulationStarted = hasSimulationStatus && item.simulationStatus && (
+    item.simulationStatus.phase === 'initializing' ||
+    item.simulationStatus.phase === 'simulating' ||
+    item.simulationStatus.phase === 'validating' ||
+    item.simulationStatus.phase === 'analyzing' ||
+    item.simulationStatus.phase === 'retrying' ||
+    item.simulationStatus.phase === 'forking' ||
+    item.simulationStatus.phase === 'executing' ||
+    item.simulationStatus.phase === 'complete' ||
+    item.simulationStatus.phase === 'error'
+  );
+  
+  // Only show "waiting" if:
+  // - Item is pending
+  // - Simulation is enabled
+  // - Simulation hasn't started yet (no status or status hasn't been set)
+  const isWaitingForSimulation = isItemPending && simulationEnabled && !simulationStarted;
 
   return (
     <div
       className={`execution-item ${item.status} ${isExpanded ? 'expanded' : ''}`}
       data-simulation-status={
-        item.status === 'pending' ? 'simulating' :
+        item.status === 'pending' && hasSimulationStatus ? 'simulating' :
+        item.status === 'pending' && !hasSimulationStatus ? 'waiting' :
         item.status === 'ready' ? 'success' :
         item.status === 'failed' ? 'failed' : 'none'
       }
@@ -68,8 +90,31 @@ const ExecutionFlowItem: React.FC<ExecutionFlowItemProps> = ({
         )}
       </div>
 
-      {/* Simulation Status - Show inline when simulation is active */}
-      {item.simulationStatus && item.status === 'pending' && (
+      {/* Waiting for simulation (item is pending but simulation hasn't started yet) */}
+      {isWaitingForSimulation && (
+        <div className="execution-item-simulation">
+          <div className="simulation-status-waiting">
+            <Loader2 className="animate-spin" size={16} />
+            <span>Waiting for simulation to start...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Simulation Status - Show inline when simulation exists and item is pending/ready (before execution) */}
+      {/* Also show if simulation is in progress (any active phase) */}
+      {item.simulationStatus && (
+        item.status === 'pending' || 
+        item.status === 'ready' ||
+        item.simulationStatus.phase === 'initializing' ||
+        item.simulationStatus.phase === 'simulating' ||
+        item.simulationStatus.phase === 'validating' ||
+        item.simulationStatus.phase === 'analyzing' ||
+        item.simulationStatus.phase === 'retrying' ||
+        item.simulationStatus.phase === 'forking' ||
+        item.simulationStatus.phase === 'executing' ||
+        item.simulationStatus.phase === 'error' ||
+        item.simulationStatus.phase === 'complete'
+      ) && (
         <div className="execution-item-simulation">
           <SimulationStatus
             phase={item.simulationStatus.phase}

@@ -91,18 +91,61 @@ export async function simulateSequentialTransactions(
       throw new Error('No valid WebSocket endpoints provided');
     }
     
+    // CRITICAL FIX: Get the finalized block from API to ensure metadata compatibility
+    let blockHashForFork: string | undefined = undefined;
+    try {
+      const finalizedHash = await api.rpc.chain.getFinalizedHead();
+      blockHashForFork = finalizedHash.toHex();
+      console.log(`[SequentialSim] Using finalized block for fork: ${blockHashForFork.slice(0, 12)}...`);
+    } catch (error) {
+      console.warn('[SequentialSim] Failed to get finalized block, will let Chopsticks choose:', error);
+      blockHashForFork = undefined;
+    }
+    
     // Create fork once for all transactions
-    updateStatus('forking', 'Creating chain fork (fetching latest block from endpoint)...', 10);
+    updateStatus('forking', 'Creating chain fork at finalized block...', 10);
     const dbName = `dotbot-sequential-sim:${api.genesisHash.toHex()}`;
     storage = new ChopsticksDatabase(dbName);
     
-    chain = await setup({
-      endpoint: endpoints,
-      block: undefined, // Let Chopsticks fetch latest block
-      buildBlockMode: BuildBlockMode.Batch,
-      mockSignatureHost: true,
-      db: storage,
-    });
+    // Try to fork at the finalized block first (for metadata consistency)
+    // If that block doesn't exist on the endpoint (pruned node), fall back to letting Chopsticks choose
+    try {
+      chain = await setup({
+        endpoint: endpoints,
+        block: blockHashForFork, // Fork at API's finalized block to match metadata
+        buildBlockMode: BuildBlockMode.Batch,
+        mockSignatureHost: true,
+        db: storage,
+      });
+    } catch (setupError) {
+      const errorMessage = setupError instanceof Error ? setupError.message : String(setupError);
+      
+      // If the block doesn't exist on the endpoint (pruned node), retry without specifying block
+      if (blockHashForFork && (
+        errorMessage.includes('Cannot find header') ||
+        errorMessage.includes('not found') ||
+        errorMessage.includes('does not exist')
+      )) {
+        console.warn(
+          `[SequentialSim] Block ${blockHashForFork.slice(0, 12)}... not found on endpoint (likely pruned node). ` +
+          `Falling back to latest block. This may cause metadata mismatch if runtime versions differ.`
+        );
+        
+        updateStatus('forking', 'Block not found on endpoint, using latest block...', 10);
+        
+        // Retry without specifying block - let Chopsticks fetch latest
+        chain = await setup({
+          endpoint: endpoints,
+          block: undefined, // Let Chopsticks fetch latest block from endpoint
+          buildBlockMode: BuildBlockMode.Batch,
+          mockSignatureHost: true,
+          db: storage,
+        });
+      } else {
+        // Re-throw if it's a different error
+        throw setupError;
+      }
+    }
     
     // Get block hash from chain
     const chainBlockHash = await chain.head;

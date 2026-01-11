@@ -21,6 +21,7 @@ import { ExecutionArray } from './executionEngine/executionArray';
 import type { ExecutionArrayState } from './executionEngine/types';
 import type { ExecutionOrchestrator } from './executionEngine/orchestrator';
 import type { ExecutionPlan, ExecutionStep } from './prompts/system/execution/types';
+import type { ExecutionSession, RpcManager } from './rpcManager';
 
 /**
  * ChatInstance - A conversation with built-in methods and execution state
@@ -40,6 +41,12 @@ export class ChatInstance {
   private executionCallbacks: Map<string, Set<(state: ExecutionArrayState) => void>> = new Map();
   // Track subscription cleanup functions per execution array
   private executionSubscriptions: Map<string, () => void> = new Map();
+  
+  // Execution sessions - locked API instances for the entire chat
+  // These are created once per chat and reused for all executions
+  private relayChainSession: ExecutionSession | null = null;
+  private assetHubSession: ExecutionSession | null = null;
+  private sessionsInitialized: boolean = false;
   
   // Legacy: most recent execution (for backward compatibility)
   public get currentExecution(): ExecutionArray | null {
@@ -75,6 +82,10 @@ export class ChatInstance {
     
     for (const execMessage of executionMessages) {
       try {
+        // Skip if executionArray is not yet available (still being prepared)
+        if (!execMessage.executionArray) {
+          continue;
+        }
         const executionArray = ExecutionArray.fromState(execMessage.executionArray);
         this.executionArrays.set(execMessage.executionId, executionArray);
       } catch (error) {
@@ -94,6 +105,11 @@ export class ChatInstance {
     
     for (const execMessage of executionMessages) {
       try {
+        // Skip if executionArray is not yet available (still being prepared)
+        if (!execMessage.executionArray) {
+          continue;
+        }
+        
         // Use stored execution plan if available, otherwise try to extract from state
         let plan: ExecutionPlan | undefined = execMessage.executionPlan;
         if (!plan) {
@@ -321,17 +337,34 @@ export class ChatInstance {
 
   /**
    * Add execution message to conversation
+   * 
+   * @param executionIdOrState Either an executionId string or ExecutionArrayState
+   * @param executionPlan Optional execution plan
+   * @param executionArrayState Optional execution array state (if executionId is provided as first arg)
    */
   async addExecutionMessage(
-    executionArrayState: ExecutionArrayState,
-    executionPlan?: ExecutionPlan
+    executionIdOrState: string | ExecutionArrayState,
+    executionPlan?: ExecutionPlan,
+    executionArrayState?: ExecutionArrayState
   ): Promise<ExecutionMessage> {
+    // Determine executionId and state based on arguments
+    let executionId: string;
+    let arrayState: ExecutionArrayState | undefined;
+    
+    if (typeof executionIdOrState === 'string') {
+      executionId = executionIdOrState;
+      arrayState = executionArrayState;
+    } else {
+      executionId = executionIdOrState.id;
+      arrayState = executionIdOrState;
+    }
+    
     const message: ExecutionMessage = {
       id: `exec_msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       type: 'execution',
       timestamp: Date.now(),
-      executionId: executionArrayState.id,
-      executionArray: executionArrayState,
+      executionId,
+      executionArray: arrayState,
       executionPlan,
       status: 'pending',
     };
@@ -359,15 +392,25 @@ export class ChatInstance {
       callbacks.forEach(cb => cb(state));
     }
     
-    // Set up subscription to notify callbacks on future updates
-    // This subscription will be cleaned up when the execution array is removed or when all callbacks are removed
-    const unsubscribe = executionArray.onStatusUpdate(() => {
+    // Set up subscriptions to notify callbacks on future updates
+    // Subscribe to BOTH onStatusUpdate AND onProgress to catch all state changes
+    // (simulation status updates trigger onProgress)
+    const notifyCallbacks = () => {
       const updatedState = executionArray.getState();
       const callbacks = this.executionCallbacks.get(executionId);
       if (callbacks) {
         callbacks.forEach(cb => cb(updatedState));
       }
-    });
+    };
+    
+    const unsubscribeStatus = executionArray.onStatusUpdate(notifyCallbacks);
+    const unsubscribeProgress = executionArray.onProgress(notifyCallbacks);
+    
+    // Store combined unsubscribe function
+    const unsubscribe = () => {
+      unsubscribeStatus();
+      unsubscribeProgress();
+    };
     
     this.executionSubscriptions.set(executionId, unsubscribe);
   }
@@ -690,6 +733,77 @@ export class ChatInstance {
         }
       }
     };
+  }
+  
+  /**
+   * Initialize execution sessions for this chat
+   * Creates and stores RPC sessions that will be reused for all executions in this chat
+   */
+  async initializeExecutionSessions(
+    relayChainManager: RpcManager,
+    assetHubManager: RpcManager
+  ): Promise<void> {
+    if (this.sessionsInitialized) {
+      console.info('Execution sessions already initialized for this chat');
+      return;
+    }
+    
+    try {
+      // Create Relay Chain session
+      this.relayChainSession = await relayChainManager.createExecutionSession();
+      console.info(`Created Relay Chain execution session for chat ${this.data.id}: ${this.relayChainSession.endpoint}`);
+      
+      // Create Asset Hub session (optional)
+      try {
+        this.assetHubSession = await assetHubManager.createExecutionSession();
+        console.info(`Created Asset Hub execution session for chat ${this.data.id}: ${this.assetHubSession.endpoint}`);
+      } catch (error) {
+        console.warn('Asset Hub execution session creation failed, continuing without it:', error);
+        this.assetHubSession = null;
+      }
+      
+      this.sessionsInitialized = true;
+    } catch (error) {
+      this.cleanupExecutionSessions();
+      throw error;
+    }
+  }
+  
+  /**
+   * Get execution sessions for this chat
+   */
+  getExecutionSessions(): { relayChain: ExecutionSession | null; assetHub: ExecutionSession | null } {
+    return {
+      relayChain: this.relayChainSession,
+      assetHub: this.assetHubSession,
+    };
+  }
+  
+  /**
+   * Validate that execution sessions are still active
+   */
+  async validateExecutionSessions(): Promise<boolean> {
+    if (!this.sessionsInitialized || !this.relayChainSession) {
+      return false;
+    }
+    return await this.relayChainSession.isConnected();
+  }
+  
+  /**
+   * Clean up execution sessions
+   * Called when chat is closed or destroyed
+   */
+  cleanupExecutionSessions(): void {
+    if (this.relayChainSession) {
+      this.relayChainSession.markInactive();
+      this.relayChainSession = null;
+    }
+    if (this.assetHubSession) {
+      this.assetHubSession.markInactive();
+      this.assetHubSession = null;
+    }
+    this.sessionsInitialized = false;
+    console.info(`Cleaned up execution sessions for chat ${this.data.id}`);
   }
 }
 

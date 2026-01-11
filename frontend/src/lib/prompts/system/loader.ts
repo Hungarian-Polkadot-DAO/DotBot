@@ -148,6 +148,9 @@ function formatContext(context?: SystemContext): string {
     return '\n## Current Context\n\nNo context information available.';
   }
   
+  // Import simulation config at runtime to get current state
+  const { isSimulationEnabled } = require('../../executionEngine/simulation/simulationConfig');
+  
   let prompt = '\n## Current Context\n\n';
   
   // Wallet context
@@ -194,6 +197,19 @@ function formatContext(context?: SystemContext): string {
     prompt += `\n**CRITICAL**: All balance values above are in ${context.balance.symbol} denomination. NEVER show Planck values to users.\n`;
     prompt += `**CRITICAL**: When displaying balances to users, ALWAYS use ${context.balance.symbol} (not Planck). Example: "12.5 ${context.balance.symbol}" not raw Planck values.\n`;
     prompt += `Note: Users can have ${context.balance.symbol} on both Relay Chain and Asset Hub.\n`;
+  }
+  
+  // Simulation settings
+  const simulationEnabled = isSimulationEnabled();
+  prompt += `**Transaction Simulation**: ${simulationEnabled ? 'Enabled' : 'Disabled'}\n`;
+  if (simulationEnabled) {
+    prompt += `  - Transactions will be simulated using Chopsticks before execution\n`;
+    prompt += `  - Simulation provides safety by catching errors before spending fees\n`;
+    prompt += `  - Adds 1-3 seconds latency but greatly improves user confidence\n`;
+  } else {
+    prompt += `  - Transactions will be sent directly to wallet for signing\n`;
+    prompt += `  - No pre-execution validation (faster but less safe)\n`;
+    prompt += `  - User requested to skip simulation for speed\n`;
   }
   
   prompt += '\n';

@@ -223,8 +223,11 @@ export class ExecutionArray {
   updateSimulationStatus(id: string, simulationStatus: SimulationStatus | undefined): void {
     const item = this.getItem(id);
     if (!item) {
+      console.warn('[ExecutionArray] ⚠️ Cannot update simulation status - item not found:', id);
       return;
     }
+    
+    console.log('[ExecutionArray] 🔄 Updating simulation status:', simulationStatus?.phase);
     
     item.simulationStatus = simulationStatus;
     

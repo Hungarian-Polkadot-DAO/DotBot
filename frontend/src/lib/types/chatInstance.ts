@@ -87,8 +87,8 @@ export interface ExecutionMessage extends BaseChatMessage {
   /** Unique execution ID (matches ExecutionArrayState.id) */
   executionId: string;
   
-  /** Serialized execution state */
-  executionArray: ExecutionArrayState;
+  /** Serialized execution state (undefined during preparation phase) */
+  executionArray?: ExecutionArrayState;
   
   /** Original execution plan (for rebuilding ExecutionArray with working extrinsics) */
   executionPlan?: ExecutionPlan;

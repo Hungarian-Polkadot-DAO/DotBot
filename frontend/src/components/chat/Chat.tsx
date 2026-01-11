@@ -31,6 +31,7 @@ const Chat: React.FC<ChatProps> = ({
   placeholder = "Type your message...",
 }) => {
   const [inputValue, setInputValue] = useState('');
+  const [refreshKey, setRefreshKey] = useState(0);
   const { registerSetter } = useChatInput();
 
   // Register setInputValue with context (for ScenarioEngine)
@@ -40,6 +41,30 @@ const Chat: React.FC<ChatProps> = ({
 
   // Get conversation items from ChatInstance
   const conversationItems: ConversationItem[] = dotbot.currentChat?.getDisplayMessages() || [];
+  
+  // Force re-render when executionArray is added to execution messages
+  // This ensures ExecutionFlow appears immediately when executionMessage is updated
+  useEffect(() => {
+    if (!dotbot.currentChat) return;
+    
+    const hasExecutionMessages = conversationItems.some(item => item.type === 'execution');
+    if (!hasExecutionMessages) return;
+    
+    // Poll for executionArray updates (in case updateExecutionInChat hasn't triggered a re-render)
+    const interval = setInterval(() => {
+      const currentItems = dotbot.currentChat?.getDisplayMessages() || [];
+      const hasExecutionArrays = currentItems.some(
+        item => item.type === 'execution' && (item as any).executionArray
+      );
+      
+      if (hasExecutionArrays) {
+        setRefreshKey(prev => prev + 1);
+        clearInterval(interval);
+      }
+    }, 150); // Check every 150ms
+    
+    return () => clearInterval(interval);
+  }, [dotbot.currentChat, conversationItems.length]);
 
   const handleSubmit = async () => {
     const trimmedValue = inputValue.trim();
@@ -55,9 +80,10 @@ const Chat: React.FC<ChatProps> = ({
       {/* Messages */}
       <MessageList>
         <ConversationItems 
+          key={refreshKey}
           items={conversationItems}
-                dotbot={dotbot}
-              />
+          dotbot={dotbot}
+        />
         
         {/* Typing indicator */}
         {isTyping && <TypingIndicator />}

@@ -416,8 +416,9 @@ describe('ChatInstanceManager', () => {
       const loaded = await manager.loadInstance(instance.id);
       const message = loaded?.messages.find(m => m.id === 'exec1') as ExecutionMessage;
       expect(message.status).toBe('executing');
-      expect(message.executionArray.isExecuting).toBe(true);
-      expect(message.executionArray.currentIndex).toBe(1);
+      expect(message.executionArray).toBeDefined();
+      expect(message.executionArray!.isExecuting).toBe(true);
+      expect(message.executionArray!.currentIndex).toBe(1);
     });
 
     it('should throw for non-existent instance', async () => {

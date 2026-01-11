@@ -20,6 +20,7 @@ import { RpcManager } from '../../rpcManager';
  * @param accountAddress Account address for simulation
  * @param assetHubManager Asset Hub RPC manager (optional)
  * @param relayChainManager Relay Chain RPC manager (optional)
+ * @param sessionEndpoint Optional: Endpoint the session API is connected to (for metadata consistency)
  * @param onStatusUpdate Optional status update callback
  * @returns SimulationContext ready for use
  */
@@ -28,6 +29,7 @@ export function createSimulationContext(
   accountAddress: string,
   assetHubManager: RpcManager | null,
   relayChainManager: RpcManager | null,
+  sessionEndpoint?: string,
   onStatusUpdate?: (status: any) => void
 ): SimulationContext {
   return {
@@ -35,6 +37,7 @@ export function createSimulationContext(
     accountAddress,
     assetHubManager,
     relayChainManager,
+    sessionEndpoint,
     onStatusUpdate,
   };
 }
