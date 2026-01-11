@@ -12,6 +12,7 @@ import { SystemContext } from './context/types';
 import { createVersionedPrompt } from './version';
 import { formatPolkadotKnowledgeBase } from './knowledge/dotKnowledge';
 import { formatKnowledgeBaseForNetwork } from './knowledge';
+import { getNetworkDecimals } from './knowledge/networkUtils';
 import { isSimulationEnabled } from '../../executionEngine/simulation/simulationConfig';
 
 /**
@@ -118,27 +119,42 @@ function formatAgentDefinitions(): string {
 }
 
 /**
- * Convert Planck to DOT (1 DOT = 10^10 Planck)
+ * Convert Planck to human-readable format with correct decimals
+ * 
+ * CRITICAL: Different networks have different decimals:
+ * - Polkadot: 10 decimals (DOT)
+ * - Kusama: 12 decimals (KSM)
+ * - Westend: 12 decimals (WND)
+ * - Asset Hub (all networks): Uses the network's native token decimals
  * 
  * @param planck Balance in Planck (as string or number)
- * @returns Balance in DOT as a formatted string
+ * @param decimals Number of decimals for the token (default: 10 for DOT)
+ * @param tokenSymbol Optional token symbol for display
+ * @returns Balance as a formatted string
  */
-function formatPlanckToDot(planck: string | number): string {
-  const PLANCK_PER_DOT = 10_000_000_000; // 10^10
-  const planckBigInt = typeof planck === 'string' ? BigInt(planck) : BigInt(planck);
+function formatPlanckToDot(planck: string | number, decimals: number = 10, tokenSymbol?: string): string {
+  // Convert planck to BigInt (works for both string and number)
+  const planckBigInt = BigInt(planck);
   
-  // Convert to DOT (with precision)
-  const dotInteger = planckBigInt / BigInt(PLANCK_PER_DOT);
-  const dotRemainder = planckBigInt % BigInt(PLANCK_PER_DOT);
+  // Calculate divisor: 10^decimals
+  // Use a more compatible approach for BigInt exponentiation
+  let divisor = BigInt(1);
+  for (let i = 0; i < decimals; i++) {
+    divisor = divisor * BigInt(10);
+  }
   
-  // Format with up to 4 decimal places (remove trailing zeros)
-  const decimalPart = dotRemainder.toString().padStart(10, '0');
-  const significantDecimals = decimalPart.slice(0, 4).replace(/0+$/, '');
+  // Convert to human-readable format
+  const whole = planckBigInt / divisor;
+  const remainder = planckBigInt % divisor;
+  
+  // Format with appropriate decimal places (remove trailing zeros)
+  const decimalPart = remainder.toString().padStart(decimals, '0');
+  const significantDecimals = decimalPart.replace(/0+$/, '');
   
   if (significantDecimals) {
-    return `${dotInteger}.${significantDecimals}`;
+    return `${whole}.${significantDecimals}`;
   }
-  return dotInteger.toString();
+  return whole.toString();
 }
 
 /**
@@ -166,26 +182,35 @@ function formatContext(context?: SystemContext): string {
   
   // Balance context
   if (context.balance) {
-    // Convert total balance from Planck to DOT
-    const totalDot = formatPlanckToDot(context.balance.total);
+    // Get correct decimals for the network
+    // CRITICAL: Different networks have different decimals:
+    // - Polkadot: 10 decimals (DOT)
+    // - Kusama: 12 decimals (KSM)
+    // - Westend: 12 decimals (WND)
+    // Asset Hub uses the same decimals as the relay chain for native token
+    const networkDecimals = getNetworkDecimals(context.network.network);
+    
+    // Convert total balance from Planck to native token units
+    const totalDot = formatPlanckToDot(context.balance.total, networkDecimals);
     prompt += `**Total Balance**: ${totalDot} ${context.balance.symbol}\n\n`;
     
     // Relay Chain balance (convert from Planck to native token units)
     prompt += `**Relay Chain** (${context.network.rpcEndpoint || 'Connected'}):\n`;
-    const relayFreeDot = formatPlanckToDot(context.balance.relayChain.free);
+    const relayFreeDot = formatPlanckToDot(context.balance.relayChain.free, networkDecimals);
     prompt += `  - Free: ${relayFreeDot} ${context.balance.symbol}\n`;
     if (context.balance.relayChain.reserved !== '0') {
-      const relayReservedDot = formatPlanckToDot(context.balance.relayChain.reserved);
+      const relayReservedDot = formatPlanckToDot(context.balance.relayChain.reserved, networkDecimals);
       prompt += `  - Reserved: ${relayReservedDot} ${context.balance.symbol}\n`;
     }
     
     // Asset Hub balance (convert from Planck to native token units)
+    // Asset Hub uses the same decimals as relay chain for native token
     if (context.balance.assetHub) {
       prompt += `\n**Asset Hub** (Connected):\n`;
-      const assetHubFreeDot = formatPlanckToDot(context.balance.assetHub.free);
+      const assetHubFreeDot = formatPlanckToDot(context.balance.assetHub.free, networkDecimals);
       prompt += `  - Free: ${assetHubFreeDot} ${context.balance.symbol}\n`;
       if (context.balance.assetHub.reserved !== '0') {
-        const assetHubReservedDot = formatPlanckToDot(context.balance.assetHub.reserved);
+        const assetHubReservedDot = formatPlanckToDot(context.balance.assetHub.reserved, networkDecimals);
         prompt += `  - Reserved: ${assetHubReservedDot} ${context.balance.symbol}\n`;
       }
     } else {

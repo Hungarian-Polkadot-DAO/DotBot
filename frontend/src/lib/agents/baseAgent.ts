@@ -573,14 +573,37 @@ export abstract class BaseAgent {
   }
 
   /**
-   * Format amount for display (convert from Planck to DOT)
+   * Format amount for display (convert from Planck to human-readable)
+   * 
+   * CRITICAL: Uses chain decimals from API registry, not hardcoded 10!
+   * - Polkadot: 10 decimals (DOT)
+   * - Kusama: 12 decimals (KSM)
+   * - Westend: 12 decimals (WND)
+   * 
+   * @param amount Amount in Planck (smallest unit)
+   * @param decimals Optional decimals (defaults to API registry decimals or 10)
    */
-  protected formatAmount(amount: string | BN, decimals: number = 10): string {
+  protected formatAmount(amount: string | BN, decimals?: number): string {
     const amountBN = typeof amount === 'string' ? new BN(amount) : amount;
-    const divisor = new BN(10).pow(new BN(decimals));
+    
+    // Get decimals from API registry if not provided
+    // CRITICAL: This ensures correct formatting for all networks
+    let actualDecimals = decimals;
+    if (actualDecimals === undefined) {
+      const api = this.getApi();
+      actualDecimals = api.registry.chainDecimals?.[0] || 10;
+    }
+    
+    const divisor = new BN(10).pow(new BN(actualDecimals));
     const whole = amountBN.div(divisor).toString();
-    const fraction = amountBN.mod(divisor).toString().padStart(decimals, '0');
-    return `${whole}.${fraction}`;
+    const fraction = amountBN.mod(divisor).toString().padStart(actualDecimals, '0');
+    
+    // Remove trailing zeros for cleaner display
+    const trimmedFraction = fraction.replace(/0+$/, '');
+    if (trimmedFraction === '') {
+      return whole;
+    }
+    return `${whole}.${trimmedFraction}`;
   }
 
   /**

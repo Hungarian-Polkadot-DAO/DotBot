@@ -52,14 +52,32 @@ export function parseAmount(amount: string | number, decimals: number = 10): BN 
 
 /**
  * Format amount for display (convert from Planck to human-readable)
+ * 
+ * CRITICAL: Always pass decimals from capabilities.nativeDecimals!
+ * Different networks have different decimals:
+ * - Polkadot: 10 decimals (DOT)
+ * - Kusama: 12 decimals (KSM)
+ * - Westend: 12 decimals (WND)
+ * 
+ * @param amountBN Amount in Planck (smallest unit)
+ * @param decimals Number of decimals (should come from capabilities.nativeDecimals)
  */
 export function formatAmount(amountBN: BN, decimals?: number): string {
   if (decimals === undefined) {
+    // WARNING: Defaulting to 10 is incorrect for Kusama/Westend!
+    // This should only happen in tests or when decimals are truly unknown
+    console.warn('[formatAmount] No decimals provided, defaulting to 10. This may be incorrect for Kusama/Westend!');
     decimals = 10;
   }
   const divisor = new BN(10).pow(new BN(decimals));
   const whole = amountBN.div(divisor).toString();
   const fraction = amountBN.mod(divisor).toString().padStart(decimals, '0');
-  return `${whole}.${fraction}`;
+  
+  // Remove trailing zeros for cleaner display
+  const trimmedFraction = fraction.replace(/0+$/, '');
+  if (trimmedFraction === '') {
+    return whole;
+  }
+  return `${whole}.${trimmedFraction}`;
 }
 
