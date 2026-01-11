@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, Square } from 'lucide-react';
+import { Trash2, Square, Copy, Check } from 'lucide-react';
 
 interface ExecutionPhase {
   phase: 'beginning' | 'cycle' | 'final-report' | null;
@@ -36,6 +36,7 @@ export const ReportTab: React.FC<ReportTabProps> = ({
   // Initialize displayedText to current report on mount (no animation for existing content)
   const [displayedText, setDisplayedText] = useState(() => report);
   const [isTyping, setIsTyping] = useState(false);
+  const [copied, setCopied] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastProcessedLengthRef = useRef<number>(report.length);
@@ -190,6 +191,17 @@ export const ReportTab: React.FC<ReportTabProps> = ({
     }
   };
 
+  const handleCopy = async () => {
+    try {
+      // Copy the full report text (not just displayedText, in case typing is still in progress)
+      await navigator.clipboard.writeText(report || displayedText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy report:', err);
+    }
+  };
+
   return (
     <div className="scenario-panel">
       <div className="scenario-panel-header">
@@ -215,6 +227,27 @@ export const ReportTab: React.FC<ReportTabProps> = ({
             >
               <Square size={12} />
               End Scenario
+            </button>
+          )}
+          {(report || displayedText) && (
+            <button
+              onClick={handleCopy}
+              className="scenario-copy-button"
+              title={copied ? "Copied!" : "Copy report to clipboard"}
+              style={{
+                background: copied ? 'rgba(34, 197, 94, 0.2)' : 'transparent',
+                border: copied ? '1px solid rgba(34, 197, 94, 0.5)' : '1px solid transparent',
+                color: copied ? '#22c55e' : 'inherit',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                transition: 'all 0.2s',
+              }}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
             </button>
           )}
           {onClear && displayedText && (
