@@ -6,13 +6,18 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ScenarioEngine, DotBot, Scenario, ScenarioChain } from '../../lib';
+import { ScenarioEngine, DotBot, Scenario } from '../../lib';
 import { X } from 'lucide-react';
 import { EntitiesTab } from './components/EntitiesTab';
 import { ScenariosTab } from './components/ScenariosTab';
 import { ReportTab } from './components/ReportTab';
 import { useScenarioEngine } from './hooks/useScenarioEngine';
 import { verifyEntities } from './utils/entityUtils';
+import { 
+  getScenarioChain, 
+  getChainTypeDescription, 
+  createModifiedScenario 
+} from './utils/scenarioRunner';
 import { TEST_CATEGORIES, TabType } from './constants';
 import { ExecutionMode } from './components/ModeSelector';
 import '../../styles/scenario-engine-overlay.css';
@@ -21,14 +26,18 @@ interface ScenarioEngineOverlayProps {
   engine: ScenarioEngine;
   dotbot: DotBot;
   onClose: () => void;
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (message: string) => Promise<any>;
+  onAutoSubmitChange?: (autoSubmit: boolean) => void;
+  autoSubmit?: boolean;
 }
 
 const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ 
   engine, 
   dotbot, 
   onClose,
-  onSendMessage 
+  onSendMessage,
+  onAutoSubmitChange,
+  autoSubmit: propAutoSubmit
 }) => {
   // Close on ESC key
   useEffect(() => {
@@ -49,6 +58,20 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
   const [executionPhase, setExecutionPhase] = useState<{ phase: 'beginning' | 'cycle' | 'final-report' | null; messages: string[]; stepCount: number; dotbotActivity?: string } | null>(null);
   // Only LIVE mode is implemented - synthetic/emulated are TODO
   const [executionMode, setExecutionMode] = useState<ExecutionMode>('live');
+  // Auto-submit toggle: true = auto-submit injected prompts, false = manual submit
+  const [autoSubmit, setAutoSubmit] = useState<boolean>(propAutoSubmit ?? true);
+  
+  // Sync with prop if provided
+  useEffect(() => {
+    if (propAutoSubmit !== undefined) {
+      setAutoSubmit(propAutoSubmit);
+    }
+  }, [propAutoSubmit]);
+  
+  const handleAutoSubmitToggle = (value: boolean) => {
+    setAutoSubmit(value);
+    onAutoSubmitChange?.(value);
+  };
 
   const appendToReport = (text: string) => {
     setReport(prev => prev + text);
@@ -149,36 +172,11 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
         appendToReport(`[WARN] Entity mode mismatch: ${state.entityMode} → ${executionMode}\n`);
       }
       
-      const environment = dotbot.getEnvironment();
-      const network = dotbot.getNetwork();
+      const chain = getScenarioChain(scenario, dotbot);
+      const chainType = getChainTypeDescription(chain);
+      const modifiedScenario = createModifiedScenario(scenario, chain, executionMode);
       
-      // Default to Asset Hub for testnet scenarios (where users typically fund accounts)
-      // Use relay chain for mainnet or if explicitly specified in scenario
-      let defaultChain: ScenarioChain;
-      if (scenario.environment?.chain) {
-        // Use chain from scenario if explicitly set
-        defaultChain = scenario.environment.chain;
-      } else if (environment === 'mainnet') {
-        defaultChain = 'polkadot';
-      } else {
-        // For testnet, default to Asset Hub (where users typically fund accounts for testing)
-        defaultChain = network === 'polkadot' ? 'asset-hub-polkadot' : 'asset-hub-westend';
-      }
-      
-      const isAssetHub = defaultChain.includes('asset-hub');
-      const chainType = isAssetHub ? 'Asset Hub' : 'Relay Chain';
-      
-      const modifiedScenario: Scenario = {
-        ...scenario,
-        environment: {
-          chain: defaultChain,
-          mode: executionMode,
-          ...scenario.environment?.chopsticksConfig && { chopsticksConfig: scenario.environment.chopsticksConfig },
-        }
-      };
-      
-      appendToReport(`[INFO] Using chain: ${defaultChain} (${chainType})\n`);
-      
+      appendToReport(`[INFO] Using chain: ${chain} (${chainType})\n`);
       appendToReport(`[SCENARIO] ${scenario.name} (${executionMode})\n\n`);
       
       await engine.runScenario(modifiedScenario);
@@ -188,7 +186,6 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
       appendToReport(`[ERROR] Scenario failed: ${errorMessage}\n`);
       console.error('Scenario execution failed:', error);
     } finally {
-      // Always clear running state so user can retry immediately
       setRunningScenario(null);
     }
   };
@@ -203,9 +200,21 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
             <span className="scenario-title-text">SCENARIO_ENGINE</span>
             <span className="scenario-title-brackets">{']'}</span>
           </div>
-          <button onClick={onClose} className="scenario-close">
-            <X size={18} />
-          </button>
+          <div className="scenario-header-controls">
+            <label className="scenario-toggle" title={autoSubmit ? "Auto-submit enabled (prompts sent automatically)" : "Manual submit (review prompts before sending)"}>
+              <span className="scenario-toggle-label">AUTO:</span>
+              <input
+                type="checkbox"
+                checked={autoSubmit}
+                onChange={(e) => handleAutoSubmitToggle(e.target.checked)}
+                className="scenario-toggle-input"
+              />
+              <span className="scenario-toggle-slider"></span>
+            </label>
+            <button onClick={onClose} className="scenario-close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}

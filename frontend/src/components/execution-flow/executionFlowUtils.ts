@@ -38,15 +38,24 @@ export function setupExecutionSubscription(
   };
 
   // Try to get state immediately
-  updateState();
+  const initialStateFound = updateState();
 
   // Poll for ExecutionArray if it doesn't exist yet
+  // Use timeout and max attempts to prevent infinite polling
   let pollInterval: NodeJS.Timeout | null = null;
-  if (!chatInstance.getExecutionArray(executionId) && !executionMessage.executionArray) {
+  if (!initialStateFound) {
+    let attempts = 0;
+    const maxAttempts = 50; // 5 seconds max (50 * 100ms)
+    
     pollInterval = setInterval(() => {
-      if (updateState() && pollInterval) {
-        clearInterval(pollInterval);
-        pollInterval = null;
+      attempts++;
+      const found = updateState();
+      
+      if (found || attempts >= maxAttempts) {
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
       }
     }, 100);
   }

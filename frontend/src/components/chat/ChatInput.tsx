@@ -8,7 +8,6 @@
  */
 
 import React, { useRef, useEffect, useState } from 'react';
-import { useChatInput } from '../../contexts/ChatInputContext';
 import voiceIcon from '../../assets/mingcute_voice-line.svg';
 import actionButtonIcon from '../../assets/action-button.svg';
 
@@ -19,6 +18,8 @@ interface ChatInputProps {
   placeholder?: string;
   disabled?: boolean;
   isTyping?: boolean;
+  /** Visual indicator that prompt was injected by ScenarioEngine */
+  showInjectionEffect?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -27,11 +28,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onSubmit,
   placeholder = "Type your message...",
   disabled = false,
-  isTyping = false
+  isTyping = false,
+  showInjectionEffect = false,
 }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { lastInjectionTime } = useChatInput();
   const [isInjected, setIsInjected] = useState(false);
 
   // Auto-resize textarea
@@ -44,7 +45,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   // Visual effect when injection happens
   useEffect(() => {
-    if (lastInjectionTime > 0) {
+    if (showInjectionEffect) {
       setIsInjected(true);
       if (containerRef.current) {
         containerRef.current.classList.add('chat-input-injected');
@@ -57,7 +58,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
       }, 2000); // Animation lasts 2 seconds
       return () => clearTimeout(timer);
     }
-  }, [lastInjectionTime]);
+  }, [showInjectionEffect]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {

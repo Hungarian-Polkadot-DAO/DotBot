@@ -8,7 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ThemeProvider } from './contexts/ThemeContext';
-import { ChatInputProvider, useChatInput } from './contexts/ChatInputContext';
+import { useScenarioPrompt } from './hooks/useScenarioPrompt';
 import WalletButton from './components/wallet/WalletButton';
 import ThemeToggle from './components/ui/ThemeToggle';
 import SettingsModal from './components/settings/SettingsModal';
@@ -18,23 +18,22 @@ import Chat from './components/chat/Chat';
 import ChatHistory from './components/history/ChatHistory';
 import ScenarioEngineOverlay from './components/scenarioEngine/ScenarioEngineOverlay';
 import LoadingOverlay from './components/common/LoadingOverlay';
-import { DotBot, Environment, ScenarioEngine, createRpcManagersForNetwork } from './lib';
+import { DotBot, Environment, ScenarioEngine } from './lib';
 import type { ChatInstanceData } from './lib/types/chatInstance';
-import type { ChatResult, Network } from './lib';
 import { useWalletStore } from './stores/walletStore';
-import type { RpcManager } from './lib/rpcManager';
 import { ASIOneService } from './lib/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from './lib';
 import { Settings } from 'lucide-react';
+import {
+  preloadNetworkConnections,
+  createDotBotInstance,
+  setupScenarioEngineDependencies,
+  type RpcManagers
+} from './utils/appUtils';
 import './styles/globals.css';
 import './styles/execution-flow.css';
 import './styles/chat-history.css';
 import './styles/chat-history-card.css';
-
-// =============================================================================
-// SCENARIO ENGINE FEATURE FLAG
-// =============================================================================
-const ENABLE_SCENARIO_ENGINE = true; // Set to true to show ScenarioEngine overlay
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -51,10 +50,11 @@ const AppContent: React.FC = () => {
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
   const [conversationRefresh, setConversationRefresh] = useState(0);
-  const [chatHistoryRefresh, setChatHistoryRefresh] = useState(0);
+  const [chatHistoryRefresh] = useState(0);
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [scenarioEngineEnabled, setScenarioEngineEnabled] = useState(false);
+  const [autoSubmitPrompts, setAutoSubmitPrompts] = useState<boolean>(true);
   
   // DotBot State
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
@@ -74,12 +74,7 @@ const AppContent: React.FC = () => {
   // Environment preference (for when wallet is not connected yet)
   const [preferredEnvironment, setPreferredEnvironment] = useState<Environment>('mainnet');
   
-  // Preloaded RPC managers (loaded in background before wallet connects)
-  const [preloadedRpcManagers, setPreloadedRpcManagers] = useState<{
-    relayChainManager: RpcManager;
-    assetHubManager: RpcManager;
-  } | null>(null);
-  const [isPreloadingNetwork, setIsPreloadingNetwork] = useState(false);
+  // Preloaded RPC managers removed - DotBot handles connections directly
   
   // Signing
   const [signingRequest, setSigningRequest] = useState<SigningRequest | BatchSigningRequest | null>(null);
@@ -88,19 +83,16 @@ const AppContent: React.FC = () => {
   
   // Note: useChatInput is called in AppWithChatInput component (inside provider)
 
-  // Preload network connections in background (doesn't need wallet)
-  useEffect(() => {
-    if (!preloadedRpcManagers && !isPreloadingNetwork) {
-      preloadNetworkConnections();
-    }
-  }, [preferredEnvironment]);
+  // Note: Preloading removed - DotBot initialization handles connections directly
+  // This matches staging behavior and prevents redundant connection attempts
 
   // Initialize DotBot when wallet connects
   useEffect(() => {
     if (isConnected && selectedAccount && !dotbot && !isInitializing) {
       initializeDotBot();
     }
-  }, [isConnected, selectedAccount, preloadedRpcManagers]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, selectedAccount]);
 
   // Sync current chat ID when dotbot changes
   useEffect(() => {
@@ -126,147 +118,34 @@ const AppContent: React.FC = () => {
     }
   }, [signingRequest]);
 
-  const preloadNetworkConnections = async () => {
-    setIsPreloadingNetwork(true);
-    try {
-      // Derive network from environment
-      const network: Network = preferredEnvironment === 'mainnet' ? 'polkadot' : 'westend';
-      
-      // Create RPC managers (this is fast, doesn't connect yet)
-      const managers = createRpcManagersForNetwork(network);
-      
-      // Pre-connect to Relay Chain in background (this is the slow part)
-      // This happens silently - no UI feedback needed since wallet isn't connected yet
-      await managers.relayChainManager.getReadApi();
-      
-      // Optionally pre-connect to Asset Hub (non-blocking)
-      managers.assetHubManager.getReadApi().catch(() => {
-        // Silently fail, will retry during full initialization
-      });
-      
-      setPreloadedRpcManagers(managers);
-      console.log('[App] Network connections preloaded in background');
-    } catch (error) {
-      console.warn('[App] Failed to preload network connections:', error);
-      // Continue anyway, will retry during full initialization
-    } finally {
-      setIsPreloadingNetwork(false);
-    }
-  };
+  // Preload function removed - not needed, DotBot handles connections directly
 
   const initializeDotBot = async () => {
     setIsInitializing(true);
     setInitializingMessage('Initializing DotBot');
-    setInitializingSubMessage('Completing initialization...');
+    setInitializingSubMessage('Connecting...');
+    
     try {
-      // Derive network from environment (same logic as switchEnvironment)
-      const network: Network = preferredEnvironment === 'mainnet' ? 'polkadot' : 'westend';
-      
-      // Use preloaded managers if available, otherwise create new ones
-      const config: any = {
-        wallet: selectedAccount!,
-        environment: preferredEnvironment,
-        network: network,
-        onSigningRequest: (request: any) => setSigningRequest(request),
-        onBatchSigningRequest: (request: any) => setSigningRequest(request)
-      };
-      
-      // If we have preloaded managers, use them (saves connection time!)
-      if (preloadedRpcManagers) {
-        config.relayChainManager = preloadedRpcManagers.relayChainManager;
-        config.assetHubManager = preloadedRpcManagers.assetHubManager;
-        setInitializingSubMessage('Using preloaded network connections...');
-      }
-      
-      const dotbotInstance = await DotBot.create(config);
+      const dotbotInstance = await createDotBotInstance(
+        selectedAccount!,
+        preferredEnvironment,
+        null, // No preloaded managers - DotBot handles connections directly
+        (request: any) => setSigningRequest(request)
+      );
       
       setDotbot(dotbotInstance);
       
-      // Initialize ScenarioEngine with DotBot's API
-      // NOTE: The API is always connected to the real chain (Westend/Mainnet).
-      // For synthetic mode, the executor uses queryBalance (mocked) instead of api.
-      // For emulated mode, StateAllocator creates its own Chopsticks fork and uses setStorage.
-      // For live mode, the real API is used.
-        try {
-          setInitializingMessage('Initializing ScenarioEngine');
-          setInitializingSubMessage('Setting up scenario execution engine...');
-          await scenarioEngine.initialize();
-          const api = await dotbotInstance.getApi();
-          const environment = dotbotInstance.getEnvironment();
-          
-          setInitializingMessage('Configuring ScenarioEngine');
-          setInitializingSubMessage('Setting up wallet and dependencies...');
-          
-          // Set wallet account and signer for live mode transfers
-          if (selectedAccount) {
-            // Get the signer from DotBot's execution system
-            // The signer is stored in the executionSystem's executioner
-            const dotbotAny = dotbotInstance as any;
-            const executionSystem = dotbotAny.executionSystem;
-            const executioner = executionSystem?.executioner;
-            const signer = executioner?.signer || null;
-            
-            if (signer) {
-              scenarioEngine.setWalletForLiveMode(
-                {
-                  address: selectedAccount.address,
-                  name: selectedAccount.name,
-                  source: selectedAccount.source
-                },
-                signer
-              );
-            } else {
-              console.warn('[App] No signer found in DotBot executioner - live mode transfers may not work');
-            }
-          }
-          
-          scenarioEngine.setDependencies({
-          api, // Real API (Westend/Mainnet) - used for live mode
-          // For synthetic mode, provide mocked balance queries from scenario state
-          queryBalance: async (address: string) => {
-            // Look up entity by address
-            const entity = scenarioEngine.getEntityByAddress(address);
-            if (entity) {
-              // Get balance from current scenario's walletState
-              const state = scenarioEngine.getState();
-              const scenario = state.currentScenario;
-              if (scenario?.walletState?.accounts) {
-                const account = scenario.walletState.accounts.find(
-                  a => a.entityName === entity.name
-                );
-                if (account?.balance) {
-                  return account.balance;
-                }
-              }
-            }
-            // Default: return 0 DOT if not found in scenario state
-            return '0 DOT';
-          },
-          getEntityKeypair: (entityName: string) => {
-            const entity = scenarioEngine.getEntity(entityName);
-            return entity?.uri ? { uri: entity.uri } : undefined;
-          },
-          getEntityAddress: (entityName: string) => {
-            const entity = scenarioEngine.getEntity(entityName);
-            return entity?.address;
-          },
-        });
+      // Initialize ScenarioEngine
+      try {
+        setInitializingMessage('Initializing ScenarioEngine');
+        setInitializingSubMessage('Setting up scenario execution engine...');
         
-        // Subscribe to DotBot events for automatic response capture
-        // This is the DEEP integration - ScenarioEngine listens at library level
-        // All DotBot responses are automatically captured without UI-level hooking
-        scenarioEngine.subscribeToDotBot(dotbotInstance);
+        await setupScenarioEngineDependencies(
+          scenarioEngine,
+          dotbotInstance,
+          selectedAccount
+        );
         
-        // Set RPC manager provider for StateAllocator (so it can use Asset Hub or Relay Chain as needed)
-        scenarioEngine.setRpcManagerProvider(() => {
-          // Access DotBot's RPC managers via internal properties
-          // Note: This is a workaround - ideally DotBot would expose a getter for these
-          const dotbotAny = dotbotInstance as any;
-          return {
-            relayChainManager: dotbotAny.relayChainManager,
-            assetHubManager: dotbotAny.assetHubManager,
-          };
-        });
         setIsScenarioEngineReady(true);
         console.log('[ScenarioEngine] Initialized and ready');
         setInitializingMessage('Ready');
@@ -281,7 +160,6 @@ const AppContent: React.FC = () => {
       setInitializingMessage('Initialization Failed');
       setInitializingSubMessage(error instanceof Error ? error.message : 'Unknown error occurred');
     } finally {
-      // Small delay to show final message before hiding overlay
       setTimeout(() => {
         setIsInitializing(false);
         setInitializingMessage('');
@@ -373,9 +251,6 @@ const AppContent: React.FC = () => {
     // Store preference (for when wallet is not connected yet)
     setPreferredEnvironment(environment);
     
-    // Clear preloaded managers so they get recreated for new environment
-    setPreloadedRpcManagers(null);
-    
     // If DotBot is already initialized, switch environment (creates new chat)
     if (dotbot) {
       try {
@@ -453,204 +328,133 @@ const AppContent: React.FC = () => {
     ? "Initializing DotBot..."
     : "Type your message...";
 
-  return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <ChatInputProvider>
-          <AppWithChatInputWrapper
-            handleSendMessage={handleSendMessage}
-            dotbot={dotbot}
-            isTyping={isTyping}
-            showWelcomeScreen={showWelcomeScreen}
-            isSidebarExpanded={isSidebarExpanded}
-            conversationRefresh={conversationRefresh}
-            chatHistoryRefresh={chatHistoryRefresh}
-            showChatHistory={showChatHistory}
-            showSettingsModal={showSettingsModal}
-            scenarioEngineEnabled={scenarioEngineEnabled}
-            currentChatId={currentChatId}
-            isInitializing={isInitializing}
-            initializingMessage={initializingMessage}
-            initializingSubMessage={initializingSubMessage}
-            scenarioEngine={scenarioEngine}
-            isScenarioEngineReady={isScenarioEngineReady}
-            preferredEnvironment={preferredEnvironment}
-            setIsSidebarExpanded={setIsSidebarExpanded}
-            setShowChatHistory={setShowChatHistory}
-            setShowSettingsModal={setShowSettingsModal}
-            setScenarioEngineEnabled={setScenarioEngineEnabled}
-            handleNewChat={handleNewChat}
-            handleSearchChat={handleSearchChat}
-            handleSelectChat={handleSelectChat}
-            handleCheckBalance={handleCheckBalance}
-            handleTransfer={handleTransfer}
-            handleStatus={handleStatus}
-            handleEnvironmentSwitch={handleEnvironmentSwitch}
-            placeholder={!isConnected 
-              ? "Connect your wallet to start chatting..."
-              : isInitializing
-              ? "Initializing DotBot..."
-              : "Type your message..."}
-          />
-        </ChatInputProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
-  );
-};
+  // Use ScenarioEngine prompt injection hook
+  const { 
+    injectedPrompt, 
+    clearPrompt, 
+    notifyPromptProcessed 
+  } = useScenarioPrompt(scenarioEngineEnabled ? scenarioEngine : null);
 
-// Wrapper component that uses ChatInput context (must be inside provider)
-const AppWithChatInputWrapper: React.FC<{
-  handleSendMessage: (message: string) => Promise<ChatResult | undefined>;
-  dotbot: DotBot | null;
-  isTyping: boolean;
-  showWelcomeScreen: boolean;
-  isSidebarExpanded: boolean;
-  conversationRefresh: number;
-  chatHistoryRefresh: number;
-  showChatHistory: boolean;
-  showSettingsModal: boolean;
-  scenarioEngineEnabled: boolean;
-  currentChatId: string | null;
-  isInitializing: boolean;
-  initializingMessage: string;
-  initializingSubMessage: string;
-  scenarioEngine: ScenarioEngine;
-  isScenarioEngineReady: boolean;
-  preferredEnvironment: Environment;
-  setIsSidebarExpanded: (v: boolean) => void;
-  setShowChatHistory: (v: boolean) => void;
-  setShowSettingsModal: (v: boolean) => void;
-  setScenarioEngineEnabled: (v: boolean) => void;
-  handleNewChat: () => Promise<void>;
-  handleSearchChat: () => void;
-  handleSelectChat: (chat: ChatInstanceData) => Promise<void>;
-  handleCheckBalance: () => void;
-  handleTransfer: () => void;
-  handleStatus: () => void;
-  handleEnvironmentSwitch: (environment: Environment) => Promise<void>;
-  placeholder: string;
-}> = (props) => {
-  const { pendingPrompt, executor, setPendingPrompt, setExecutor } = useChatInput();
-
-  // Override handleSendMessage to detect scenario prompts
-  // NOTE: We no longer need to manually notify executor - ScenarioEngine
-  // automatically subscribes to DotBot events at the library level!
-  const handleSendMessageWithContext = async (message: string) => {
-    // Check if this is a scenario prompt
-    const isScenarioPrompt = pendingPrompt && message.trim() === pendingPrompt.trim();
+  // Handle sending messages with ScenarioEngine integration
+  const handleSendMessageWithScenario = async (message: string) => {
+    const result = await handleSendMessage(message);
     
-    // Send the message (DotBot events will automatically notify ScenarioEngine)
-    await props.handleSendMessage(message);
-    
-    // Clear pending prompt and executor reference after sending
-    if (isScenarioPrompt) {
-      setPendingPrompt(null);
-      setExecutor(null);
+    // If this was an injected prompt, clear it
+    if (injectedPrompt && message.trim() === injectedPrompt.prompt.trim()) {
+      clearPrompt();
     }
+    
+    return result;
   };
 
   return (
-    <div className={`app-container ${props.isSidebarExpanded ? '' : 'sidebar-collapsed'}`}>
-      <CollapsibleSidebar
-        onNewChat={props.handleNewChat}
-        onSearchChat={props.handleSearchChat}
-        onTransactions={() => {}}
-        isExpanded={props.isSidebarExpanded}
-        onToggle={props.setIsSidebarExpanded}
-      />
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <div className={`app-container ${isSidebarExpanded ? '' : 'sidebar-collapsed'}`}>
+          <CollapsibleSidebar
+            onNewChat={handleNewChat}
+            onSearchChat={handleSearchChat}
+            onTransactions={() => {}}
+            isExpanded={isSidebarExpanded}
+            onToggle={setIsSidebarExpanded}
+          />
 
-      <div className="main-content">
-        {/* Header */}
-        <div className="main-header">
-          <ThemeToggle />
-          <div className="header-right">
-            <button
-              className="settings-button"
-              onClick={() => props.setShowSettingsModal(true)}
-              title="Settings"
-            >
-              <Settings className="w-5 h-5" />
-            </button>
-            <WalletButton 
-              environment={props.dotbot?.getEnvironment() || props.preferredEnvironment}
-              onEnvironmentSwitch={props.handleEnvironmentSwitch}
-            />
-          </div>
-        </div>
-
-        {/* Main Body */}
-        <div className="main-body">
-          {props.showChatHistory ? (
-            <div className="chat-container">
-              {props.dotbot && (
-                <ChatHistory
-                  dotbot={props.dotbot}
-                  onSelectChat={props.handleSelectChat}
-                  onChatRenamed={() => {
-                    // Reload chat history after rename
-                    // setChatHistoryRefresh(prev => prev + 1);
-                  }}
-                  currentChatId={props.dotbot.currentChat?.id}
-                  refreshTrigger={props.chatHistoryRefresh}
-                  isLoadingChat={props.isInitializing}
+          <div className="main-content">
+            {/* Header */}
+            <div className="main-header">
+              <ThemeToggle />
+              <div className="header-right">
+                <button
+                  className="settings-button"
+                  onClick={() => setShowSettingsModal(true)}
+                  title="Settings"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+                <WalletButton 
+                  environment={dotbot?.getEnvironment() || preferredEnvironment}
+                  onEnvironmentSwitch={handleEnvironmentSwitch}
                 />
+              </div>
+            </div>
+
+            {/* Main Body */}
+            <div className="main-body">
+              {showChatHistory ? (
+                <div className="chat-container">
+                  {dotbot && (
+                    <ChatHistory
+                      dotbot={dotbot}
+                      onSelectChat={handleSelectChat}
+                      onChatRenamed={() => {}}
+                      currentChatId={dotbot.currentChat?.id}
+                      refreshTrigger={chatHistoryRefresh}
+                      isLoadingChat={isInitializing}
+                    />
+                  )}
+                </div>
+              ) : showWelcomeScreen && dotbot && dotbot.currentChat ? (
+                <WelcomeScreen
+                  onSendMessage={handleSendMessageWithScenario}
+                  onCheckBalance={handleCheckBalance}
+                  onTransfer={handleTransfer}
+                  onStatus={handleStatus}
+                  disabled={!dotbot}
+                  placeholder={placeholder}
+                  isTyping={isTyping}
+                />
+              ) : dotbot && dotbot.currentChat ? (
+                <Chat
+                  dotbot={dotbot}
+                  onSendMessage={handleSendMessageWithScenario}
+                  isTyping={isTyping}
+                  disabled={!dotbot}
+                  placeholder={placeholder}
+                  injectedPrompt={injectedPrompt?.prompt || null}
+                  onPromptProcessed={notifyPromptProcessed}
+                  autoSubmit={autoSubmitPrompts}
+                />
+              ) : (
+                <div style={{ textAlign: 'center', padding: '2rem' }}>
+                  {placeholder}
+                </div>
               )}
             </div>
-          ) : props.showWelcomeScreen && props.dotbot && props.dotbot.currentChat ? (
-            <WelcomeScreen
-              onSendMessage={handleSendMessageWithContext}
-              onCheckBalance={props.handleCheckBalance}
-              onTransfer={props.handleTransfer}
-              onStatus={props.handleStatus}
-              disabled={!props.dotbot}
-              placeholder={props.placeholder}
-              isTyping={props.isTyping}
+          </div>
+
+          {/* Loading Overlay */}
+          <LoadingOverlay
+            isVisible={isInitializing}
+            message={initializingMessage || 'Loading...'}
+            subMessage={initializingSubMessage}
+          />
+
+          {/* Settings Modal */}
+          <SettingsModal
+            isOpen={showSettingsModal}
+            onClose={() => setShowSettingsModal(false)}
+            scenarioEngineEnabled={scenarioEngineEnabled}
+            onToggleScenarioEngine={setScenarioEngineEnabled}
+            isMainnet={(dotbot?.getEnvironment() || preferredEnvironment) === 'mainnet'}
+          />
+
+          {/* ScenarioEngine Overlay - Only on testnet */}
+          {scenarioEngineEnabled && 
+           dotbot && 
+           isScenarioEngineReady && 
+           dotbot.getEnvironment() === 'testnet' && (
+            <ScenarioEngineOverlay 
+              engine={scenarioEngine}
+              dotbot={dotbot}
+              onClose={() => setScenarioEngineEnabled(false)}
+              onSendMessage={handleSendMessageWithScenario}
+              autoSubmit={autoSubmitPrompts}
+              onAutoSubmitChange={setAutoSubmitPrompts}
             />
-          ) : props.dotbot && props.dotbot.currentChat ? (
-            <Chat
-              dotbot={props.dotbot}
-              onSendMessage={handleSendMessageWithContext}
-              isTyping={props.isTyping}
-              disabled={!props.dotbot}
-              placeholder={props.placeholder}
-            />
-          ) : (
-            <div style={{ textAlign: 'center', padding: '2rem' }}>
-              {props.placeholder}
-            </div>
           )}
         </div>
-      </div>
-
-      {/* Loading Overlay */}
-      <LoadingOverlay
-        isVisible={props.isInitializing}
-        message={props.initializingMessage || 'Loading...'}
-        subMessage={props.initializingSubMessage}
-      />
-
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={props.showSettingsModal}
-        onClose={() => props.setShowSettingsModal(false)}
-        scenarioEngineEnabled={props.scenarioEngineEnabled}
-        onToggleScenarioEngine={props.setScenarioEngineEnabled}
-        isMainnet={(props.dotbot?.getEnvironment() || props.preferredEnvironment) === 'mainnet'}
-      />
-
-      {/* ScenarioEngine Overlay - Only on testnet */}
-      {props.scenarioEngineEnabled && 
-       props.dotbot && 
-       props.isScenarioEngineReady && 
-       props.dotbot.getEnvironment() === 'testnet' && (
-        <ScenarioEngineOverlay 
-          engine={props.scenarioEngine}
-          dotbot={props.dotbot}
-          onClose={() => props.setScenarioEngineEnabled(false)}
-          onSendMessage={handleSendMessageWithContext}
-        />
-      )}
-    </div>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 };
 

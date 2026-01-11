@@ -15,7 +15,7 @@ import voiceIcon from '../../assets/mingcute_voice-line.svg';
 import actionButtonIcon from '../../assets/action-button.svg';
 
 interface WelcomeScreenProps {
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (message: string) => Promise<any>;
   onCheckBalance: () => void;
   onTransfer: () => void;
   onStatus: () => void;

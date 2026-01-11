@@ -6,7 +6,6 @@
 
 import { useState, useEffect } from 'react';
 import { ScenarioEngine, DotBot, Scenario, TestEntity } from '../../../lib';
-import { useChatInput } from '../../../contexts/ChatInputContext';
 
 interface ExecutionPhase {
   phase: 'beginning' | 'cycle' | 'final-report' | null;
@@ -39,23 +38,6 @@ export const useScenarioEngine = ({
     messages: [],
     stepCount: 0,
   });
-  const { setInputValue, setPendingPrompt, setExecutor } = useChatInput();
-
-  const handlePromptInjection = async (prompt: string) => {
-    const executor = engine.getExecutor();
-    
-    // Fill the ChatInput but DON'T send the message
-    // User can review and submit manually
-    setInputValue(prompt);
-    
-    // Store the prompt and executor reference for App.tsx to detect submission
-    setPendingPrompt(prompt);
-    setExecutor(executor);
-    
-    // Notify that prompt was injected (UI filled the input)
-    // This allows executor to continue, but we still wait for user to submit
-    executor?.notifyPromptProcessed();
-  };
 
   // Query balance for an entity address
   // For Westend/Polkadot, balances are typically on Asset Hub after migration
@@ -174,7 +156,8 @@ export const useScenarioEngine = ({
         }
         // Report content is handled by ScenarioEngine - no need to append here
       } else if (event.type === 'inject-prompt') {
-        handlePromptInjection(event.prompt);
+        // Note: inject-prompt events are now handled by App.tsx via useScenarioPrompt hook
+        // This hook no longer needs to handle prompt injection
         onStatusChange?.('Waiting for user to submit prompt...');
         // Track DotBot activity (just for UI status, not report)
         setExecutionPhase(prev => {

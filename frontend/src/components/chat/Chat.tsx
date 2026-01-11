@@ -7,9 +7,8 @@
  * This component will be part of @dotbot/react package.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { DotBot, ConversationItem, DotBotEvent } from '../../lib';
-import { useChatInput } from '../../contexts/ChatInputContext';
 import MessageList from './MessageList';
 import ConversationItems from './ConversationItems';
 import ChatInput from './ChatInput';
@@ -17,10 +16,16 @@ import TypingIndicator from './TypingIndicator';
 
 interface ChatProps {
   dotbot: DotBot;
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (message: string) => Promise<any>;
   isTyping?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  /** Injected prompt from ScenarioEngine (optional) */
+  injectedPrompt?: string | null;
+  /** Callback when injected prompt is processed */
+  onPromptProcessed?: () => void;
+  /** Auto-submit injected prompts (default: true) */
+  autoSubmit?: boolean;
 }
 
 const Chat: React.FC<ChatProps> = ({
@@ -29,15 +34,81 @@ const Chat: React.FC<ChatProps> = ({
   isTyping = false,
   disabled = false,
   placeholder = "Type your message...",
+  injectedPrompt = null,
+  onPromptProcessed,
+  autoSubmit = true,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
-  const { registerSetter } = useChatInput();
+  const [showInjectionEffect, setShowInjectionEffect] = useState(false);
+  const processedPromptRef = useRef<string | null>(null);
 
-  // Register setInputValue with context (for ScenarioEngine)
+  const handleSubmit = useCallback(async () => {
+    const trimmedValue = inputValue.trim();
+    if (trimmedValue && !isTyping && !disabled) {
+      // Clear input immediately to prevent double submission
+      setInputValue('');
+      await onSendMessage(trimmedValue);
+    }
+  }, [inputValue, isTyping, disabled, onSendMessage]);
+
+  // Handle injected prompt from ScenarioEngine
   useEffect(() => {
-    registerSetter(setInputValue);
-  }, [registerSetter, setInputValue]);
+    if (injectedPrompt) {
+      const trimmedPrompt = injectedPrompt.trim();
+      
+      // Prevent re-processing the same prompt (avoid infinite loop)
+      if (processedPromptRef.current === trimmedPrompt) {
+        return;
+      }
+      
+      // Prevent processing if already typing (avoid race conditions)
+      if (isTyping || disabled) {
+        return;
+      }
+      
+      processedPromptRef.current = trimmedPrompt;
+      setInputValue(trimmedPrompt);
+      setShowInjectionEffect(true);
+      
+      // Notify that prompt was processed (this unblocks the executor)
+      onPromptProcessed?.();
+      
+      // Auto-submit injected prompts if enabled (ScenarioEngine can work both ways)
+      let submitTimer: NodeJS.Timeout | null = null;
+      if (autoSubmit) {
+        // Small delay to ensure input is set and UI is ready
+        submitTimer = setTimeout(async () => {
+          // Double-check conditions before submitting
+          if (!isTyping && !disabled && trimmedPrompt && processedPromptRef.current === trimmedPrompt) {
+            // Mark as submitted to prevent re-submission
+            processedPromptRef.current = null;
+            setInputValue('');
+            try {
+              await onSendMessage(trimmedPrompt);
+            } catch (error) {
+              console.error('[Chat] Failed to submit injected prompt:', error);
+            }
+          }
+        }, 100);
+      }
+      
+      // Reset injection effect after animation
+      const timer = setTimeout(() => {
+        setShowInjectionEffect(false);
+      }, 2000);
+      
+      return () => {
+        clearTimeout(timer);
+        if (submitTimer) {
+          clearTimeout(submitTimer);
+        }
+      };
+    } else {
+      // Clear processed prompt ref when no prompt is injected
+      processedPromptRef.current = null;
+    }
+  }, [injectedPrompt, onPromptProcessed, isTyping, disabled, onSendMessage, autoSubmit]);
 
   // Get conversation items from ChatInstance
   const conversationItems: ConversationItem[] = dotbot.currentChat?.getDisplayMessages() || [];
@@ -67,30 +138,40 @@ const Chat: React.FC<ChatProps> = ({
     const hasExecutionMessages = conversationItems.some(item => item.type === 'execution');
     if (!hasExecutionMessages) return;
     
-    // Poll for executionArray updates (in case updateExecutionInChat hasn't triggered a re-render)
+    // Check if executionArrays already exist - no need to poll
+    const currentItems = dotbot.currentChat.getDisplayMessages();
+    const hasExecutionArrays = currentItems.some(
+      item => item.type === 'execution' && (item as any).executionArray
+    );
+    
+    if (hasExecutionArrays) {
+      // Already have executionArrays, just trigger a refresh
+      setRefreshKey(prev => prev + 1);
+      return;
+    }
+    
+    // Poll for executionArray updates with timeout and max attempts
+    let attempts = 0;
+    const maxAttempts = 40; // 6 seconds max (40 * 150ms)
+    const pollInterval = 150; // Check every 150ms
+    
     const interval = setInterval(() => {
-      const currentItems = dotbot.currentChat?.getDisplayMessages() || [];
-      const hasExecutionArrays = currentItems.some(
+      attempts++;
+      const items = dotbot.currentChat?.getDisplayMessages() || [];
+      const foundExecutionArrays = items.some(
         item => item.type === 'execution' && (item as any).executionArray
       );
       
-      if (hasExecutionArrays) {
-        setRefreshKey(prev => prev + 1);
+      if (foundExecutionArrays || attempts >= maxAttempts) {
+        if (foundExecutionArrays) {
+          setRefreshKey(prev => prev + 1);
+        }
         clearInterval(interval);
       }
-    }, 150); // Check every 150ms
+    }, pollInterval);
     
     return () => clearInterval(interval);
   }, [dotbot.currentChat, conversationItems.length]);
-
-  const handleSubmit = async () => {
-    const trimmedValue = inputValue.trim();
-    if (trimmedValue && !isTyping) {
-      // Clear input immediately to prevent double submission
-      setInputValue('');
-      await onSendMessage(trimmedValue);
-    }
-  };
 
   return (
     <div className="chat-container">
@@ -108,13 +189,14 @@ const Chat: React.FC<ChatProps> = ({
 
       {/* Input area */}
       <ChatInput
-              value={inputValue}
+        value={inputValue}
         onChange={setInputValue}
         onSubmit={handleSubmit}
-              placeholder={placeholder}
-              disabled={disabled}
+        placeholder={placeholder}
+        disabled={disabled}
         isTyping={isTyping}
-                />
+        showInjectionEffect={showInjectionEffect}
+      />
     </div>
   );
 };

@@ -57,6 +57,7 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   const [liveExecutionState, setLiveExecutionState] = useState<ExecutionArrayState | null>(null);
 
   // Subscribe to execution updates when using new API (executionMessage + dotbot)
+  // Only re-subscribe if executionId changes (not on every state update)
   useEffect(() => {
     if (!executionMessage || !dotbot) {
       return;
@@ -69,7 +70,7 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
     );
 
     return cleanup;
-  }, [executionMessage?.executionId, executionMessage?.executionArray, dotbot]);
+  }, [executionMessage?.executionId, dotbot]);
 
   // Use live state if available, otherwise fall back to snapshot or legacy state
   const executionState = liveExecutionState || executionMessage?.executionArray || state;
