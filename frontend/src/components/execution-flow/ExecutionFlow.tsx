@@ -11,8 +11,6 @@ import { ExecutionArrayState } from '../../lib/executionEngine/types';
 import type { ExecutionMessage, DotBot } from '../../lib';
 import { isSimulationEnabled } from '../../lib/executionEngine/simulation/simulationConfig';
 import ExecutionFlowHeader from './ExecutionFlowHeader';
-import SimulationBanner from './SimulationBanner';
-import SimulationContainer from './SimulationContainer';
 import ExecutionFlowItem from './ExecutionFlowItem';
 import ExecutionFlowFooter from './ExecutionFlowFooter';
 import {
@@ -25,9 +23,7 @@ import {
   isFlowComplete,
   isFlowExecuting,
   isFlowSuccessful,
-  isFlowFailed,
-  getSimulationBannerType,
-  getSimulationBannerProps
+  isFlowFailed
 } from './executionFlowUtils';
 import '../../styles/execution-flow.css';
 
@@ -114,7 +110,6 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
           isWaitingForApproval={false}
           isExecuting={false}
         />
-        <SimulationContainer executionState={executionState} />
         <div className="execution-flow-loading">
           <Loader2 className="animate-spin" size={24} />
           <p>Preparing transaction flow...</p>
@@ -154,14 +149,10 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   const isSimulating = simulationEnabled && simulationStats.totalSimulating > 0;
   
   // Check simulation results
-  const hasSimulationSuccess = simulationStats.totalCompleted > 0;
-  const hasSimulationFailure = simulationStats.totalFailed > 0;
   const allSimulationsComplete = areAllSimulationsComplete(
     executionState.items,
     isSimulating
-    );
-  const successCount = simulationStats.totalCompleted;
-  const failureCount = simulationStats.totalFailed;
+  );
   
   // Calculate flow state
   const waitingForApproval = isWaitingForApproval(executionState);
@@ -180,18 +171,6 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
     setExpandedItems(newExpanded);
   };
 
-  // Determine which simulation banner to show
-  const bannerType = getSimulationBannerType(
-    simulationEnabled,
-    allSimulationsComplete,
-    hasSimulationSuccess,
-    hasSimulationFailure,
-    isExecuting,
-    waitingForApproval
-  );
-  const bannerProps = getSimulationBannerProps(bannerType, successCount, failureCount);
-  const simulationBanner = bannerProps ? <SimulationBanner {...bannerProps} /> : null;
-  const hasSimulationBanner = bannerType !== null;
   const hasActiveSimulation = simulationEnabled && isSimulating;
 
   return (
@@ -204,18 +183,14 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         isFlowFailed={flowFailed}
       />
 
-      {/* Master Simulation Container - Shows overall simulation progress */}
-      <SimulationContainer executionState={executionState} />
-
-      {/* Legacy Simulation Banner - Only show if simulation is complete and container doesn't show it */}
-      {simulationBanner && !isSimulating && allSimulationsComplete && (
-        simulationBanner
-      )}
-
-      {/* Approval message (only show when no banner/container is active and simulation is not running) */}
-      {!hasSimulationBanner && !hasActiveSimulation && !allSimulationsComplete && waitingForApproval && (
+      {/* Approval message (only show when simulation is not running and waiting for approval) */}
+      {!hasActiveSimulation && !allSimulationsComplete && waitingForApproval && (
         <div className="execution-flow-intro">
-          <p>Review the steps below. Once you accept, your wallet will ask you to sign each transaction.</p>
+          <p>
+            {simulationEnabled 
+              ? 'Review the steps below. Once you accept, your wallet will ask you to sign each transaction.'
+              : 'Review the steps below. Simulation is disabled - transactions will be sent directly to the network. Once you accept, your wallet will ask you to sign each transaction.'}
+          </p>
         </div>
       )}
 
@@ -239,7 +214,7 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         isFlowSuccessful={flowSuccessful}
         isFlowFailed={flowFailed}
         isSimulating={isSimulating}
-        showCancel={!!(onCancel || executionMessage)}
+        showCancel={false}
         showAccept={!!(onAcceptAndStart || executionMessage)}
         onAcceptAndStart={handleAcceptAndStart}
         onCancel={handleCancel}

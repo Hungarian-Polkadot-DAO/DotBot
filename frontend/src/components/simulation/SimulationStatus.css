@@ -7,6 +7,16 @@
   animation: fadeIn 0.3s ease-in;
 }
 
+/* Compact/inline mode - single line display */
+.simulation-status-compact {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -25,10 +35,20 @@
   margin-bottom: 8px;
 }
 
+.simulation-status-compact .simulation-status-header {
+  margin-bottom: 0;
+  padding: 8px 0;
+  gap: 8px;
+}
+
 .simulation-icon {
   font-size: 20px;
   line-height: 1;
   animation: pulse 2s ease-in-out infinite;
+}
+
+.simulation-status-compact .simulation-icon {
+  font-size: 16px;
 }
 
 @keyframes pulse {
@@ -46,6 +66,11 @@
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.4;
+}
+
+.simulation-status-compact .simulation-message {
+  font-size: 13px;
+  flex: 0 1 auto;
 }
 
 .simulation-chain-badge {
@@ -66,6 +91,17 @@
   border-radius: 3px;
   overflow: hidden;
   margin-top: 8px;
+}
+
+/* Inline progress bar for compact mode */
+.simulation-progress-inline {
+  width: 120px;
+  height: 4px;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-left: 8px;
+  flex-shrink: 0;
 }
 
 .simulation-progress-bar {

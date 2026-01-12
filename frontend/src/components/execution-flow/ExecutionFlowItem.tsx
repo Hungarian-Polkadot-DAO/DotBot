@@ -85,35 +85,6 @@ const ExecutionFlowItem: React.FC<ExecutionFlowItemProps> = ({
         )}
       </div>
 
-      {/* Waiting for simulation (item is pending but simulation hasn't started yet) */}
-      {isWaitingForSimulation && (
-        <div className="execution-item-simulation">
-          <div className="simulation-status-waiting">
-            <Loader2 className="animate-spin" size={16} />
-            <span>Waiting for simulation to start...</span>
-          </div>
-        </div>
-      )}
-
-      {/* Simulation Status - Show inline when simulation exists and item is pending/ready (before execution) */}
-      {/* Also show if simulation is in progress (any active phase) */}
-      {item.simulationStatus && (
-        item.status === 'pending' || 
-        item.status === 'ready' ||
-        isActiveSimulationPhase(item.simulationStatus.phase) ||
-        isTerminalSimulationPhase(item.simulationStatus.phase)
-      ) && (
-        <div className="execution-item-simulation">
-          <SimulationStatus
-            phase={item.simulationStatus.phase}
-            message={item.simulationStatus.message}
-            progress={item.simulationStatus.progress}
-            details={item.simulationStatus.details}
-            chain={item.simulationStatus.chain}
-            result={item.simulationStatus.result}
-          />
-        </div>
-      )}
 
       {/* Item Details (Expanded) */}
       {isExpanded && (

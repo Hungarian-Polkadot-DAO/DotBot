@@ -607,7 +607,8 @@ export class DotBot {
       if (executionMessage?.executionPlan) {
         // Rebuild requires new sessions
         // CRITICAL: Pass the original executionId to preserve the ExecutionMessage and prevent duplicates
-        await this.prepareExecution(executionMessage.executionPlan, executionId);
+        // CRITICAL: Skip simulation to prevent double simulation (simulation already ran during initial prepareExecution)
+        await this.prepareExecution(executionMessage.executionPlan, executionId, true);
         executionArray = this.currentChat.getExecutionArray(executionId);
         if (!executionArray) {
           throw new Error('Failed to rebuild execution array');
@@ -841,8 +842,9 @@ export class DotBot {
    * 
    * @param plan ExecutionPlan from LLM
    * @param executionId Optional execution ID to preserve when rebuilding (prevents duplicate ExecutionMessages)
+   * @param skipSimulation If true, skip simulation (used when rebuilding to prevent double simulation)
    */
-  private async prepareExecution(plan: ExecutionPlan, executionId?: string): Promise<void> {
+  private async prepareExecution(plan: ExecutionPlan, executionId?: string, skipSimulation: boolean = false): Promise<void> {
     if (!this.currentChat) {
       throw new Error('No active chat. Cannot prepare execution.');
     }
@@ -879,22 +881,27 @@ export class DotBot {
       // This allows UI to show items in "pending" state before simulation starts
       await this.updateExecutionInChat(executionArray, plan);
       
-      // CRITICAL: Give UI a moment to render items before starting simulation
-      // This ensures users see: 1) Items appear, 2) Simulation starts, 3) Simulation completes
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Step 5: Run simulation if enabled (updates will flow through subscription)
-      console.log('[DotBot] 🎬 Starting simulation for execution:', finalExecutionId);
-      await this.executionSystem.runSimulation(
-        executionArray,
-        this.wallet.address,
-        sessions.relayChain,
-        sessions.assetHub,
-        this.relayChainManager,
-        this.assetHubManager,
-        this.config?.onSimulationStatus
-      );
-      console.log('[DotBot] ✅ Simulation completed for execution:', finalExecutionId);
+      // Step 5: Run simulation if enabled and not skipped (updates will flow through subscription)
+      // Skip simulation when rebuilding (e.g., from startExecution) to prevent double simulation
+      if (!skipSimulation) {
+        // CRITICAL: Give UI a moment to render items before starting simulation
+        // This ensures users see: 1) Items appear, 2) Simulation starts, 3) Simulation completes
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        console.log('[DotBot] 🎬 Starting simulation for execution:', finalExecutionId);
+        await this.executionSystem.runSimulation(
+          executionArray,
+          this.wallet.address,
+          sessions.relayChain,
+          sessions.assetHub,
+          this.relayChainManager,
+          this.assetHubManager,
+          this.config?.onSimulationStatus
+        );
+        console.log('[DotBot] ✅ Simulation completed for execution:', finalExecutionId);
+      } else {
+        console.log('[DotBot] ⏭️ Skipping simulation (rebuild mode) for execution:', finalExecutionId);
+      }
     } catch (error) {
       // Clean up sessions on error
       if (this.currentChat) {

@@ -18,6 +18,8 @@ interface SimulationStatusProps {
     error?: string;
     wouldSucceed?: boolean;
   };
+  /** Compact/inline mode - displays as a single line instead of a box */
+  compact?: boolean;
 }
 
 const formatAmount = (planck: string): string => {
@@ -38,7 +40,8 @@ const SimulationStatus: React.FC<SimulationStatusProps> = ({
   progress,
   details,
   chain,
-  result
+  result,
+  compact = false
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const getPhaseIcon = () => {
@@ -89,6 +92,35 @@ const SimulationStatus: React.FC<SimulationStatusProps> = ({
 
   const showDetails = result && (phase === 'complete' || phase === 'error');
 
+  // Compact/inline mode - single line display
+  if (compact) {
+    return (
+      <div className="simulation-status simulation-status-compact">
+        <div className="simulation-status-header">
+          <span className="simulation-icon" style={{ color: getPhaseColor() }}>
+            {getPhaseIcon()}
+          </span>
+          <span className="simulation-message">{message}</span>
+          {chain && (
+            <span className="simulation-chain-badge">{chain}</span>
+          )}
+          {progress !== undefined && (
+            <div className="simulation-progress-inline">
+              <div 
+                className="simulation-progress-bar"
+                style={{ 
+                  width: `${progress}%`,
+                  backgroundColor: getPhaseColor()
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Full box mode
   return (
     <div className="simulation-status">
       <div className="simulation-status-header">
