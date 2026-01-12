@@ -23,7 +23,7 @@ import { simulateSequentialTransactions } from '../../../../services/simulation/
 import { ApiPromise } from '@polkadot/api';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { BN } from '@polkadot/util';
-import { setup, BuildBlockMode } from '@acala-network/chopsticks-core';
+import { setup } from '@acala-network/chopsticks-core';
 import { encodeAddress, decodeAddress } from '@polkadot/util-crypto';
 
 describe('Sequential Transaction Simulation', () => {
@@ -52,14 +52,38 @@ describe('Sequential Transaction Simulation', () => {
         },
         storageDiff: [],
       }),
-      newBlock: jest.fn().mockImplementation(async function(this: any) {
+      newBlock: jest.fn().mockImplementation(async function(this: any, options: any) {
         // Simulate block building by updating head
         this._currentHead = `0x${Math.random().toString(16).slice(2, 10)}`;
+        // Return a block-like structure with successful outcome (default)
+        // Can be overridden with mockResolvedValueOnce in individual tests
+        return {
+          result: {
+            isOk: true,
+            asOk: {
+              isOk: true,
+            },
+          },
+          extrinsics: [{
+            result: {
+              isOk: true,
+              asOk: {
+                isOk: true,
+              },
+            },
+          }],
+        };
       }),
       query: jest.fn().mockResolvedValue(null),
     };
 
     (setup as jest.Mock).mockResolvedValue(mockChain);
+
+    // Create a shared registry object so extrinsic.registry === api.registry
+    const sharedRegistry = {
+      chainSS58: 0,
+      findMetaError: jest.fn(),
+    };
 
     mockExtrinsics = [
       {
@@ -67,7 +91,7 @@ describe('Sequential Transaction Simulation', () => {
           toHex: jest.fn().mockReturnValue('0xabcd1'),
         },
         toHex: jest.fn().mockReturnValue('0xfull1'),
-        registry: {} as any,
+        registry: sharedRegistry,
         paymentInfo: jest.fn().mockResolvedValue({
           partialFee: { toString: () => '1000000000' },
         }),
@@ -77,7 +101,7 @@ describe('Sequential Transaction Simulation', () => {
           toHex: jest.fn().mockReturnValue('0xabcd2'),
         },
         toHex: jest.fn().mockReturnValue('0xfull2'),
-        registry: {} as any,
+        registry: sharedRegistry,
         paymentInfo: jest.fn().mockResolvedValue({
           partialFee: { toString: () => '2000000000' },
         }),
@@ -89,10 +113,7 @@ describe('Sequential Transaction Simulation', () => {
       genesisHash: {
         toHex: jest.fn().mockReturnValue('0xgenesis'),
       } as any,
-      registry: {
-        chainSS58: 0,
-        findMetaError: jest.fn(),
-      },
+      registry: sharedRegistry,
       rpc: {
         chain: {
           getFinalizedHead: jest.fn().mockResolvedValue({
@@ -153,28 +174,49 @@ describe('Sequential Transaction Simulation', () => {
       expect(result.results).toHaveLength(2);
       expect(result.results[0].description).toBe('Transfer 100 DOT');
       expect(result.results[1].description).toBe('Stake 50 DOT');
-      expect(mockChain.dryRunExtrinsic).toHaveBeenCalledTimes(2);
+      expect(mockChain.newBlock).toHaveBeenCalledTimes(2);
     });
 
     it('should stop on first failure', async () => {
-      mockChain.dryRunExtrinsic
-        .mockResolvedValueOnce({
-          outcome: {
-            isOk: true,
-            asOk: {
+      // Override the default mockImplementation with specific return values
+      mockChain.newBlock
+        .mockImplementationOnce(async function(this: any, options: any) {
+          this._currentHead = `0x${Math.random().toString(16).slice(2, 10)}`;
+          return {
+            result: {
               isOk: true,
+              asOk: {
+                isOk: true,
+              },
             },
-          },
-          storageDiff: [],
+            extrinsics: [{
+              result: {
+                isOk: true,
+                asOk: {
+                  isOk: true,
+                },
+              },
+            }],
+          };
         })
-        .mockResolvedValueOnce({
-          outcome: {
-            isOk: false,
-            asErr: {
-              type: 'InvalidTransaction',
+        .mockImplementationOnce(async function(this: any, options: any) {
+          this._currentHead = `0x${Math.random().toString(16).slice(2, 10)}`;
+          return {
+            result: {
+              isOk: false,
+              asErr: {
+                type: 'InvalidTransaction',
+              },
             },
-          },
-          storageDiff: [],
+            extrinsics: [{
+              result: {
+                isOk: false,
+                asErr: {
+                  type: 'InvalidTransaction',
+                },
+              },
+            }],
+          };
         });
 
       const items = [
@@ -334,7 +376,7 @@ describe('Sequential Transaction Simulation', () => {
       // Should call setup once to create fork
       expect(setup).toHaveBeenCalledTimes(1);
       // Should simulate both transactions on same fork
-      expect(mockChain.dryRunExtrinsic).toHaveBeenCalledTimes(2);
+      expect(mockChain.newBlock).toHaveBeenCalledTimes(2);
     });
   });
 });
