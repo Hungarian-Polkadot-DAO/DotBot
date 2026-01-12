@@ -249,4 +249,3 @@ const SimulationStatus: React.FC<SimulationStatusProps> = ({
 };
 
 export default SimulationStatus;
-

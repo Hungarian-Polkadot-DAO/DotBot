@@ -884,21 +884,21 @@ export class DotBot {
       // Step 5: Run simulation if enabled and not skipped (updates will flow through subscription)
       // Skip simulation when rebuilding (e.g., from startExecution) to prevent double simulation
       if (!skipSimulation) {
-        // CRITICAL: Give UI a moment to render items before starting simulation
-        // This ensures users see: 1) Items appear, 2) Simulation starts, 3) Simulation completes
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        console.log('[DotBot] 🎬 Starting simulation for execution:', finalExecutionId);
-        await this.executionSystem.runSimulation(
-          executionArray,
-          this.wallet.address,
-          sessions.relayChain,
-          sessions.assetHub,
-          this.relayChainManager,
-          this.assetHubManager,
-          this.config?.onSimulationStatus
-        );
-        console.log('[DotBot] ✅ Simulation completed for execution:', finalExecutionId);
+      // CRITICAL: Give UI a moment to render items before starting simulation
+      // This ensures users see: 1) Items appear, 2) Simulation starts, 3) Simulation completes
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      console.log('[DotBot] 🎬 Starting simulation for execution:', finalExecutionId);
+      await this.executionSystem.runSimulation(
+        executionArray,
+        this.wallet.address,
+        sessions.relayChain,
+        sessions.assetHub,
+        this.relayChainManager,
+        this.assetHubManager,
+        this.config?.onSimulationStatus
+      );
+      console.log('[DotBot] ✅ Simulation completed for execution:', finalExecutionId);
       } else {
         console.log('[DotBot] ⏭️ Skipping simulation (rebuild mode) for execution:', finalExecutionId);
       }

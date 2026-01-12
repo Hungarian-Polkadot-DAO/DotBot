@@ -7,16 +7,6 @@
   animation: fadeIn 0.3s ease-in;
 }
 
-/* Compact/inline mode - single line display */
-.simulation-status-compact {
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  padding: 0;
-  margin: 0;
-  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
-}
-
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -28,6 +18,16 @@
   }
 }
 
+/* Compact/inline mode - single line display */
+.simulation-status-compact {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.15);
+}
+
 .simulation-status-header {
   display: flex;
   align-items: center;
@@ -37,7 +37,7 @@
 
 .simulation-status-compact .simulation-status-header {
   margin-bottom: 0;
-  padding: 8px 0;
+  padding: 0;
   gap: 8px;
 }
 
@@ -316,4 +316,3 @@
 [data-theme="dark"] .error-row {
   border-top-color: rgba(239, 68, 68, 0.3);
 }
-

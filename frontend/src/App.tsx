@@ -29,7 +29,6 @@ import {
   setupScenarioEngineDependencies
 } from './utils/appUtils';
 import './styles/globals.css';
-import './styles/execution-flow.css';
 import './styles/chat-history.css';
 import './styles/chat-history-card.css';
 
