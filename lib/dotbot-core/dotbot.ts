@@ -24,7 +24,7 @@ import { BrowserWalletSigner } from './executionEngine/signers/browserSigner';
 import { buildSystemPrompt } from './prompts/system/loader';
 import { ExecutionPlan } from './prompts/system/execution/types';
 import { SigningRequest, BatchSigningRequest, ExecutionOptions } from './executionEngine/types';
-import { WalletAccount } from '../types/wallet';
+import { WalletAccount } from './types/wallet';
 import { processSystemQueries, areSystemQueriesEnabled } from './prompts/system/systemQuery';
 import { RpcManager, createRpcManagersForNetwork, Network, ExecutionSession } from './rpcManager';
 import { SimulationStatusCallback } from './agents/types';

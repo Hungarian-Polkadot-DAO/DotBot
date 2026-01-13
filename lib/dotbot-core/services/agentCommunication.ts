@@ -1,6 +1,6 @@
 // Agent communication service - works independently of backend
 
-import { AgentRequest, AgentResponse, AgentInfo, AgentStatus } from '../../types/agents';
+import { AgentRequest, AgentResponse, AgentInfo, AgentStatus } from '../types/agents';
 import { AIService, AIServiceConfig, AIProviderType } from './ai/aiService';
 import { createSubsystemLogger, Subsystem } from './logger';
 import { getEnv } from '../env';
@@ -86,8 +86,8 @@ export class AgentCommunicationService {
   }
 
   // Get specific agent info
-  getAgent(agentId: string): AgentInfo | null {
-    return this.agents.get(agentId) || null;
+  getAgent(agent: string): AgentInfo | null {
+    return this.agents.get(agent) || null;
   }
 
   // Route message to appropriate agent
@@ -116,7 +116,7 @@ export class AgentCommunicationService {
   async sendToAgent(request: AgentRequest): Promise<AgentResponse> {
     try {
       this.logger.info({
-        agentId: request.agentId,
+        agent: request.agent,
         messageLength: request.message.length,
         hasContext: !!request.context,
         providerType: this.aiService.getProviderType()
@@ -124,7 +124,7 @@ export class AgentCommunicationService {
 
       // Use AI service for AI-powered responses (supports multiple providers)
       const aiResponse = await this.aiService.sendMessage(request.message, {
-        agentId: request.agentId,
+        agent: request.agent,
         walletAddress: request.context?.userWallet,
         network: request.context?.network || 'Polkadot',
         conversationHistory: request.context?.conversationHistory || []
@@ -132,7 +132,8 @@ export class AgentCommunicationService {
 
       // Create agent response
       const response: AgentResponse = {
-        agentId: request.agentId,
+        success: true,
+        agent: request.agent,
         messageId: Date.now().toString(),
         content: aiResponse,
         type: 'text',
@@ -140,12 +141,12 @@ export class AgentCommunicationService {
         metadata: {
           confidence: 0.9,
           requiresAction: this.requiresUserAction(request.message),
-          suggestions: this.generateSuggestions(request.agentId, request.message)
+          suggestions: this.generateSuggestions(request.agent, request.message)
         }
       };
 
       this.logger.info({
-        agentId: request.agentId,
+        agent: request.agent,
         responseLength: aiResponse.length,
         messageId: response.messageId,
         providerType: this.aiService.getProviderType()
@@ -155,7 +156,7 @@ export class AgentCommunicationService {
 
     } catch (error) {
       this.logger.error({
-        agentId: request.agentId,
+        agent: request.agent,
         error: error instanceof Error ? error.message : 'Unknown error'
       }, 'Agent communication error');
       
@@ -168,7 +169,7 @@ export class AgentCommunicationService {
   private async callAgentVerse(request: AgentRequest): Promise<AgentResponse> {
     const asiOneEndpoint = getEnv('ASI_ONE_ENDPOINT') || 'https://api.asi1.ai/v1';
     const apiKey = getEnv('ASI_ONE_API_KEY') || '';
-    const agentEndpoint = `${asiOneEndpoint}/agents/${request.agentId}`;
+    const agentEndpoint = `${asiOneEndpoint}/agents/${request.agent}`;
     
     const response = await fetch(agentEndpoint, {
       method: 'POST',
@@ -190,7 +191,8 @@ export class AgentCommunicationService {
     const data = await response.json();
     
     return {
-      agentId: request.agentId,
+      success: true,
+      agent: request.agent,
       messageId: Date.now().toString(),
       content: data.response || data.content,
       type: data.type || 'text',
@@ -204,7 +206,7 @@ export class AgentCommunicationService {
     // Simulate agent thinking time
     await new Promise(resolve => setTimeout(resolve, 1000));
 
-    const agent = this.getAgent(request.agentId);
+    const agent = this.getAgent(request.agent);
     const agentName = agent?.name || 'Agent';
 
     // Simple fallback responses
@@ -212,12 +214,13 @@ export class AgentCommunicationService {
                  `However, I'm currently running in offline mode. ` +
                  `Please connect to the network for full functionality.`;
 
-    if (request.agentId === 'asset-transfer') {
+    if (request.agent === 'asset-transfer') {
       content = `I can help you with transfers! To complete this operation, I'll need to connect to the Polkadot network and your wallet.`;
     }
 
     return {
-      agentId: request.agentId,
+      success: true,
+      agent: request.agent,
       messageId: Date.now().toString(),
       content,
       type: 'text',
@@ -237,11 +240,11 @@ export class AgentCommunicationService {
   }
 
   // Generate contextual suggestions based on agent and message
-  private generateSuggestions(agentId: string, message: string): string[] {
+  private generateSuggestions(agent: string, message: string): string[] {
     const suggestions: string[] = [];
     const lowerMessage = message.toLowerCase();
 
-    switch (agentId) {
+    switch (agent) {
       case 'asset-transfer':
         if (lowerMessage.includes('balance')) {
           suggestions.push('Check my DOT balance', 'Show all token balances', 'Check balance on different networks');
@@ -288,9 +291,9 @@ export class AgentCommunicationService {
     // Test AI service connectivity
     const aiServiceAvailable = await this.aiService.testConnection();
     
-    for (const agentId of this.agents.keys()) {
-      availability[agentId] = aiServiceAvailable;
-      this.updateAgentStatus(agentId, aiServiceAvailable ? 'online' : 'offline');
+    for (const agent of this.agents.keys()) {
+      availability[agent] = aiServiceAvailable;
+      this.updateAgentStatus(agent, aiServiceAvailable ? 'online' : 'offline');
     }
     
     return availability;

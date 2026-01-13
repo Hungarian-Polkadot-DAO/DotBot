@@ -50,7 +50,7 @@ class Web3AuthService {
     try {
       const extensions = await this.enablePromise;
 
-      if (extensions.length === 0) {
+      if (!extensions || extensions.length === 0) {
         throw new Error('No Web3 extensions found. Please install Talisman, Subwallet, or another Polkadot wallet extension.');
       }
 
@@ -79,7 +79,7 @@ class Web3AuthService {
 
       const accounts = await web3Accounts();
 
-      return accounts.map(account => ({
+      return accounts.map((account: any) => ({
         address: account.address,
         name: account.meta?.name || 'Unnamed Account',
         source: account.meta?.source || 'unknown',
@@ -138,7 +138,7 @@ class Web3AuthService {
       const accounts = await web3Accounts();
       console.log('Accounts:', accounts);
       
-      return accounts.map(account => ({
+      return accounts.map((account: any) => ({
         address: account.address,
         name: account.meta?.name || 'Unnamed Account',
         source: account.meta?.source || 'unknown',

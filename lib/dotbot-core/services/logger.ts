@@ -3,15 +3,9 @@ import { Subsystem, ErrorType } from './types/logging';
 import { getEnv } from '../env';
 
 // Read version from package.json with fallback
-let LIB_VERSION = "0.1.0-fallback";
-try {
-  // Try to read from frontend package.json
-  // Path: frontend/src/lib/services -> frontend/package.json (up 3 levels)
-  const packageJson = require("../../../package.json");
-  LIB_VERSION = packageJson.version;
-} catch (error) {
-  // Silently use fallback version
-}
+// Note: After compilation to dist/, relative paths to package.json don't work
+// Use environment variable or hardcode version (matches package.json version)
+let LIB_VERSION = process.env.DOTBOT_CORE_VERSION || "0.5.0";
 
 // Detect environment
 const isDevelopment = process.env.NODE_ENV === 'development';

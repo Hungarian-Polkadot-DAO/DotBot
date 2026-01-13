@@ -11,7 +11,7 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { Registry } from '@polkadot/types/types';
 
-interface EndpointHealth {
+export interface EndpointHealth {
   endpoint: string;
   healthy: boolean;
   lastChecked: number;

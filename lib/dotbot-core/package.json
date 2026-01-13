@@ -2,37 +2,61 @@
   "name": "@dotbot/core",
   "version": "0.5.0",
   "description": "DotBot core library for Polkadot operations through natural language",
-  "main": "index.ts",
-  "types": "index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
   "author": "",
   "license": "GNU General Public License v3.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build"
+  },
   "dependencies": {
-    "@polkadot/api": "^10.12.4",
-    "@polkadot/keyring": "^12.6.2",
-    "@polkadot/types": "^10.12.4",
-    "@polkadot/util": "^12.6.2",
-    "@polkadot/util-crypto": "^12.6.2",
+    "@polkadot/api": "^14.3.1",
+    "@polkadot/keyring": "^14.0.1",
+    "@polkadot/types": "^14.3.1",
+    "@polkadot/util": "^14.0.1",
+    "@polkadot/util-crypto": "^14.0.1",
     "pino": "^9.9.4"
   },
   "peerDependencies": {
-    "@polkadot/api": "^10.12.4"
+    "@polkadot/api": "^14.3.1",
+    "@polkadot/extension-dapp": "^0.53.1"
+  },
+  "optionalDependencies": {
+    "@acala-network/chopsticks-core": "^1.2.5",
+    "idb": "^8.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@polkadot/extension-dapp": "^0.53.1",
+    "@acala-network/chopsticks-core": "^1.2.5",
+    "idb": "^8.0.3"
   },
   "exports": {
     ".": {
-      "import": "./index.ts",
-      "require": "./index.ts",
-      "types": "./index.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./*": {
+      "import": "./dist/*.js",
+      "types": "./dist/*.d.ts"
     },
     "./agents": {
-      "import": "./agents/index.ts",
-      "require": "./agents/index.ts",
-      "types": "./agents/index.ts"
+      "import": "./dist/agents/index.js",
+      "types": "./dist/agents/index.d.ts"
     },
     "./prompts": {
-      "import": "./prompts/system/index.ts",
-      "require": "./prompts/system/index.ts",
-      "types": "./prompts/system/index.ts"
+      "import": "./dist/prompts/system/index.js",
+      "types": "./dist/prompts/system/index.d.ts"
+    },
+    "./scenarioEngine": {
+      "import": "./dist/scenarioEngine/index.js",
+      "types": "./dist/scenarioEngine/index.d.ts"
     }
-  }
+  },
+  "files": [
+    "dist"
+  ]
 }
 
