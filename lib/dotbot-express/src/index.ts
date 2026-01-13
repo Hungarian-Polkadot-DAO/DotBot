@@ -5,5 +5,15 @@
  */
 
 export { default as chatRouter } from './routes/chat';
+export { default as dotbotRouter } from './routes/dotbot';
 export { errorHandler, notFoundHandler } from './middleware/errorHandler';
 export { requestLogger } from './middleware/requestLogger';
+export { 
+  logger, 
+  createLogger, 
+  requestLogger as httpLogger,
+  apiLogger, 
+  dotbotLogger, 
+  sessionLogger, 
+  errorLogger 
+} from './utils/logger';

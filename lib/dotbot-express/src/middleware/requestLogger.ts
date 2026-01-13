@@ -4,10 +4,11 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { requestLogger as logger } from '../utils/logger';
 
 /**
- * Simple request logger middleware
- * Logs method, path, and response time
+ * Request logger middleware
+ * Logs method, path, response time, and status code
  */
 export function requestLogger(
   req: Request,
@@ -18,21 +19,21 @@ export function requestLogger(
   
   res.on('finish', () => {
     const duration = Date.now() - startTime;
-    const logLevel = res.statusCode >= 400 ? 'error' : 'info';
-    
     const logData = {
       method: req.method,
       path: req.path,
       status: res.statusCode,
       duration: `${duration}ms`,
       ip: req.ip,
-      userAgent: req.get('user-agent')
+      userAgent: req.get('user-agent'),
     };
 
-    if (logLevel === 'error') {
-      console.error('[Request]', logData);
+    if (res.statusCode >= 500) {
+      logger.error(logData, 'Request failed');
+    } else if (res.statusCode >= 400) {
+      logger.warn(logData, 'Request error');
     } else {
-      console.log('[Request]', logData);
+      logger.info(logData, 'Request completed');
     }
   });
 

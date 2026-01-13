@@ -1,10 +1,15 @@
 /**
- * Chat API Route
- * Handles chat interactions with DotBot
+ * Simple Chat API Route
+ * 
+ * Provides a simple AI chat endpoint without blockchain functionality.
+ * This is a lightweight alternative to /api/dotbot/chat for basic AI interactions.
+ * 
+ * Use /api/dotbot/chat for full DotBot functionality (blockchain operations, execution, etc.)
  */
 
 import { Router, Request, Response } from 'express';
 import { AIService, AIServiceConfig, AIProviderType } from '@dotbot/core/services/ai';
+import { apiLogger, errorLogger } from '../utils/logger';
 
 const router = Router();
 
@@ -44,8 +49,19 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    apiLogger.info({ 
+      messageLength: message.length,
+      hasContext: !!context,
+      provider 
+    }, 'Processing simple chat request');
+
     const aiService = createAIService(provider);
     const response = await aiService.sendMessage(message, context);
+
+    apiLogger.info({ 
+      provider: aiService.getProviderType(),
+      responseLength: response.length 
+    }, 'Chat response generated');
 
     res.json({
       success: true,
@@ -55,7 +71,10 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('[Chat API] Error processing chat request:', error);
+    errorLogger.error({ 
+      error: error.message,
+      stack: error.stack 
+    }, 'Error processing chat request');
     
     res.status(500).json({
       error: 'Internal server error',

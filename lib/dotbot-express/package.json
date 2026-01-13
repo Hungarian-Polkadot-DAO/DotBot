@@ -15,7 +15,11 @@
   "license": "GNU General Public License v3.0",
   "dependencies": {
     "@dotbot/core": "file:../dotbot-core",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "pino": "^9.9.4"
+  },
+  "devDependencies": {
+    "pino-pretty": "^11.2.2"
   },
   "peerDependencies": {
     "express": "^4.18.2"
