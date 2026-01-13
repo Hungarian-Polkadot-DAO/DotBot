@@ -1,7 +1,7 @@
 // Wallet-related types for DotBot frontend
 
 // Import and re-export core wallet types from lib
-import type { WalletAccount } from '../lib/types/wallet';
+import type { WalletAccount } from '@dotbot/core/types/wallet';
 export type { WalletAccount };
 
 export interface WalletInfo {

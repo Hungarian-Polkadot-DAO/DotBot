@@ -5,7 +5,7 @@
  * Extracted to follow single responsibility and keep functions under 40 lines.
  */
 
-import type { DotBot, Scenario, ScenarioChain } from '../../../lib';
+import type { DotBot, Scenario, ScenarioChain } from '@dotbot/core';
 
 /**
  * Determine the appropriate chain for a scenario

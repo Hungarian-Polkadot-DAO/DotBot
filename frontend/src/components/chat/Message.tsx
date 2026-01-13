@@ -10,7 +10,7 @@ import React from 'react';
 import { User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import dotbotFavicon from '../../assets/dotbot-favicon.svg';
-import type { TextMessage, SystemMessage } from '../../lib';
+import type { TextMessage, SystemMessage } from '@dotbot/core';
 
 interface MessageProps {
   message: TextMessage | SystemMessage;

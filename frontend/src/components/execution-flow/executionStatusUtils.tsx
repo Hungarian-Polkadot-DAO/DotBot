@@ -4,7 +4,7 @@
 
 import React from 'react';
 import { CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
-import { ExecutionItem } from '../../lib/executionEngine/types';
+import { ExecutionItem } from '@dotbot/core/executionEngine/types';
 
 export const getStatusIcon = (status: ExecutionItem['status']) => {
   switch (status) {

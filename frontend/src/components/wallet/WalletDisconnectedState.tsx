@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { Environment } from '../../lib';
+import { Environment } from '@dotbot/core';
 import { WalletAccount } from '../../types/wallet';
 import WalletErrorCard from './WalletErrorCard';
 import WalletAccountsList from './WalletAccountsList';

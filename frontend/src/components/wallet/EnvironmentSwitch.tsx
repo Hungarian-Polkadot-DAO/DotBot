@@ -10,7 +10,7 @@
 
 import React, { useState } from 'react';
 import { Info, Loader2 } from 'lucide-react';
-import { Environment } from '../../lib';
+import { Environment } from '@dotbot/core';
 import '../../styles/environment-switch.css';
 
 interface EnvironmentSwitchProps {

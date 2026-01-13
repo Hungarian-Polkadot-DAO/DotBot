@@ -8,10 +8,10 @@
  */
 
 import React, { useEffect, useCallback } from 'react';
-import { Environment } from '../../lib/index';
+import { Environment } from '@dotbot/core';
 import { useWalletStore } from '../../stores/walletStore';
 import { WalletAccount } from '../../types/wallet';
-import { web3AuthService } from '../../lib/services/web3AuthService';
+import { web3AuthService } from '@dotbot/core/services/web3AuthService';
 import { useDebouncedClick } from '../../hooks/useDebounce';
 import WalletModalHeader from './WalletModalHeader';
 import WalletConnectedState from './WalletConnectedState';

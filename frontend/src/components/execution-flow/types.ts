@@ -4,7 +4,7 @@
  * Consolidated type definitions for execution flow components
  */
 
-import { ExecutionMessage, DotBot } from '../../lib';
+import { ExecutionMessage, DotBot } from '@dotbot/core';
 
 /**
  * Main ExecutionFlow component props

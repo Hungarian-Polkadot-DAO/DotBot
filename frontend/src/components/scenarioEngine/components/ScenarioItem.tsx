@@ -6,7 +6,7 @@
 
 import React, { useState } from 'react';
 import { Play, ChevronDown, ChevronRight } from 'lucide-react';
-import { Scenario } from '../../../lib';
+import { Scenario } from '@dotbot/core';
 
 interface ScenarioItemProps {
   scenario: Scenario;

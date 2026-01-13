@@ -5,9 +5,9 @@
  */
 
 import React from 'react';
-import { ExecutionArrayState } from '../../../lib/executionEngine/types';
-import { isSimulationEnabled } from '../../../lib/executionEngine/simulation/simulationConfig';
-import { getSimulationStats, areAllSimulationsComplete } from '../simulationUtils';
+import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
+import { isSimulationEnabled } from '@dotbot/core/executionEngine/simulation/simulationConfig';
+import { getSimulationStats } from '../simulationUtils';
 import SimulationStatus from './SimulationStatus';
 
 export interface SimulationStatusLineProps {

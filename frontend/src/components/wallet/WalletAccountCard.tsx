@@ -7,7 +7,7 @@
  */
 
 import React from 'react';
-import { Environment } from '../../lib';
+import { Environment } from '@dotbot/core';
 import EnvironmentBadge from './EnvironmentBadge';
 
 interface WalletAccountCardProps {

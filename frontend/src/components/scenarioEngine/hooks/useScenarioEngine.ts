@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { ScenarioEngine, DotBot, Scenario, TestEntity } from '../../../lib';
+import { ScenarioEngine, DotBot, TestEntity } from '@dotbot/core';
 
 interface ExecutionPhase {
   phase: 'beginning' | 'cycle' | 'final-report' | null;

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { DotBot, ConversationItem, DotBotEvent } from '../../lib';
+import type { DotBot, ConversationItem, DotBotEvent } from '@dotbot/core';
 import MessageList from './MessageList';
 import ConversationItems from './ConversationItems';
 import ChatInput from './ChatInput';

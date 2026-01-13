@@ -5,8 +5,8 @@
  * Extracted to follow single responsibility and keep functions under 40 lines.
  */
 
-import { DotBot, Environment, Network, createRpcManagersForNetwork, ScenarioEngine } from '../lib';
-import type { RpcManager } from '../lib/rpcManager';
+import { DotBot, Environment, Network, createRpcManagersForNetwork, ScenarioEngine } from '@dotbot/core';
+import type { RpcManager } from '@dotbot/core/rpcManager';
 
 export interface WalletAccount {
   address: string;

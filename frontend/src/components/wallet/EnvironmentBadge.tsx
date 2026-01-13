@@ -7,7 +7,7 @@
 
 import React from 'react';
 import '../../styles/environment-badge.css';
-import { Environment } from '../../lib/';
+import { Environment } from '@dotbot/core';
 
 interface EnvironmentBadgeProps {
   environment: Environment;

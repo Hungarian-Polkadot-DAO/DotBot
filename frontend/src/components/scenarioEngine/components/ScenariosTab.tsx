@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Scenario } from '../../../lib';
+import { Scenario } from '@dotbot/core';
 import { ModeSelector, ExecutionMode } from './ModeSelector';
 import { ScenarioCategory } from './ScenarioCategory';
 import type { TestCategory } from '../constants';

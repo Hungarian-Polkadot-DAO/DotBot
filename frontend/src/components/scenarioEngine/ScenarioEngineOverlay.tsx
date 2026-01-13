@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { ScenarioEngine, DotBot, Scenario } from '../../lib';
+import { ScenarioEngine, DotBot, Scenario } from '@dotbot/core';
 import { X } from 'lucide-react';
 import { EntitiesTab } from './components/EntitiesTab';
 import { ScenariosTab } from './components/ScenariosTab';

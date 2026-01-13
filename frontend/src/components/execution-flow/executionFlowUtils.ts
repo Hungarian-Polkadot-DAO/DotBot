@@ -5,8 +5,8 @@
  * KISS: Keeps component logic simple and focused.
  */
 
-import { ExecutionArrayState } from '../../lib/executionEngine/types';
-import { ExecutionMessage, DotBot } from '../../lib';
+import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
+import { ExecutionMessage, DotBot } from '@dotbot/core';
 
 /**
  * Setup execution state subscription

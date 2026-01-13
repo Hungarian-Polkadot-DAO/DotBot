@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { ExecutionArrayState } from '../../lib/executionEngine/types';
+import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 import { ApprovalActions, ProgressBar } from './components';
 
 export interface ExecutionFlowFooterProps {

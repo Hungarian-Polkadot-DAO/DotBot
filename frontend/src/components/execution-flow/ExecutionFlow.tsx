@@ -6,9 +6,9 @@
  */
 
 import React from 'react';
-import type { ExecutionMessage, DotBot } from '../../lib';
-import { ExecutionArrayState } from '../../lib/executionEngine/types';
-import { isSimulationEnabled } from '../../lib/executionEngine/simulation/simulationConfig';
+import type { ExecutionMessage, DotBot } from '@dotbot/core';
+import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
+import { isSimulationEnabled } from '@dotbot/core/executionEngine/simulation/simulationConfig';
 import { useExecutionFlowState, useExpandedItems } from './hooks';
 import { LoadingState, ApprovalMessage } from './components';
 import ExecutionFlowHeader from './ExecutionFlowHeader';

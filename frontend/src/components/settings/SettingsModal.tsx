@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { X, Beaker, Shield } from 'lucide-react';
-import { getSimulationConfig, updateSimulationConfig } from '../../lib/executionEngine/simulation/simulationConfig';
+import { getSimulationConfig, updateSimulationConfig } from '@dotbot/core/executionEngine/simulation/simulationConfig';
 import '../../styles/settings-modal.css';
 
 interface SettingsModalProps {

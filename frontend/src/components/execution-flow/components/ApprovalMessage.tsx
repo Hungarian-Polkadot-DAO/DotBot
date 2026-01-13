@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { isSimulationEnabled } from '../../../lib/executionEngine/simulation/simulationConfig';
+import { isSimulationEnabled } from '@dotbot/core/executionEngine/simulation/simulationConfig';
 
 export interface ApprovalMessageProps {
   simulationEnabled?: boolean;

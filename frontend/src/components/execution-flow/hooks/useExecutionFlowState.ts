@@ -3,8 +3,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import { ExecutionArrayState } from '../../../lib/executionEngine/types';
-import { ExecutionMessage, DotBot } from '../../../lib';
+import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
+import { ExecutionMessage, DotBot } from '@dotbot/core';
 import { setupExecutionSubscription } from '../executionFlowUtils';
 
 /**

@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { Scenario } from '../../../lib';
+import { Scenario } from '@dotbot/core';
 import { ScenarioItem } from './ScenarioItem';
 
 interface ScenarioCategoryProps {

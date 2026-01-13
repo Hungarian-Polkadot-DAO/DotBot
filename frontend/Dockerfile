@@ -4,14 +4,21 @@ FROM node:18-alpine as builder
 # Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy shared libraries first (needed for file: dependencies)
+COPY lib/ ./lib/
 
-# Install dependencies
-RUN npm install
+# Copy frontend package files
+COPY frontend/package*.json ./frontend/
+COPY frontend/tsconfig.json ./frontend/
+COPY frontend/craco.config.js ./frontend/
+COPY frontend/public ./frontend/public
 
-# Copy source code
-COPY . .
+# Install frontend dependencies (npm will resolve file:../lib/dotbot-core)
+WORKDIR /app/frontend
+RUN npm ci
+
+# Copy frontend source code
+COPY frontend/src ./src
 
 # Build the application
 RUN npm run build
@@ -23,7 +30,7 @@ FROM nginx:alpine
 RUN apk add --no-cache curl
 
 # Copy built app to nginx
-COPY --from=builder /app/build /usr/share/nginx/html
+COPY --from=builder /app/frontend/build /usr/share/nginx/html
 
 # Create minimal nginx configuration for container
 RUN cat > /etc/nginx/conf.d/default.conf << 'EOF'

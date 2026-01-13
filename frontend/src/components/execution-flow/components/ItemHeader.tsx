@@ -6,9 +6,9 @@
 
 import React from 'react';
 import { ChevronRight } from 'lucide-react';
-import { ExecutionItem } from '../../../lib/executionEngine/types';
+import { ExecutionItem } from '@dotbot/core/executionEngine/types';
 import { getStatusIcon, getStatusLabel, getStatusColor } from '../executionStatusUtils';
-import { isSimulationEnabled } from '../../../lib/executionEngine/simulation/simulationConfig';
+import { isSimulationEnabled } from '@dotbot/core/executionEngine/simulation/simulationConfig';
 
 export interface ItemHeaderProps {
   item: ExecutionItem;

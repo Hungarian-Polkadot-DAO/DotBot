@@ -7,8 +7,8 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChatInstanceData } from '../../lib/types/chatInstance';
-import type { DotBot } from '../../lib/dotbot';
+import type { ChatInstanceData } from '@dotbot/core/types/chatInstance';
+import type { DotBot } from '@dotbot/core';
 import EnvironmentBadge from '../wallet/EnvironmentBadge';
 import ConfirmationModal from '../common/ConfirmationModal';
 import { Trash2 } from 'lucide-react';

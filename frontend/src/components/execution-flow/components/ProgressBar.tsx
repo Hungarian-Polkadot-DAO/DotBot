@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { ExecutionArrayState } from '../../../lib/executionEngine/types';
+import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 
 export interface ProgressBarProps {
   executionState: ExecutionArrayState;

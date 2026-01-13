@@ -18,11 +18,11 @@ import Chat from './components/chat/Chat';
 import ChatHistory from './components/history/ChatHistory';
 import ScenarioEngineOverlay from './components/scenarioEngine/ScenarioEngineOverlay';
 import LoadingOverlay from './components/common/LoadingOverlay';
-import { DotBot, Environment, ScenarioEngine } from './lib';
-import type { ChatInstanceData } from './lib/types/chatInstance';
+import { DotBot, Environment, ScenarioEngine } from '@dotbot/core';
+import type { ChatInstanceData } from '@dotbot/core/types/chatInstance';
 import { useWalletStore } from './stores/walletStore';
-import { ASIOneService } from './lib/services/asiOneService';
-import { SigningRequest, BatchSigningRequest } from './lib';
+import { ASIOneService } from '@dotbot/core/services/asiOneService';
+import { SigningRequest, BatchSigningRequest } from '@dotbot/core';
 import { Settings } from 'lucide-react';
 import {
   createDotBotInstance,

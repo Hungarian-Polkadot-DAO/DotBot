@@ -5,8 +5,8 @@
  * DRY: Centralizes repeated simulation phase checks across components.
  */
 
-import { ExecutionItem } from '../../lib/executionEngine/types';
-import { ExecutionArrayState } from '../../lib/executionEngine/types';
+import { ExecutionItem } from '@dotbot/core/executionEngine/types';
+import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 
 /**
  * Active simulation phases - phases that indicate simulation is in progress

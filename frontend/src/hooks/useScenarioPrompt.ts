@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import type { ScenarioEngine } from '../lib';
+import type { ScenarioEngine } from '@dotbot/core';
 
 interface InjectedPrompt {
   prompt: string;

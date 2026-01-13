@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { ExecutionItem } from '../../../../lib/executionEngine/types';
+import { ExecutionItem } from '@dotbot/core/executionEngine/types';
 
 export interface ErrorSectionProps {
   item: ExecutionItem;

@@ -20,14 +20,9 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "downlevelIteration": true,
-    "baseUrl": "..",
-    "paths": {
-      "@dotbot/core": ["lib/dotbot-core"],
-      "@dotbot/core/*": ["lib/dotbot-core/*"]
-    }
+    "baseUrl": "src"
   },
   "include": [
-    "src",
-    "../lib/dotbot-core"
+    "src"
   ]
 }

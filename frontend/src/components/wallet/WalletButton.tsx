@@ -3,7 +3,7 @@ import { useWalletStore } from '../../stores/walletStore';
 import WalletModal from './WalletModal';
 import EnvironmentBadge from './EnvironmentBadge';
 import walletIcon from '../../assets/wallet.svg';
-import { Environment } from '../../lib/index';
+import { Environment } from '@dotbot/core';
 
 interface WalletButtonProps {
   environment?: Environment;

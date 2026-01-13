@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import type { DotBot, ConversationItem } from '../../lib';
+import type { DotBot, ConversationItem } from '@dotbot/core';
 import Message from './Message';
 import ExecutionFlow from '../execution-flow/ExecutionFlow';
 

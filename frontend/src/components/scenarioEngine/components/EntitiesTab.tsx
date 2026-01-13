@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { Trash2 } from 'lucide-react';
-import { ScenarioEngine, DotBot } from '../../../lib';
+import { ScenarioEngine, DotBot } from '@dotbot/core';
 import { ModeSelector, ExecutionMode } from './ModeSelector';
 import { EntityList } from './EntityList';
 

@@ -12,8 +12,8 @@ import {
   CONTEXT_AWARENESS_TESTS,
   KNOWLEDGE_TESTS,
   STATE_ALLOCATION_TESTS,
-} from '../../lib/scenarioEngine';
-import { Scenario } from '../../lib';
+} from '@dotbot/core/scenarioEngine';
+import { Scenario } from '@dotbot/core';
 
 export interface TestCategory {
   category: string;

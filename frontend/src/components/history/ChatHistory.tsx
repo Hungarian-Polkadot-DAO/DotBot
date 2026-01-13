@@ -6,8 +6,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import type { ChatInstanceData } from '../../lib/types/chatInstance';
-import type { DotBot } from '../../lib/dotbot';
+import type { ChatInstanceData } from '@dotbot/core/types/chatInstance';
+import type { DotBot } from '@dotbot/core';
 import ChatHistoryCard from './ChatHistoryCard';
 import '../../styles/chat-history.css';
 

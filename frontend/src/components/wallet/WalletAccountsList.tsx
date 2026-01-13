@@ -8,7 +8,7 @@
 
 import React from 'react';
 import { Plus } from 'lucide-react';
-import { Environment } from '../../lib';
+import { Environment } from '@dotbot/core';
 import { WalletAccount } from '../../types/wallet';
 import { useDebouncedClick } from '../../hooks/useDebounce';
 import WalletAccountItem from './WalletAccountItem';

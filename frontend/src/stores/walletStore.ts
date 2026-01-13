@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { WalletAccount, WalletState } from '../types/wallet';
-import web3AuthService from '../lib/services/web3AuthService';
+import web3AuthService from '@dotbot/core/services/web3AuthService';
 
 interface WalletStore extends WalletState {
   // Actions
