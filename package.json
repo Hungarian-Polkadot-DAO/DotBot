@@ -1,0 +1,20 @@
+{
+  "name": "dotbot-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "backend/lib/dotbot-core",
+    "backend/lib/dotbot-express",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:frontend": "npm run start --workspace=frontend",
+    "build": "npm run build --workspace=backend && npm run build --workspace=frontend",
+    "install:all": "npm install && npm run install --workspaces"
+  },
+  "devDependencies": {
+    "lerna": "^8.0.0"
+  }
+}
