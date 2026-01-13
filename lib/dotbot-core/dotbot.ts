@@ -18,7 +18,7 @@
 
 import { ApiPromise } from '@polkadot/api';
 import { ExecutionSystem } from './executionEngine/system';
-import { ExecutionArrayState, ExecutionItem } from './executionEngine/types';
+import { ExecutionArrayState } from './executionEngine/types';
 import { ExecutionArray } from './executionEngine/executionArray';
 import { BrowserWalletSigner } from './executionEngine/signers/browserSigner';
 import { buildSystemPrompt } from './prompts/system/loader';
@@ -41,6 +41,9 @@ import {
   type SimulationConfig,
 } from './executionEngine/simulation/simulationConfig';
 
+// Forward declaration to avoid circular dependency
+type AIServiceType = import('./services/ai/aiService').AIService;
+
 export interface DotBotConfig {
   /** Wallet account */
   wallet: WalletAccount;
@@ -51,10 +54,13 @@ export interface DotBotConfig {
   /** Environment (defaults to 'mainnet') */
   environment?: Environment;
   
-  /** LLM API endpoint (for custom LLM) */
+  /** AI Service for LLM communication (optional - if not provided, use custom LLM in chat options) */
+  aiService?: AIServiceType;
+  
+  /** LLM API endpoint (for custom LLM - legacy) */
   llmEndpoint?: string;
   
-  /** LLM API key */
+  /** LLM API key (for custom LLM - legacy) */
   llmApiKey?: string;
   
   /** Signing request handler (REQUIRED for transactions) */
@@ -171,6 +177,9 @@ export class DotBot {
   private relayChainManager: RpcManager;
   private assetHubManager: RpcManager;
   
+  // AI Service for LLM communication (optional - can be used in any context, current frontend not using it)
+  private aiService?: AIServiceType;
+  
   // Chat instance management (built-in) - execution lives here!
   // NOTE: Execution sessions are now stored in ChatInstance, not here
   private chatManager: ChatInstanceManager;
@@ -200,6 +209,7 @@ export class DotBot {
     this.assetHubManager = assetHubManager;
     this.chatManager = chatManager;
     this.chatPersistenceEnabled = !config.disableChatPersistence;
+    this.aiService = config.aiService;
   }
   
   /**
@@ -1195,7 +1205,7 @@ export class DotBot {
       const relayChainDecimals = this.api.registry.chainDecimals?.[0];
       const assetHubDecimals = this.assetHubApi?.registry.chainDecimals?.[0];
       
-      const systemPrompt = buildSystemPrompt({
+      const systemPrompt = await buildSystemPrompt({
         wallet: {
           isConnected: true,
           address: this.wallet.address,
@@ -1227,12 +1237,12 @@ export class DotBot {
       return systemPrompt;
     } catch (error) {
       // Fallback to basic prompt if context fetch fails
-      return buildSystemPrompt();
+      return await buildSystemPrompt();
     }
   }
   
   /**
-   * Call LLM (can be overridden with custom function)
+   * Call LLM (can be overridden with custom function or AI service)
    */
   private async callLLM(
     message: string, 
@@ -1240,6 +1250,7 @@ export class DotBot {
     customLLM?: (message: string, systemPrompt: string, context?: any) => Promise<string>,
     conversationHistory?: ConversationMessage[]
   ): Promise<string> {
+    // Priority 1: Custom LLM function (from chat options)
     if (customLLM) {
       // Pass conversation history to LLM for context
       return await customLLM(message, systemPrompt, { 
@@ -1247,11 +1258,22 @@ export class DotBot {
       });
     }
     
-    // Default: Use ASI-One (if available in frontend)
-    // For now, throw error if no custom LLM provided
+    // Priority 2: AI Service from config (backend use)
+    if (this.aiService) {
+      // Use the AI service with the system prompt from DotBot
+      return await this.aiService.sendMessage(message, {
+        systemPrompt, // DotBot's system prompt with blockchain capabilities
+        conversationHistory: conversationHistory || [],
+        walletAddress: this.wallet.address,
+        network: this.network.charAt(0).toUpperCase() + this.network.slice(1),
+      });
+    }
+    
+    // No LLM configured
     throw new Error(
-      'No LLM configured. Pass a custom LLM function in chat options:\n' +
-      'dotbot.chat(message, { llm: async (msg, prompt, context) => { /* your LLM call */ } })'
+      'No LLM configured. Either:\n' +
+      '1. Pass an AI service in DotBot config: new DotBot({ ..., aiService: myAIService })\n' +
+      '2. Pass a custom LLM function in chat options: dotbot.chat(message, { llm: async (msg, prompt, context) => { ... } })'
     );
   }
   

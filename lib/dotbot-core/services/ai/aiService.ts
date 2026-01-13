@@ -47,11 +47,12 @@ export class AIService {
     switch (type) {
       case AIProviderType.ASI_ONE:
         return new ASIOneProvider({
-          apiKey: config?.asiOneConfig?.apiKey || getEnv('ASI_ONE_API_KEY'),
-          baseUrl: config?.asiOneConfig?.baseUrl || getEnv('ASI_ONE_BASE_URL'),
-          model: config?.asiOneConfig?.model || getEnv('ASI_ONE_MODEL'),
-          temperature: config?.asiOneConfig?.temperature,
-          maxTokens: config?.asiOneConfig?.maxTokens
+          ...(config?.asiOneConfig?.apiKey && { apiKey: config.asiOneConfig.apiKey }),
+          ...(config?.asiOneConfig?.baseUrl && { baseUrl: config.asiOneConfig.baseUrl }),
+          ...(config?.asiOneConfig?.model && { model: config.asiOneConfig.model }),
+          ...(config?.asiOneConfig?.temperature !== undefined && { temperature: config.asiOneConfig.temperature }),
+          ...(config?.asiOneConfig?.maxTokens !== undefined && { maxTokens: config.asiOneConfig.maxTokens }),
+          // Env vars are handled by ASIOneService constructor as fallbacks
         });
 
       case AIProviderType.CLAUDE:
@@ -74,11 +75,12 @@ export class AIService {
       default:
         console.warn(`⚠️ Unknown provider type: ${type}, falling back to ASI-One`);
         return new ASIOneProvider({
-          apiKey: config?.asiOneConfig?.apiKey || getEnv('ASI_ONE_API_KEY'),
-          baseUrl: config?.asiOneConfig?.baseUrl || getEnv('ASI_ONE_BASE_URL'),
-          model: config?.asiOneConfig?.model || getEnv('ASI_ONE_MODEL'),
-          temperature: config?.asiOneConfig?.temperature,
-          maxTokens: config?.asiOneConfig?.maxTokens
+          ...(config?.asiOneConfig?.apiKey && { apiKey: config.asiOneConfig.apiKey }),
+          ...(config?.asiOneConfig?.baseUrl && { baseUrl: config.asiOneConfig.baseUrl }),
+          ...(config?.asiOneConfig?.model && { model: config.asiOneConfig.model }),
+          ...(config?.asiOneConfig?.temperature !== undefined && { temperature: config.asiOneConfig.temperature }),
+          ...(config?.asiOneConfig?.maxTokens !== undefined && { maxTokens: config.asiOneConfig.maxTokens }),
+          // Env vars are handled by ASIOneService constructor as fallbacks
         });
     }
   }

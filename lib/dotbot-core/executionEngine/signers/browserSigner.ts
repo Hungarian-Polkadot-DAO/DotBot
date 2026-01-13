@@ -6,9 +6,19 @@
  */
 
 import { SubmittableExtrinsic } from '@polkadot/api/types';
-import { web3FromAddress } from '@polkadot/extension-dapp';
 import { Signer, SignerOptions } from './types';
 import { SigningRequest, BatchSigningRequest } from '../types';
+import { isBrowser } from '../../env';
+
+// Lazy import for browser-only extension-dapp
+async function getWeb3FromAddress(address: string) {
+  if (!isBrowser()) {
+    throw new Error('BrowserWalletSigner can only be used in browser environment');
+  }
+  // Dynamic import - only loads in browser
+  const { web3FromAddress } = await import('@polkadot/extension-dapp');
+  return web3FromAddress(address);
+}
 
 /**
  * Browser Wallet Signer
@@ -43,7 +53,10 @@ export class BrowserWalletSigner implements Signer {
     extrinsic: SubmittableExtrinsic<'promise'>,
     address: string
   ): Promise<SubmittableExtrinsic<'promise'>> {
-    const injector = await web3FromAddress(address);
+    if (!isBrowser()) {
+      throw new Error('BrowserWalletSigner can only be used in browser environment');
+    }
+    const injector = await getWeb3FromAddress(address);
     return await extrinsic.signAsync(address, {
       // @ts-expect-error - Polkadot.js type mismatch between @polkadot/extension-inject and @polkadot/api versions
       signer: injector.signer,

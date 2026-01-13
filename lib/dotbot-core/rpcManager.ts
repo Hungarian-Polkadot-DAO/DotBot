@@ -10,6 +10,7 @@
 
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { Registry } from '@polkadot/types/types';
+import { getStorage } from './env';
 
 export interface EndpointHealth {
   endpoint: string;
@@ -174,20 +175,21 @@ export class RpcManager {
   }
   
   /**
-   * Load health data from localStorage
+   * Load health data from storage (localStorage in browser, in-memory in Node.js)
    */
   private loadHealthData(): void {
     if (!this.storageKey) return;
     
     try {
-      const stored = localStorage.getItem(this.storageKey);
+      const storage = getStorage();
+      const stored = storage.getItem(this.storageKey);
       if (!stored) return;
       
       const data = JSON.parse(stored);
       const now = Date.now();
       
       if (data.timestamp && (now - data.timestamp) > this.healthDataMaxAge) {
-        localStorage.removeItem(this.storageKey);
+        storage.removeItem(this.storageKey);
         return;
       }
       
@@ -206,23 +208,25 @@ export class RpcManager {
         });
       }
     } catch (error) {
-      localStorage.removeItem(this.storageKey);
+      const storage = getStorage();
+      storage.removeItem(this.storageKey!);
     }
   }
   
   /**
-   * Save health data to localStorage
+   * Save health data to storage (localStorage in browser, in-memory in Node.js)
    */
   private saveHealthData(): void {
     if (!this.storageKey) return;
     
     try {
+      const storage = getStorage();
       const healthArray = Array.from(this.healthMap.values());
       const data = {
         timestamp: Date.now(),
         healthMap: healthArray
       };
-      localStorage.setItem(this.storageKey, JSON.stringify(data));
+      storage.setItem(this.storageKey, JSON.stringify(data));
     } catch {
       // Ignore storage errors
     }

@@ -56,13 +56,22 @@ export class ASIOneService {
       logger.warn({}, 'ASI-One API key not provided. Please set ASI_ONE_API_KEY environment variable. API calls will fail without a valid key.');
     }
     
+    // Merge config carefully - don't let undefined values override defaults
     this.config = {
       apiKey: apiKey || '',
-      baseUrl: config?.baseUrl || getEnv('ASI_ONE_BASE_URL') || 'https://api.asi1.ai/v1',
-      model: config?.model || getEnv('ASI_ONE_MODEL') || 'asi1-mini',
-      temperature: config?.temperature || 0.7,
-      maxTokens: config?.maxTokens || parseInt(getEnv('ASI_ONE_MAX_TOKENS') || '2048'),
-      ...config
+      baseUrl: 'https://api.asi1.ai/v1', // Default
+      model: 'asi1-mini', // Default
+      temperature: 0.7, // Default
+      maxTokens: parseInt(getEnv('ASI_ONE_MAX_TOKENS') || '2048'), // Default
+      // Override with env vars if set
+      ...(getEnv('ASI_ONE_BASE_URL') && { baseUrl: getEnv('ASI_ONE_BASE_URL') }),
+      ...(getEnv('ASI_ONE_MODEL') && { model: getEnv('ASI_ONE_MODEL') }),
+      // Override with provided config (only if values are defined)
+      ...(config?.baseUrl && { baseUrl: config.baseUrl }),
+      ...(config?.model && { model: config.model }),
+      ...(config?.temperature !== undefined && { temperature: config.temperature }),
+      ...(config?.maxTokens !== undefined && { maxTokens: config.maxTokens }),
+      ...(config?.apiKey && { apiKey: config.apiKey }),
     };
     
     logger.info({
@@ -145,14 +154,17 @@ export class ASIOneService {
     
     if (context?.systemPrompt) {
       logger.info({ 
+        subsystem: 'agent-comm',
         promptLength: systemPrompt.length,
         preview: systemPrompt.substring(0, 200),
-        historyLength: conversationHistory.length
+        historyLength: conversationHistory.length,
+        hasDotBotPrompt: systemPrompt.includes('DOTBOT') || systemPrompt.includes('Polkadot blockchain')
       }, 'Using provided systemPrompt from DotBot');
     } else {
-      logger.info({ 
+      logger.warn({ 
+        subsystem: 'agent-comm',
         historyLength: conversationHistory.length
-      }, 'Using default systemPrompt');
+      }, 'WARNING: No systemPrompt provided - using default (DotBot capabilities may be limited)');
     }
     
     // Add system message
@@ -207,9 +219,26 @@ Keep responses concise but informative. Use bullet points for multiple options a
    * Make the actual API call to ASI-One
    */
   private async callASIOneAPI(request: ASIOneRequest): Promise<ASIOneResponse> {
-    const url = getEnv('ASI_ONE_API_URL') || `${this.config.baseUrl}/chat/completions`;
+    // Construct URL - prefer ASI_ONE_API_URL, fallback to baseUrl + /chat/completions
+    const apiUrl = getEnv('ASI_ONE_API_URL');
+    const url = apiUrl || `${this.config.baseUrl}/chat/completions`;
     
-    console.info('Fetching from ASI-One, model:', request.model);
+    if (!url || url === 'undefined/chat/completions') {
+      const errorMsg = `ASI-One API URL is not configured. Set ASI_ONE_API_URL or ASI_ONE_BASE_URL environment variable. Current baseUrl: ${this.config.baseUrl}`;
+      logger.error({ baseUrl: this.config.baseUrl, apiUrl }, errorMsg);
+      throw new Error(errorMsg);
+    }
+    
+    if (!this.config.apiKey) {
+      const errorMsg = 'ASI-One API key is not configured. Set ASI_ONE_API_KEY environment variable.';
+      logger.error({}, errorMsg);
+      throw new Error(errorMsg);
+    }
+    
+    logger.info({ 
+      url: url.replace(/\/\/[^\/]+@/, '//***@'), // Mask credentials in URL
+      model: request.model 
+    }, 'Fetching from ASI-One');
     
     const response = await fetch(url, {
       method: 'POST',
@@ -223,11 +252,19 @@ Keep responses concise but informative. Use bullet points for multiple options a
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('❌ ASI-One API error response:', errorText);
+      logger.error({ 
+        status: response.status, 
+        statusText: response.statusText,
+        error: errorText 
+      }, 'ASI-One API error response');
       throw new Error(`ASI-One API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
+    logger.info({ 
+      model: data.model,
+      tokens: data.usage?.total_tokens 
+    }, 'Response received from ASI-One');
 
     return data as ASIOneResponse;
   }

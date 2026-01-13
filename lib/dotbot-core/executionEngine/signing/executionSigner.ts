@@ -6,10 +6,20 @@
 
 import { ApiPromise } from '@polkadot/api';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
-import { web3FromAddress } from '@polkadot/extension-dapp';
 import { ExecutionItem, SigningRequest, BatchSigningRequest } from '../types';
 import { Signer } from '../signers/types';
 import { BrowserWalletSigner } from '../signers/browserSigner';
+import { isBrowser } from '../../env';
+
+// Lazy import for browser-only extension-dapp
+async function getWeb3FromAddress(address: string) {
+  if (!isBrowser()) {
+    throw new Error('web3FromAddress can only be used in browser environment');
+  }
+  // Dynamic import - only loads in browser
+  const { web3FromAddress } = await import('@polkadot/extension-dapp');
+  return web3FromAddress(address);
+}
 
 export interface SigningContext {
   accountAddress: string;
@@ -114,7 +124,12 @@ export async function signExtrinsic(
     return await signer.signExtrinsic(extrinsic, address);
   }
 
-  const injector = await web3FromAddress(address);
+  // Fallback to browser extension (only works in browser)
+  if (!isBrowser()) {
+    throw new Error('No signer provided and cannot use browser extension in Node.js environment');
+  }
+  
+  const injector = await getWeb3FromAddress(address);
   return await extrinsic.signAsync(address, {
     // @ts-expect-error - Polkadot.js type mismatch
     signer: injector.signer,

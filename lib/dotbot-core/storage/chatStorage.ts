@@ -54,14 +54,18 @@ export interface IChatStorage {
 /**
  * LocalStorage implementation
  * 
- * Current default implementation using browser LocalStorage.
+ * Uses localStorage in browser, in-memory storage in Node.js.
+ * Frontend should use this to persist data in browser localStorage.
  */
+import { getStorage } from '../env';
+
 export class LocalStorageChatStorage implements IChatStorage {
   private storageKey = 'dotbot_chat_instances';
+  private storage = getStorage();
 
   async loadAll(): Promise<ChatInstanceData[]> {
     try {
-      const stored = localStorage.getItem(this.storageKey);
+      const stored = this.storage.getItem(this.storageKey);
       if (!stored) return [];
 
       const instances = JSON.parse(stored) as ChatInstanceData[];
@@ -93,7 +97,7 @@ export class LocalStorageChatStorage implements IChatStorage {
     }
 
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(instances));
+      this.storage.setItem(this.storageKey, JSON.stringify(instances));
     } catch (error) {
       console.error('[LocalStorage] Failed to save chat instance:', error);
       throw new StorageError('Failed to save chat instance', 'SAVE_FAILED', error);
@@ -105,7 +109,7 @@ export class LocalStorageChatStorage implements IChatStorage {
     const filtered = instances.filter(i => i.id !== id);
 
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(filtered));
+      this.storage.setItem(this.storageKey, JSON.stringify(filtered));
     } catch (error) {
       console.error('[LocalStorage] Failed to delete chat instance:', error);
       throw new StorageError('Failed to delete chat instance', 'DELETE_FAILED', error);
@@ -114,7 +118,7 @@ export class LocalStorageChatStorage implements IChatStorage {
 
   async clear(): Promise<void> {
     try {
-      localStorage.removeItem(this.storageKey);
+      this.storage.removeItem(this.storageKey);
     } catch (error) {
       console.error('[LocalStorage] Failed to clear chat instances:', error);
       throw new StorageError('Failed to clear chat instances', 'CLEAR_FAILED', error);
@@ -124,8 +128,8 @@ export class LocalStorageChatStorage implements IChatStorage {
   async isAvailable(): Promise<boolean> {
     try {
       const test = '__storage_test__';
-      localStorage.setItem(test, test);
-      localStorage.removeItem(test);
+      this.storage.setItem(test, test);
+      this.storage.removeItem(test);
       return true;
     } catch {
       return false;
@@ -134,6 +138,46 @@ export class LocalStorageChatStorage implements IChatStorage {
 
   getType(): string {
     return 'localStorage';
+  }
+}
+
+/**
+ * In-Memory storage implementation
+ * 
+ * For backend/Node.js use - data is stored in memory only (not persisted).
+ * Useful for server-side DotBot instances where persistence is handled separately.
+ */
+export class InMemoryChatStorage implements IChatStorage {
+  private instances: Map<string, ChatInstanceData> = new Map();
+
+  async loadAll(): Promise<ChatInstanceData[]> {
+    const instances = Array.from(this.instances.values());
+    return instances.sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  async load(id: string): Promise<ChatInstanceData | null> {
+    return this.instances.get(id) || null;
+  }
+
+  async save(instance: ChatInstanceData): Promise<void> {
+    instance.updatedAt = Date.now();
+    this.instances.set(instance.id, instance);
+  }
+
+  async delete(id: string): Promise<void> {
+    this.instances.delete(id);
+  }
+
+  async clear(): Promise<void> {
+    this.instances.clear();
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return true;
+  }
+
+  getType(): string {
+    return 'inMemory';
   }
 }
 
@@ -404,7 +448,7 @@ export class StorageError extends Error {
  * Creates the appropriate storage implementation based on configuration.
  */
 export function createChatStorage(config?: {
-  type?: 'localStorage' | 'api' | 'hybrid';
+  type?: 'localStorage' | 'inMemory' | 'api' | 'hybrid';
   apiUrl?: string;
   authToken?: string;
 }): IChatStorage {
@@ -413,6 +457,9 @@ export function createChatStorage(config?: {
   switch (type) {
     case 'localStorage':
       return new LocalStorageChatStorage();
+
+    case 'inMemory':
+      return new InMemoryChatStorage();
 
     case 'api':
       if (!config?.apiUrl) {

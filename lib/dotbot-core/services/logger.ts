@@ -10,25 +10,51 @@ let LIB_VERSION = process.env.DOTBOT_CORE_VERSION || "0.5.0";
 // Detect environment
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
+const isBrowser = typeof window !== 'undefined';
 
-// Browser-compatible logger configuration
-const loggerConfig = {
-  level: getEnv('DOTBOT_LOG_LEVEL') || getEnv('LOG_LEVEL') || (isDevelopment ? 'debug' : 'info'),
-  // Browser transport - pino automatically uses console in browser
-  browser: {
-    asObject: isDevelopment, // Pretty objects in dev, strings in prod
-  },
-  // Base fields to include in all logs
+// Determine log level
+const getLogLevel = (): string => {
+  const envLevel = getEnv('LOG_LEVEL') || getEnv('DOTBOT_LOG_LEVEL');
+  if (envLevel) return envLevel;
+  
+  // Default levels by environment
+  if (isProduction) return 'info';
+  if (process.env.NODE_ENV === 'test') return 'warn';
+  return 'debug'; // development
+};
+
+// Logger configuration - matches backend format but works in browser too
+const loggerConfig: pino.LoggerOptions = {
+  level: getLogLevel(),
   base: {
     service: 'DotBot-Services',
     version: LIB_VERSION,
     environment: process.env.NODE_ENV || 'development',
     // Browser-specific context (only if in browser)
-    ...(typeof navigator !== 'undefined' && { userAgent: navigator.userAgent }),
-    ...(typeof window !== 'undefined' && { url: window.location.href }),
+    ...(isBrowser && typeof navigator !== 'undefined' && { userAgent: navigator.userAgent }),
+    ...(isBrowser && typeof window !== 'undefined' && { url: window.location.href }),
+    // Node.js-specific context (only if in Node.js)
+    ...(!isBrowser && typeof process !== 'undefined' && { userAgent: `Node.js/${process.version}` }),
   },
-  // Timestamp format
   timestamp: pino.stdTimeFunctions.isoTime,
+  formatters: {
+    level: (label) => {
+      return { level: label };
+    },
+  },
+  // In browser, use console transport (pino default)
+  // In Node.js development, use pretty printing (like backend)
+  ...(!isBrowser && isDevelopment && {
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'HH:MM:ss.l',
+        ignore: 'pid,hostname',
+        singleLine: false,
+      },
+    },
+  }),
 };
 
 // Create the base logger instance

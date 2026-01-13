@@ -166,6 +166,7 @@ export type {
 export { ChatInstance } from './chatInstance';
 export { ChatInstanceManager } from './chatInstanceManager';
 export type { ChatInstanceManagerConfig } from './chatInstanceManager';
+
 export type {
   Environment,
   ConversationItem,      // Primary: Mixed array of text messages + execution flows
@@ -197,6 +198,7 @@ export {
 export type { IChatStorage } from './storage/chatStorage';
 export {
   LocalStorageChatStorage,
+  InMemoryChatStorage,
   ApiChatStorage,
   HybridChatStorage,
   StorageError,
@@ -270,3 +272,9 @@ export {
   getTestsByType,
 } from './scenarioEngine';
 
+// ============================================================================
+// AI Service (for backend integration)
+// ============================================================================
+export { AIService, getAIService } from './services/ai/aiService';
+export type { AIServiceConfig } from './services/ai/aiService';
+export { AIProviderType } from './services/ai/aiService';

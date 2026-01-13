@@ -6,6 +6,8 @@
  * Extensible for future settings categories.
  */
 
+import { getStorage } from '../env';
+
 /**
  * Simulation Configuration
  */
@@ -109,11 +111,12 @@ class SettingsManager {
   }
 
   /**
-   * Load settings from localStorage
+   * Load settings from storage (localStorage in browser, in-memory in Node.js)
    */
   private load(): void {
     try {
-      const stored = localStorage.getItem(this.storageKey);
+      const storage = getStorage();
+      const stored = storage.getItem(this.storageKey);
       if (stored) {
         const parsed = JSON.parse(stored);
         // Merge with defaults to handle new settings added in future
@@ -132,11 +135,12 @@ class SettingsManager {
   }
 
   /**
-   * Save settings to localStorage
+   * Save settings to storage (localStorage in browser, in-memory in Node.js)
    */
   private save(): void {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(this.settings));
+      const storage = getStorage();
+      storage.setItem(this.storageKey, JSON.stringify(this.settings));
     } catch (error) {
       console.error('Failed to save settings:', error);
     }

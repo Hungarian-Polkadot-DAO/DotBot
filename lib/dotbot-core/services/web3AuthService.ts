@@ -1,7 +1,16 @@
-import { web3Accounts, web3Enable, web3FromAddress } from '@polkadot/extension-dapp';
 import { signatureVerify, cryptoWaitReady } from '@polkadot/util-crypto';
 import { decodeAddress } from '@polkadot/keyring';
 import { WalletAccount } from '../types/wallet';
+import { isBrowser, getStorage } from '../env';
+
+// Lazy import for browser-only extension-dapp
+async function getExtensionDapp() {
+  if (!isBrowser()) {
+    throw new Error('Web3AuthService can only be used in browser environment');
+  }
+  // Dynamic import - only loads in browser
+  return await import('@polkadot/extension-dapp');
+}
 
 // const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
@@ -28,9 +37,12 @@ class Web3AuthService {
   private enablePromise: Promise<any[]> | null = null;
 
   constructor() {
-    this.authToken = localStorage.getItem('authToken');
-    const storedUser = localStorage.getItem('user');
-    this.user = storedUser ? JSON.parse(storedUser) : null;
+    if (isBrowser()) {
+      const storage = getStorage();
+      this.authToken = storage.getItem('authToken');
+      const storedUser = storage.getItem('user');
+      this.user = storedUser ? JSON.parse(storedUser) : null;
+    }
   }
 
   /**
@@ -45,7 +57,8 @@ class Web3AuthService {
       return this.enablePromise;
     }
 
-    this.enablePromise = web3Enable('DotBot');
+    const extensionDapp = await getExtensionDapp();
+    this.enablePromise = extensionDapp.web3Enable('DotBot');
 
     try {
       const extensions = await this.enablePromise;
@@ -77,7 +90,8 @@ class Web3AuthService {
     try {
       await this._enableWeb3Internal();
 
-      const accounts = await web3Accounts();
+      const extensionDapp = await getExtensionDapp();
+      const accounts = await extensionDapp.web3Accounts();
 
       return accounts.map((account: any) => ({
         address: account.address,
@@ -135,7 +149,8 @@ class Web3AuthService {
    */
   async getAvailableAccounts(): Promise<WalletAccount[]> {
     try {
-      const accounts = await web3Accounts();
+      const extensionDapp = await getExtensionDapp();
+      const accounts = await extensionDapp.web3Accounts();
       console.log('Accounts:', accounts);
       
       return accounts.map((account: any) => ({
@@ -177,7 +192,8 @@ class Web3AuthService {
       let signatureData: string;
       try {
         // Use web3FromAddress instead of web3Enable to avoid triggering permission popup again
-        const injector = await web3FromAddress(account.address);
+        const extensionDapp = await getExtensionDapp();
+        const injector = await extensionDapp.web3FromAddress(account.address);
         
         if (!injector.signer || !injector.signer.signRaw) {
           throw new Error('No signer available for this account');
@@ -267,8 +283,11 @@ class Web3AuthService {
       };
       this.currentAccount = account;
       
-      localStorage.setItem('authToken', this.authToken);
-      localStorage.setItem('user', JSON.stringify(this.user));
+      if (isBrowser()) {
+        const storage = getStorage();
+        storage.setItem('authToken', this.authToken);
+        storage.setItem('user', JSON.stringify(this.user));
+      }
       
       return {
         success: true,
@@ -295,8 +314,11 @@ class Web3AuthService {
       this.authToken = null;
       this.user = null;
       
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('user');
+      if (isBrowser()) {
+        const storage = getStorage();
+        storage.removeItem('authToken');
+        storage.removeItem('user');
+      }
     }
   }
 
