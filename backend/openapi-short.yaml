@@ -1,0 +1,458 @@
+openapi: 3.0.3
+info:
+  title: DotBot Backend API
+  version: 0.1.0
+  description: AI-powered Polkadot blockchain operations through natural language
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+tags:
+  - name: Health
+  - name: Chat
+  - name: DotBot
+  - name: Sessions
+  - name: Chat Instances
+  - name: Execution
+
+paths:
+  /hello:
+    get:
+      tags: [Health]
+      summary: Hello World endpoint
+      operationId: hello
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  service: { type: string }
+                  version: { type: string }
+
+  /api/health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  service: { type: string }
+                  timestamp: { type: string, format: date-time }
+
+  /api/status:
+    get:
+      tags: [Health]
+      summary: Detailed status
+      operationId: getStatus
+      responses:
+        '200':
+          description: Status information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  uptime: { type: number }
+                  memory: { type: object }
+                  timestamp: { type: string, format: date-time }
+
+  /api/chat:
+    post:
+      tags: [Chat]
+      summary: Send a chat message
+      operationId: sendChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string }
+                context: { type: object }
+                provider: { type: string, enum: [asi-one, claude, openai] }
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  response: { type: string }
+                  provider: { type: string }
+                  timestamp: { type: string, format: date-time }
+
+  /api/chat/providers:
+    get:
+      tags: [Chat]
+      summary: Get available AI providers
+      operationId: getProviders
+      responses:
+        '200':
+          description: List of providers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers: { type: array, items: { type: string } }
+                  default: { type: string }
+
+  /api/dotbot/chat:
+    post:
+      tags: [DotBot]
+      summary: Send a DotBot chat message
+      operationId: sendDotBotMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, wallet]
+              properties:
+                message: { type: string }
+                sessionId: { type: string }
+                wallet: { type: object, properties: { address: { type: string }, name: { type: string }, source: { type: string } } }
+                environment: { type: string, enum: [mainnet, testnet] }
+                network: { type: string, enum: [polkadot, kusama, westend] }
+                options: { type: object }
+                provider: { type: string, enum: [asi-one, claude, openai] }
+      responses:
+        '200':
+          description: Chat result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  result: { type: object }
+                  sessionId: { type: string }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session:
+    post:
+      tags: [Sessions]
+      summary: Create or get a DotBot session
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallet]
+              properties:
+                sessionId: { type: string }
+                wallet: { type: object, properties: { address: { type: string }, name: { type: string }, source: { type: string } } }
+                environment: { type: string, enum: [mainnet, testnet] }
+                network: { type: string, enum: [polkadot, kusama, westend] }
+      responses:
+        '200':
+          description: Session created or retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  sessionId: { type: string }
+                  environment: { type: string }
+                  network: { type: string }
+                  wallet: { type: object }
+                  currentChatId: { type: string, nullable: true }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}:
+    get:
+      tags: [Sessions]
+      summary: Get session information
+      operationId: getSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Session information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  sessionId: { type: string }
+                  environment: { type: string }
+                  network: { type: string }
+                  wallet: { type: object }
+                  currentChatId: { type: string, nullable: true }
+                  timestamp: { type: string, format: date-time }
+        '404':
+          description: Session not found
+    delete:
+      tags: [Sessions]
+      summary: Delete a session
+      operationId: deleteSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Session deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}/chats:
+    get:
+      tags: [Chat Instances]
+      summary: List all chat instances
+      operationId: listChatInstances
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of chat instances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  chats: { type: array, items: { type: object } }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}/chats/{chatId}:
+    get:
+      tags: [Chat Instances]
+      summary: Get chat instance
+      operationId: getChatInstance
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: chatId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Chat instance data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  chat: { type: object }
+                  timestamp: { type: string, format: date-time }
+    delete:
+      tags: [Chat Instances]
+      summary: Delete chat instance
+      operationId: deleteChatInstance
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: chatId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Chat instance deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  message: { type: string }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}/chats/{chatId}/load:
+    post:
+      tags: [Chat Instances]
+      summary: Load/switch to chat instance
+      operationId: loadChatInstance
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: chatId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Chat instance loaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  chat: { type: object }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}/start:
+    post:
+      tags: [Execution]
+      summary: Start execution
+      operationId: startExecution
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: executionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                autoApprove: { type: boolean }
+      responses:
+        '200':
+          description: Execution started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  executionId: { type: string }
+                  state: { type: object }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}:
+    get:
+      tags: [Execution]
+      summary: Get execution state
+      operationId: getExecutionState
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: executionId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Execution state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  executionId: { type: string }
+                  state: { type: object }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}/approve:
+    post:
+      tags: [Execution]
+      summary: Approve execution step
+      operationId: approveExecutionStep
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: executionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stepIndex: { type: number }
+      responses:
+        '200':
+          description: Step approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  state: { type: object }
+                  timestamp: { type: string, format: date-time }
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}/reject:
+    post:
+      tags: [Execution]
+      summary: Reject execution step
+      operationId: rejectExecutionStep
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: executionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stepIndex: { type: number }
+                reason: { type: string }
+      responses:
+        '200':
+          description: Step rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  state: { type: object }
+                  timestamp: { type: string, format: date-time }

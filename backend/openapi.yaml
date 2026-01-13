@@ -1,0 +1,1133 @@
+openapi: 3.0.3
+info:
+  title: DotBot Backend API
+  description: |
+    DotBot Backend API - AI-powered Polkadot blockchain operations through natural language.
+    
+    This API provides endpoints for:
+    - Chat interactions with AI (via `/api/chat`)
+    - Full DotBot functionality with blockchain operations (via `/api/dotbot`)
+    - Session management for DotBot instances
+    
+    All AI communication happens on the backend where API keys are securely stored.
+  version: 0.1.0
+  contact:
+    name: DotBot Team
+  license:
+    name: GNU General Public License v3.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: https://api.dotbot.example.com
+    description: Production server (example)
+
+tags:
+  - name: Health
+    description: Health check and status endpoints
+  - name: Chat
+    description: Simple AI chat endpoints
+  - name: DotBot
+    description: Full DotBot functionality with blockchain operations
+  - name: Sessions
+    description: DotBot session management
+  - name: Chat Instances
+    description: Chat instance management (history, load, delete)
+  - name: Execution
+    description: Execution management and control
+
+paths:
+  /hello:
+    get:
+      tags:
+        - Health
+      summary: Hello World endpoint
+      description: Simple greeting endpoint
+      operationId: hello
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Hello World
+                  service:
+                    type: string
+                    example: DotBot Backend
+                  version:
+                    type: string
+                    example: 0.1.0
+
+  /api/health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the API
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /api/status:
+    get:
+      tags:
+        - Health
+      summary: Detailed status
+      description: Returns detailed status information including uptime and memory usage
+      operationId: getStatus
+      responses:
+        '200':
+          description: Status information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+
+  /api/chat:
+    post:
+      tags:
+        - Chat
+      summary: Send a chat message
+      description: Simple AI chat endpoint that processes messages using the configured AI provider
+      operationId: sendChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/chat/providers:
+    get:
+      tags:
+        - Chat
+      summary: Get available AI providers
+      description: Returns a list of available AI providers
+      operationId: getProviders
+      responses:
+        '200':
+          description: List of providers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      type: string
+                      enum: [asi-one, claude, openai]
+                    example: [asi-one, claude, openai]
+                  default:
+                    type: string
+                    example: asi-one
+
+  /api/dotbot/chat:
+    post:
+      tags:
+        - DotBot
+      summary: Send a DotBot chat message
+      description: |
+        Full DotBot chat endpoint that handles AI communication and blockchain operations.
+        This endpoint processes natural language requests and can execute blockchain transactions.
+      operationId: sendDotBotMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DotBotChatRequest'
+      responses:
+        '200':
+          description: Chat result with execution information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DotBotChatResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session:
+    post:
+      tags:
+        - Sessions
+      summary: Create or get a DotBot session
+      description: Creates a new DotBot session or returns an existing one for the given wallet and environment
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '200':
+          description: Session created or retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}:
+    get:
+      tags:
+        - Sessions
+      summary: Get session information
+      description: Retrieves information about a specific DotBot session
+      operationId: getSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+            example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+      responses:
+        '200':
+          description: Session information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Sessions
+      summary: Delete a session
+      description: Deletes a DotBot session
+      operationId: deleteSession
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+            example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+      responses:
+        '200':
+          description: Session deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Session deleted
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: 2026-01-13T18:00:00.000Z
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}/chats:
+    get:
+      tags:
+        - Chat Instances
+      summary: List all chat instances
+      description: Retrieves all chat instances for a specific session
+      operationId: listChatInstances
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+            example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+      responses:
+        '200':
+          description: List of chat instances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  chats:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ChatInstanceData'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}/chats/{chatId}:
+    get:
+      tags:
+        - Chat Instances
+      summary: Get chat instance
+      description: Retrieves a specific chat instance
+      operationId: getChatInstance
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+        - name: chatId
+          in: path
+          required: true
+          description: Chat instance identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Chat instance data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  chat:
+                    $ref: '#/components/schemas/ChatInstanceData'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          description: Chat instance not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Chat Instances
+      summary: Delete chat instance
+      description: Deletes a specific chat instance
+      operationId: deleteChatInstance
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+        - name: chatId
+          in: path
+          required: true
+          description: Chat instance identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Chat instance deleted
+                  timestamp:
+                    type: string
+                    format: date-time
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}/chats/{chatId}/load:
+    post:
+      tags:
+        - Chat Instances
+      summary: Load/switch to chat instance
+      description: Loads a specific chat instance and makes it the current chat for the session
+      operationId: loadChatInstance
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+        - name: chatId
+          in: path
+          required: true
+          description: Chat instance identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Chat instance loaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  chat:
+                    $ref: '#/components/schemas/ChatInstanceData'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          description: Chat instance not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}/start:
+    post:
+      tags:
+        - Execution
+      summary: Start execution
+      description: Starts an execution plan
+      operationId: startExecution
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          description: Execution identifier
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                autoApprove:
+                  type: boolean
+                  description: Auto-approve all steps
+                  default: false
+                  example: false
+      responses:
+        '200':
+          description: Execution started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  executionId:
+                    type: string
+                  state:
+                    $ref: '#/components/schemas/ExecutionState'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}:
+    get:
+      tags:
+        - Execution
+      summary: Get execution state
+      description: Retrieves the current state of an execution
+      operationId: getExecutionState
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          description: Execution identifier
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  executionId:
+                    type: string
+                  state:
+                    $ref: '#/components/schemas/ExecutionState'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}/approve:
+    post:
+      tags:
+        - Execution
+      summary: Approve execution step
+      description: Approves a pending execution step
+      operationId: approveExecutionStep
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          description: Execution identifier
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stepIndex:
+                  type: number
+                  description: Index of step to approve (optional, approves current if not specified)
+      responses:
+        '200':
+          description: Step approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  state:
+                    $ref: '#/components/schemas/ExecutionState'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/dotbot/session/{sessionId}/execution/{executionId}/reject:
+    post:
+      tags:
+        - Execution
+      summary: Reject execution step
+      description: Rejects a pending execution step
+      operationId: rejectExecutionStep
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: Session identifier
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          description: Execution identifier
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stepIndex:
+                  type: number
+                  description: Index of step to reject (optional, rejects current if not specified)
+                reason:
+                  type: string
+                  description: Reason for rejection
+      responses:
+        '200':
+          description: Step rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  state:
+                    $ref: '#/components/schemas/ExecutionState'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        service:
+          type: string
+          example: DotBot Backend
+        environment:
+          type: string
+          example: development
+        timestamp:
+          type: string
+          format: date-time
+          example: 2026-01-13T18:00:00.000Z
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: running
+        uptime:
+          type: number
+          description: Uptime in seconds
+          example: 3600.5
+        memory:
+          type: object
+          properties:
+            rss:
+              type: number
+              description: Resident Set Size in bytes
+            heapTotal:
+              type: number
+            heapUsed:
+              type: number
+            external:
+              type: number
+        environment:
+          type: string
+          example: development
+        timestamp:
+          type: string
+          format: date-time
+
+    ChatRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: The chat message to send
+          example: What is Polkadot?
+        context:
+          type: object
+          description: Additional context for the AI
+          additionalProperties: true
+        provider:
+          type: string
+          enum: [asi-one, claude, openai]
+          description: AI provider to use (optional, uses default if not specified)
+          example: asi-one
+
+    ChatResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        response:
+          type: string
+          description: AI response text
+          example: Polkadot is a blockchain platform...
+        provider:
+          type: string
+          example: asi-one
+        timestamp:
+          type: string
+          format: date-time
+
+    WalletAccount:
+      type: object
+      required:
+        - address
+        - source
+      properties:
+        address:
+          type: string
+          description: Polkadot wallet address (SS58 format)
+          example: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+        name:
+          type: string
+          description: Wallet account name (optional)
+          example: Alice
+        source:
+          type: string
+          description: Wallet source/provider
+          example: polkadot-js
+
+    ConversationMessage:
+      type: object
+      required:
+        - role
+        - content
+      properties:
+        role:
+          type: string
+          enum: [user, assistant, system]
+          description: Message role
+        content:
+          type: string
+          description: Message content
+        timestamp:
+          type: number
+          description: Unix timestamp in milliseconds
+          example: 1705168800000
+
+    DotBotChatRequest:
+      type: object
+      required:
+        - message
+        - wallet
+      properties:
+        message:
+          type: string
+          description: Natural language message for DotBot
+          example: Transfer 1 DOT to Alice
+        sessionId:
+          type: string
+          description: Optional session identifier. If not provided, will be generated from wallet address and environment.
+          example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+        wallet:
+          $ref: '#/components/schemas/WalletAccount'
+        environment:
+          type: string
+          enum: [mainnet, testnet]
+          default: mainnet
+          description: Blockchain environment
+          example: mainnet
+        network:
+          type: string
+          enum: [polkadot, kusama, westend]
+          description: |
+            Blockchain network. If provided, environment will be derived from it.
+            - polkadot, kusama → mainnet
+            - westend → testnet
+          example: polkadot
+        options:
+          type: object
+          properties:
+            systemPrompt:
+              type: string
+              description: Custom system prompt override
+            conversationHistory:
+              type: array
+              items:
+                $ref: '#/components/schemas/ConversationMessage'
+              description: Previous conversation messages for context
+            executionOptions:
+              type: object
+              description: Execution options (continueOnError, etc.)
+              additionalProperties: true
+        provider:
+          type: string
+          enum: [asi-one, claude, openai]
+          description: AI provider to use
+          example: asi-one
+
+    ExecutionPlan:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Plan identifier
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              agentClassName:
+                type: string
+                example: AssetTransferAgent
+              functionName:
+                type: string
+                example: transfer
+              parameters:
+                type: object
+                additionalProperties: true
+              description:
+                type: string
+              executionType:
+                type: string
+        requiresApproval:
+          type: boolean
+
+    ChatResult:
+      type: object
+      properties:
+        response:
+          type: string
+          description: LLM response text
+          example: I'll transfer 1 DOT to Alice for you.
+        plan:
+          $ref: '#/components/schemas/ExecutionPlan'
+        executed:
+          type: boolean
+          description: Whether operations were executed
+          example: true
+        success:
+          type: boolean
+          description: Execution success status
+          example: true
+        completed:
+          type: number
+          description: Number of operations completed
+          example: 1
+        failed:
+          type: number
+          description: Number of operations failed
+          example: 0
+
+    DotBotChatResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        result:
+          $ref: '#/components/schemas/ChatResult'
+        sessionId:
+          type: string
+          description: Session identifier used for this request
+          example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+        timestamp:
+          type: string
+          format: date-time
+
+    CreateSessionRequest:
+      type: object
+      required:
+        - wallet
+      properties:
+        sessionId:
+          type: string
+          description: Optional session identifier. If not provided, will be generated from wallet address and environment.
+          example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+        wallet:
+          $ref: '#/components/schemas/WalletAccount'
+        environment:
+          type: string
+          enum: [mainnet, testnet]
+          default: mainnet
+          description: Blockchain environment
+          example: mainnet
+        network:
+          type: string
+          enum: [polkadot, kusama, westend]
+          description: |
+            Blockchain network. If provided, environment will be derived from it.
+            - polkadot, kusama → mainnet
+            - westend → testnet
+          example: polkadot
+
+    SessionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        sessionId:
+          type: string
+          description: Session identifier
+          example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+        environment:
+          type: string
+          enum: [mainnet, testnet]
+          example: mainnet
+        network:
+          type: string
+          enum: [polkadot, kusama, westend]
+          example: polkadot
+        wallet:
+          $ref: '#/components/schemas/WalletAccount'
+        currentChatId:
+          type: string
+          nullable: true
+          description: Current chat instance ID (if any)
+          example: chat_1234567890
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Internal server error
+        message:
+          type: string
+          description: Detailed error message
+          example: Failed to process chat request
+        timestamp:
+          type: string
+          format: date-time
+          example: 2026-01-13T18:00:00.000Z
+
+    ChatInstanceData:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Chat instance identifier
+          example: chat_1705168800000_abc123
+        name:
+          type: string
+          description: Display name for the chat
+          example: Transfer DOT to Alice
+        environment:
+          type: string
+          enum: [mainnet, testnet]
+          description: Blockchain environment
+          example: mainnet
+        network:
+          type: string
+          enum: [polkadot, kusama, westend]
+          description: Blockchain network
+          example: polkadot
+        walletAddress:
+          type: string
+          description: Associated wallet address
+          example: 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+        createdAt:
+          type: number
+          description: Creation timestamp (Unix ms)
+          example: 1705168800000
+        lastModified:
+          type: number
+          description: Last modification timestamp (Unix ms)
+          example: 1705169400000
+        messageCount:
+          type: integer
+          description: Number of messages in the chat
+          example: 5
+        isEmpty:
+          type: boolean
+          description: Whether the chat is empty
+          example: false
+
+    ExecutionState:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, running, paused, completed, failed, cancelled]
+          description: Current execution status
+          example: running
+        currentStep:
+          type: integer
+          description: Index of currently executing step
+          example: 1
+        totalSteps:
+          type: integer
+          description: Total number of steps
+          example: 3
+        completedSteps:
+          type: integer
+          description: Number of completed steps
+          example: 1
+        failedSteps:
+          type: integer
+          description: Number of failed steps
+          example: 0
+        steps:
+          type: array
+          description: Execution step details
+          items:
+            type: object
+            properties:
+              index:
+                type: integer
+                example: 0
+              agentClassName:
+                type: string
+                example: AssetTransferAgent
+              functionName:
+                type: string
+                example: transfer
+              parameters:
+                type: object
+                additionalProperties: true
+              status:
+                type: string
+                enum: [pending, running, completed, failed, skipped]
+                example: completed
+              result:
+                type: object
+                description: Step execution result (if completed)
+                additionalProperties: true
+              error:
+                type: string
+                description: Error message (if failed)
+        requiresApproval:
+          type: boolean
+          description: Whether execution requires user approval
+          example: true
+        startedAt:
+          type: number
+          description: Execution start timestamp (Unix ms)
+          example: 1705168800000
+        completedAt:
+          type: number
+          nullable: true
+          description: Execution completion timestamp (Unix ms)
+          example: 1705169400000
