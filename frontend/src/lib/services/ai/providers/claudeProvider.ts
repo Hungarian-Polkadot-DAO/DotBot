@@ -1,9 +1,6 @@
 // Claude Provider - Anthropic Claude API integration
 
 import { AIProvider, AIMessage } from '../types';
-import { createSubsystemLogger, Subsystem } from '../../logger';
-
-const logger = createSubsystemLogger(Subsystem.AGENT_COMM);
 
 export interface ClaudeConfig {
   apiKey: string;
@@ -48,9 +45,9 @@ export class ClaudeProvider implements AIProvider {
 
   constructor(config: ClaudeConfig) {
     const apiKey = config.apiKey || process.env.REACT_APP_CLAUDE_API_KEY;
-    
+
     if (!apiKey) {
-      logger.warn({}, 'Claude API key not provided. Please set REACT_APP_CLAUDE_API_KEY environment variable. API calls will fail without a valid key.');
+      console.warn('⚠️ Claude API key not provided. Please set REACT_APP_CLAUDE_API_KEY environment variable. API calls will fail without a valid key.');
     }
 
     this.config = {
@@ -60,21 +57,10 @@ export class ClaudeProvider implements AIProvider {
       maxTokens: config.maxTokens || parseInt(process.env.REACT_APP_CLAUDE_MAX_TOKENS || '4096'),
       temperature: config.temperature || 0.7,
     };
-
-    logger.info({
-      provider: 'Claude',
-      model: this.config.model,
-      baseUrl: this.config.baseUrl
-    }, 'Claude provider initialized');
   }
 
   async sendMessage(userMessage: string, context?: any): Promise<string> {
     try {
-      logger.info({
-        message: userMessage.substring(0, 100) + '...',
-        hasConversationHistory: !!context?.conversationHistory
-      }, 'Sending message to Claude');
-
       const messages = this.buildMessages(userMessage, context);
       const systemPrompt = this.getSystemPrompt(context);
 
@@ -90,11 +76,6 @@ export class ClaudeProvider implements AIProvider {
       
       const content = response.content[0]?.text || 'Sorry, I could not generate a response.';
       
-      logger.info({
-        responseLength: content.length,
-        usage: response.usage
-      }, 'Received response from Claude');
-
       return content;
 
     } catch (error) {
@@ -104,10 +85,6 @@ export class ClaudeProvider implements AIProvider {
         stack: error instanceof Error ? error.stack : undefined,
         error: error
       });
-
-      logger.error({
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }, 'Error sending message to Claude');
 
       // Return a fallback response
       const fallback = this.getFallbackResponse(userMessage, error);
@@ -152,10 +129,6 @@ export class ClaudeProvider implements AIProvider {
     // Use provided systemPrompt from context if available (from DotBot)
     // Otherwise fall back to default
     if (context?.systemPrompt) {
-      logger.info({
-        promptLength: context.systemPrompt.length,
-        preview: context.systemPrompt.substring(0, 200)
-      }, 'Using provided systemPrompt from DotBot');
       return context.systemPrompt;
     }
 
@@ -236,13 +209,12 @@ Keep responses concise but informative. Use bullet points for multiple options a
       await this.callClaudeAPI(testRequest);
       return true;
     } catch (error) {
-      logger.error({ error }, 'Claude connection test failed');
+      console.error('❌ Claude connection test failed:', error instanceof Error ? error.message : 'Unknown error');
       return false;
     }
   }
 
   updateConfig(newConfig: Partial<ClaudeConfig>): void {
     this.config = { ...this.config, ...newConfig };
-    logger.info({ newConfig }, 'Updated Claude configuration');
   }
 }

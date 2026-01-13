@@ -2,16 +2,12 @@
 
 import { AIProvider } from '../types';
 import { ASIOneService, ASIOneConfig } from '../../asiOneService';
-import { createSubsystemLogger, Subsystem } from '../../logger';
-
-const logger = createSubsystemLogger(Subsystem.AGENT_COMM);
 
 export class ASIOneProvider implements AIProvider {
   private service: ASIOneService;
 
   constructor(config?: Partial<ASIOneConfig>) {
     this.service = new ASIOneService(config);
-    logger.info({ provider: 'ASI-One' }, 'ASI-One provider initialized');
   }
 
   async sendMessage(userMessage: string, context?: any): Promise<string> {

@@ -3,9 +3,6 @@
 import { AIProvider } from './types';
 import { ASIOneProvider } from './providers/asiOneProvider';
 import { ClaudeProvider, ClaudeConfig } from './providers/claudeProvider';
-import { createSubsystemLogger, Subsystem } from '../logger';
-
-const logger = createSubsystemLogger(Subsystem.AGENT_COMM);
 
 export enum AIProviderType {
   ASI_ONE = 'asi-one',
@@ -43,10 +40,6 @@ export class AIService {
 
     this.providerType = providerType;
     this.provider = this.createProvider(providerType, config);
-
-    logger.info({
-      providerType: this.providerType
-    }, 'AI Service initialized');
   }
 
   private createProvider(type: AIProviderType, config?: AIServiceConfig): AIProvider {
@@ -63,7 +56,7 @@ export class AIService {
       case AIProviderType.CLAUDE:
         const claudeApiKey = config?.claudeConfig?.apiKey || process.env.REACT_APP_CLAUDE_API_KEY;
         if (!claudeApiKey) {
-          logger.warn({}, 'Claude API key not found. Please set REACT_APP_CLAUDE_API_KEY environment variable.');
+          console.warn('⚠️ Claude API key not found. Please set REACT_APP_CLAUDE_API_KEY environment variable.');
         }
         return new ClaudeProvider({
           apiKey: claudeApiKey || '',
@@ -78,7 +71,7 @@ export class AIService {
         throw new Error('OpenAI provider not yet implemented');
 
       default:
-        logger.warn({ type }, 'Unknown provider type, falling back to ASI-One');
+        console.warn(`⚠️ Unknown provider type: ${type}, falling back to ASI-One`);
         return new ASIOneProvider({
           apiKey: config?.asiOneConfig?.apiKey || process.env.REACT_APP_ASI_ONE_API_KEY,
           baseUrl: config?.asiOneConfig?.baseUrl || process.env.REACT_APP_ASI_ONE_BASE_URL,
@@ -100,7 +93,6 @@ export class AIService {
   switchProvider(type: AIProviderType, config?: AIServiceConfig): void {
     this.providerType = type;
     this.provider = this.createProvider(type, config);
-    logger.info({ providerType: type }, 'Switched AI provider');
   }
 
   getProviderType(): AIProviderType {
