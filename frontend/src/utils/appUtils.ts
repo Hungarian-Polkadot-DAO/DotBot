@@ -6,7 +6,6 @@
  */
 
 import { DotBot, Environment, Network, createRpcManagersForNetwork, ScenarioEngine } from '@dotbot/core';
-import type { RpcManager } from '@dotbot/core/rpcManager';
 
 export interface WalletAccount {
   address: string;
@@ -14,10 +13,8 @@ export interface WalletAccount {
   source: string;
 }
 
-export interface RpcManagers {
-  relayChainManager: RpcManager;
-  assetHubManager: RpcManager;
-}
+// Use the return type from createRpcManagersForNetwork to avoid type conflicts
+export type RpcManagers = ReturnType<typeof createRpcManagersForNetwork>;
 
 /**
  * Derive network from environment

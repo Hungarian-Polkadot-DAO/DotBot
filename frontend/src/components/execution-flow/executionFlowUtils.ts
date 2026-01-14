@@ -7,64 +7,99 @@
 
 import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 import { ExecutionMessage, DotBot } from '@dotbot/core';
+import { getExecutionState } from '../../services/dotbotApi';
 
 /**
  * Setup execution state subscription
+ * Handles both stateful (local ExecutionArray) and stateless (backend polling) modes
  */
 export function setupExecutionSubscription(
   executionMessage: ExecutionMessage,
   dotbot: DotBot,
-  setLiveExecutionState: (state: ExecutionArrayState | null) => void
+  setLiveExecutionState: (state: ExecutionArrayState | null) => void,
+  backendSessionId?: string | null
 ): () => void {
-  if (!dotbot.currentChat) {
-    return () => {}; // No-op cleanup
-  }
-
-  const chatInstance = dotbot.currentChat;
   const executionId = executionMessage.executionId;
+  let pollInterval: NodeJS.Timeout | null = null;
+  let unsubscribe: (() => void) | null = null;
 
   // Function to update state from ExecutionArray or executionMessage
   const updateState = (): boolean => {
-    const executionArray = chatInstance.getExecutionArray(executionId);
-    if (executionArray) {
-      setLiveExecutionState(executionArray.getState());
-      return true;
-    } else if (executionMessage.executionArray) {
+    if (dotbot.currentChat) {
+      const executionArray = dotbot.currentChat.getExecutionArray(executionId);
+      if (executionArray) {
+        setLiveExecutionState(executionArray.getState());
+        return true;
+      }
+    }
+    
+    // Fallback to stored state in execution message
+    if (executionMessage.executionArray) {
       setLiveExecutionState(executionMessage.executionArray);
       return true;
     }
+    
     return false;
   };
 
   // Try to get state immediately
   updateState();
 
-  // Poll for ExecutionArray if it doesn't exist yet
-  let pollInterval: NodeJS.Timeout | null = null;
-  if (!chatInstance.getExecutionArray(executionId) && !executionMessage.executionArray) {
-    pollInterval = setInterval(() => {
-      if (updateState() && pollInterval) {
+  // Check if we need to poll backend (stateless mode: has state but no ExecutionArray instance)
+  const needsBackendPolling = 
+    executionMessage.executionArray && 
+    backendSessionId &&
+    (!dotbot.currentChat || !dotbot.currentChat.getExecutionArray(executionId));
+
+  if (needsBackendPolling) {
+    // Poll backend for simulation progress during preparation
+    let pollCount = 0;
+    const maxPolls = 300; // 30 seconds max (300 * 100ms)
+    pollInterval = setInterval(async () => {
+      pollCount++;
+      
+      try {
+        const response = await getExecutionState(backendSessionId, executionId);
+        if (response.success && response.state) {
+          setLiveExecutionState(response.state);
+          // Update execution message with latest state
+          if (executionMessage) {
+            executionMessage.executionArray = response.state;
+          }
+        }
+      } catch (error) {
+        console.warn('[ExecutionFlow] Failed to poll execution state:', error);
+      }
+      
+      // Stop polling if we have ExecutionArray locally or max polls reached
+      if (updateState() || pollCount >= maxPolls) {
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      }
+    }, 100); // Poll every 100ms for responsive updates
+  } else if (dotbot.currentChat) {
+    // Stateful mode: subscribe to local ExecutionArray updates
+    unsubscribe = dotbot.currentChat.onExecutionUpdate(executionId, (updatedState) => {
+      setLiveExecutionState(updatedState);
+      if (pollInterval) {
         clearInterval(pollInterval);
         pollInterval = null;
       }
-    }, 100);
+    });
   }
-
-  // Subscribe to execution updates
-  const unsubscribe = chatInstance.onExecutionUpdate(executionId, (updatedState) => {
-    setLiveExecutionState(updatedState);
-    if (pollInterval) {
-      clearInterval(pollInterval);
-      pollInterval = null;
-    }
-  });
 
   // Cleanup function
   return () => {
     if (pollInterval) {
       clearInterval(pollInterval);
+      pollInterval = null;
     }
-    unsubscribe();
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
   };
 }
 

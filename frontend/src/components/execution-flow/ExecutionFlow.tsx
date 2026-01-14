@@ -31,6 +31,7 @@ export interface ExecutionFlowProps {
   // New API: Pass ExecutionMessage + DotBot instance
   executionMessage?: ExecutionMessage;
   dotbot?: DotBot;
+  backendSessionId?: string | null; // Backend session ID for API calls (stateless mode)
   
   // Legacy API: Pass state directly
   state?: ExecutionArrayState | null;
@@ -42,13 +43,14 @@ export interface ExecutionFlowProps {
 const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   executionMessage,
   dotbot,
+  backendSessionId,
   state,
   onAcceptAndStart,
   onCancel,
   show = true
 }) => {
-  // Use custom hooks for state management
-  const executionState = useExecutionFlowState(executionMessage, dotbot, state);
+  // Use custom hooks for state management (passes backendSessionId for polling)
+  const executionState = useExecutionFlowState(executionMessage, dotbot, state, backendSessionId);
   const { isExpanded, toggleExpand } = useExpandedItems();
 
   // Determine if we should show the component
@@ -89,9 +91,15 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   }
 
   // Handle execution through DotBot if using new API
+  // Option 3: Always execute on frontend (cleaner - no remote signing needed)
   const handleAcceptAndStart = async () => {
     if (executionMessage && dotbot) {
       try {
+        // Always use frontend's local execution
+        // Frontend DotBot is stateful, so it will:
+        // 1. Get execution message with executionPlan
+        // 2. Rebuild ExecutionArray from plan (if needed)
+        // 3. Execute using frontend's browser wallet signer
         await dotbot.startExecution(executionMessage.executionId, { autoApprove: false });
       } catch (error) {
         console.error('Failed to start execution:', error);

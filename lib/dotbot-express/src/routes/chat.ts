@@ -5,6 +5,7 @@
  * This is a lightweight alternative to /api/dotbot/chat for basic AI interactions.
  * 
  * Use /api/dotbot/chat for full DotBot functionality (blockchain operations, execution, etc.)
+ * TODO: Probably this file should be renamed
  */
 
 import { Router, Request, Response } from 'express';

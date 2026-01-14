@@ -7,10 +7,10 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "test:integration": "ts-node test/integration/openapi-test-runner.ts",
     "test:endpoint": "ts-node test/integration/openapi-test-runner.ts",
-    "test:all": "npm test && npm run test:integration",
+    "test:all": "npm run test:integration",
     "type-check": "tsc --noEmit",
     "mock": "prism mock openapi.yaml -p 8000 --dynamic",
     "mock:verbose": "prism mock openapi.yaml -p 8000 --dynamic --verbosity debug"

@@ -9,11 +9,13 @@ import { setupExecutionSubscription } from '../executionFlowUtils';
 
 /**
  * Hook to manage execution flow state with subscription
+ * Supports both stateful (local) and stateless (backend polling) modes
  */
 export function useExecutionFlowState(
   executionMessage: ExecutionMessage | undefined,
   dotbot: DotBot | undefined,
-  legacyState: ExecutionArrayState | null | undefined
+  legacyState: ExecutionArrayState | null | undefined,
+  backendSessionId?: string | null
 ): ExecutionArrayState | null {
   const [liveExecutionState, setLiveExecutionState] = useState<ExecutionArrayState | null>(null);
 
@@ -26,12 +28,13 @@ export function useExecutionFlowState(
     const cleanup = setupExecutionSubscription(
       executionMessage,
       dotbot,
-      setLiveExecutionState
+      setLiveExecutionState,
+      backendSessionId
     );
 
     return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [executionMessage?.executionId, dotbot]);
+  }, [executionMessage?.executionId, dotbot, backendSessionId]);
 
   // Use live state if available, otherwise fall back to snapshot or legacy state
   return liveExecutionState || executionMessage?.executionArray || legacyState || null;

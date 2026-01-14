@@ -199,7 +199,14 @@ export class DotBot {
   private chatManager: ChatInstanceManager;
   public currentChat: ChatInstance | null = null;
   private chatPersistenceEnabled: boolean;
-  private stateful: boolean;
+  private _stateful: boolean;
+  
+  /**
+   * Get whether DotBot is in stateful mode
+   */
+  get stateful(): boolean {
+    return this._stateful;
+  }
   
   // Stateless mode: Temporary storage for execution sessions, plans, and states (keyed by executionId)
   // These are created during prepareExecution and reused for execution
@@ -242,7 +249,7 @@ export class DotBot {
     this.chatManager = chatManager;
     this.chatPersistenceEnabled = !config.disableChatPersistence;
     this.aiService = config.aiService;
-    this.stateful = config.stateful !== false; // Default to true for backward compatibility
+    this._stateful = config.stateful !== false; // Default to true for backward compatibility
   }
   
   /**
@@ -418,7 +425,7 @@ export class DotBot {
     );
     
     // Initialize chat instance (load or create) - only in stateful mode
-    if (dotbot.stateful && !config.disableChatPersistence) {
+    if (dotbot._stateful && !config.disableChatPersistence) {
       await dotbot.initializeChatInstance();
     }
     
@@ -672,7 +679,7 @@ export class DotBot {
    */
   async startExecution(executionId: string, options?: ExecutionOptions): Promise<void> {
     // Handle stateless mode
-    if (!this.stateful) {
+    if (!this._stateful) {
       return this.startExecutionStateless(executionId, options);
     }
     
@@ -1074,11 +1081,11 @@ export class DotBot {
       planId: plan.id,
       stepsCount: plan.steps.length,
       originalRequest: plan.originalRequest,
-      stateful: this.stateful
+      stateful: this._stateful
     }, 'prepareExecution: Starting execution preparation');
     
     // Handle stateless mode
-    if (!this.stateful) {
+    if (!this._stateful) {
       return this.prepareExecutionStateless(plan, finalExecutionId, skipSimulation);
     }
     

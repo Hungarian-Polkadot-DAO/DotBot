@@ -3,6 +3,10 @@
  * Works in both browser (Create React App) and Node.js environments
  */
 
+// Type definitions for browser globals in Node.js environment
+declare const window: (Window & typeof globalThis) | undefined;
+declare const localStorage: Storage | undefined;
+
 /**
  * Get environment variable
  * In browser: tries REACT_APP_* first, falls back to regular name
@@ -71,7 +75,7 @@ export function getStorage(): Storage {
   }
 
   if (isBrowser() && typeof localStorage !== 'undefined') {
-    storageInstance = localStorage;
+    storageInstance = localStorage as Storage;
   } else {
     // Node.js or environment without localStorage
     storageInstance = new MemoryStorage();

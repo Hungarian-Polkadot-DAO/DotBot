@@ -26,6 +26,8 @@ interface ChatProps {
   onPromptProcessed?: () => void;
   /** Auto-submit injected prompts (default: true) */
   autoSubmit?: boolean;
+  /** Backend session ID for API calls (stateless mode) */
+  backendSessionId?: string | null;
 }
 
 const Chat: React.FC<ChatProps> = ({
@@ -37,6 +39,7 @@ const Chat: React.FC<ChatProps> = ({
   injectedPrompt = null,
   onPromptProcessed,
   autoSubmit = true,
+  backendSessionId = null,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -71,7 +74,8 @@ const Chat: React.FC<ChatProps> = ({
       setInputValue(trimmedPrompt);
       setShowInjectionEffect(true);
       
-      // Notify that prompt was processed (this unblocks the executor)
+      // Notify that prompt was filled into input (this unblocks waitForPromptProcessed)
+      // This happens BEFORE submission - the executor will then wait for the response
       onPromptProcessed?.();
       
       // Auto-submit injected prompts if enabled (ScenarioEngine can work both ways)
@@ -80,17 +84,35 @@ const Chat: React.FC<ChatProps> = ({
         // Small delay to ensure input is set and UI is ready
         submitTimer = setTimeout(async () => {
           // Double-check conditions before submitting
-          if (!isTyping && !disabled && trimmedPrompt && processedPromptRef.current === trimmedPrompt) {
+          const canSubmit = !isTyping && !disabled && trimmedPrompt && processedPromptRef.current === trimmedPrompt;
+          
+          if (canSubmit) {
+            console.log('[Chat] Auto-submitting injected prompt:', trimmedPrompt.substring(0, 50) + '...');
             // Mark as submitted to prevent re-submission
             processedPromptRef.current = null;
             setInputValue('');
             try {
+              // Send the message - the ScenarioEngine will receive the response via DotBot events
               await onSendMessage(trimmedPrompt);
+              console.log('[Chat] Successfully sent injected prompt');
             } catch (error) {
               console.error('[Chat] Failed to submit injected prompt:', error);
+              // Clear the processed ref so it can be retried
+              processedPromptRef.current = null;
             }
+          } else {
+            // Conditions changed, don't send but still clear the processed ref
+            console.warn('[Chat] Cannot auto-submit prompt - conditions not met:', {
+              isTyping,
+              disabled,
+              hasPrompt: !!trimmedPrompt,
+              refMatches: processedPromptRef.current === trimmedPrompt
+            });
+            processedPromptRef.current = null;
           }
         }, 100);
+      } else {
+        console.log('[Chat] Auto-submit disabled - waiting for manual submission');
       }
       
       // Reset injection effect after animation
@@ -199,6 +221,7 @@ const Chat: React.FC<ChatProps> = ({
           key={refreshKey}
           items={conversationItems}
           dotbot={dotbot}
+          backendSessionId={backendSessionId}
         />
         
         {/* Typing indicator */}

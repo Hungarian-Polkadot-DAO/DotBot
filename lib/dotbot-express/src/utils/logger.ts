@@ -6,10 +6,188 @@
  * 
  * This logger is safe to use in both backend and frontend (won't break frontend),
  * but is optimized for backend usage with proper log levels and formatting.
+ * 
+ * Also shortens noisy Polkadot.js console output (API/INIT messages) to one-line summaries.
  */
 
 import pino from 'pino';
 import { getEnv } from '@dotbot/core/env';
+
+/**
+ * Shorten noisy Polkadot.js console messages
+ * Instead of filtering them out, condense them to one line with just the essence
+ */
+function setupConsoleShortener() {
+  // Only set up once
+  if ((console as any).__dotbotShortened) {
+    return;
+  }
+  
+  const originalConsoleLog = console.log;
+  const originalConsoleInfo = console.info;
+  const originalConsoleWarn = console.warn;
+  
+  /**
+   * Shorten API/INIT messages to one line
+   * Collects similar messages and shows a summary
+   */
+  const apiInitMessages = {
+    rpcMethods: new Set<string>(),
+    runtimeApis: new Map<string, Set<string>>(), // chain -> Set of API names
+    unknownApis: new Set<string>(), // chain names
+  };
+  let apiInitTimeout: NodeJS.Timeout | null = null;
+  let apiInitSummaryShown = false;
+  
+  function shortenApiInitMessage(message: string): string | null {
+    // Extract just the message part (ignore timestamps/prefixes)
+    const cleanMessage = message.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+/, '').trim();
+    
+    // RPC methods not decorated - collect and show summary
+    if (cleanMessage.includes('API/INIT:') && cleanMessage.includes('RPC methods not decorated')) {
+      const methods = cleanMessage.match(/RPC methods not decorated:\s*(.+)/)?.[1];
+      if (methods) {
+        const methodList = methods.split(',').map(m => m.trim()).filter(m => m);
+        methodList.forEach(m => apiInitMessages.rpcMethods.add(m));
+      }
+      
+      // Debounce summary
+      if (apiInitTimeout) clearTimeout(apiInitTimeout);
+      apiInitTimeout = setTimeout(() => {
+        if (apiInitMessages.rpcMethods.size > 0 && !apiInitSummaryShown) {
+          originalConsoleInfo(`[Polkadot] API initialized (${apiInitMessages.rpcMethods.size} RPC methods not decorated - expected)`);
+          apiInitSummaryShown = true;
+          apiInitMessages.rpcMethods.clear();
+        }
+      }, 1000);
+      
+      return null; // Suppress individual message
+    }
+    
+    // Runtime APIs - collect by chain
+    const runtimeApiMatch = cleanMessage.match(/API\/INIT:\s*(.+?):\s*Not decorating runtime apis without matching versions:\s*(.+)/);
+    if (runtimeApiMatch) {
+      const [, chain, apis] = runtimeApiMatch;
+      if (!apiInitMessages.runtimeApis.has(chain)) {
+        apiInitMessages.runtimeApis.set(chain, new Set());
+      }
+      const apiNames = apis.split(',').map(a => a.trim().split('/')[0]).filter(a => a);
+      apiNames.forEach(api => apiInitMessages.runtimeApis.get(chain)!.add(api));
+      
+      if (apiInitTimeout) clearTimeout(apiInitTimeout);
+      apiInitTimeout = setTimeout(() => {
+        if (!apiInitSummaryShown) {
+          apiInitMessages.runtimeApis.forEach((apis, chain) => {
+            const apiList = Array.from(apis).join(', ');
+            originalConsoleInfo(`[Polkadot] ${chain}: Runtime API version mismatches: ${apiList} (expected)`);
+          });
+          apiInitSummaryShown = true;
+          apiInitMessages.runtimeApis.clear();
+        }
+      }, 1000);
+      
+      return null; // Suppress individual message
+    }
+    
+    // Unknown runtime APIs - collect by chain
+    const unknownApiMatch = cleanMessage.match(/API\/INIT:\s*(.+?):\s*Not decorating unknown runtime apis:/);
+    if (unknownApiMatch) {
+      const [, chain] = unknownApiMatch;
+      apiInitMessages.unknownApis.add(chain);
+      
+      if (apiInitTimeout) clearTimeout(apiInitTimeout);
+      apiInitTimeout = setTimeout(() => {
+        if (apiInitMessages.unknownApis.size > 0 && !apiInitSummaryShown) {
+          const chains = Array.from(apiInitMessages.unknownApis).join(', ');
+          originalConsoleInfo(`[Polkadot] ${chains}: Unknown runtime APIs (expected)`);
+          apiInitSummaryShown = true;
+          apiInitMessages.unknownApis.clear();
+        }
+      }, 1000);
+      
+      return null; // Suppress individual message
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Collect and summarize Polkadot version warnings
+   * Multiple versions can cause subtle bugs, so we collect them and show a single summary
+   */
+  const versionWarnings = new Set<string>();
+  let versionWarningTimeout: NodeJS.Timeout | null = null;
+  let versionWarningShown = false;
+  
+  function handleVersionWarning(message: string): boolean {
+    const match = message.match(/@polkadot\/([^\s]+) has multiple versions/);
+    if (match) {
+      const packageName = match[1];
+      versionWarnings.add(packageName);
+      
+      // Debounce: show summary after collecting warnings for 1 second
+      if (versionWarningTimeout) {
+        clearTimeout(versionWarningTimeout);
+      }
+      
+      versionWarningTimeout = setTimeout(() => {
+        if (versionWarnings.size > 0 && !versionWarningShown) {
+          const packages = Array.from(versionWarnings).sort().join(', ');
+          originalConsoleWarn(`[Polkadot] Version conflicts: ${packages} (${versionWarnings.size} packages). Run 'npm dedupe' to resolve.`);
+          versionWarningShown = true;
+          versionWarnings.clear();
+        }
+      }, 1000); // Wait 1 second to collect all warnings
+      
+      // Suppress individual messages
+      return true; // Return true to suppress
+    }
+    return false;
+  }
+  
+  console.log = (...args: any[]) => {
+    const message = String(args[0] || '');
+    const shortened = shortenApiInitMessage(message);
+    if (shortened) {
+      originalConsoleLog(shortened);
+    } else {
+      originalConsoleLog.apply(console, args);
+    }
+  };
+  
+  console.info = (...args: any[]) => {
+    const message = String(args[0] || '');
+    const shortened = shortenApiInitMessage(message);
+    if (shortened) {
+      originalConsoleInfo(shortened);
+    } else {
+      originalConsoleInfo.apply(console, args);
+    }
+  };
+  
+  console.warn = (...args: any[]) => {
+    const message = String(args[0] || '');
+    
+    // Handle version warnings (suppresses individual messages, shows summary)
+    if (handleVersionWarning(message)) {
+      return; // Suppress this message
+    }
+    
+    // Try API init message shortening
+    const apiShortened = shortenApiInitMessage(message);
+    if (apiShortened) {
+      originalConsoleWarn(apiShortened);
+    } else {
+      originalConsoleWarn.apply(console, args);
+    }
+  };
+  
+  // Mark as shortened to prevent double setup
+  (console as any).__dotbotShortened = true;
+}
+
+// Setup console shortener on module load (before any Polkadot.js code runs)
+setupConsoleShortener();
 
 // Read version from package.json or environment
 const EXPRESS_VERSION = process.env.DOTBOT_EXPRESS_VERSION || '0.1.0';

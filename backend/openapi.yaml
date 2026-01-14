@@ -545,7 +545,13 @@ paths:
       tags:
         - Execution
       summary: Get execution state
-      description: Retrieves the current state of an execution
+      description: |
+        Retrieves the current state of an execution. Works in both stateful and stateless modes.
+        
+        - **Stateful mode**: Returns state from the active chat instance's ExecutionArray
+        - **Stateless mode**: Returns state from temporary storage (during preparation/simulation)
+        
+        This endpoint is used for polling execution progress, especially during simulation on the backend.
       operationId: getExecutionState
       parameters:
         - name: sessionId
@@ -554,15 +560,17 @@ paths:
           description: Session identifier
           schema:
             type: string
+            example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
         - name: executionId
           in: path
           required: true
           description: Execution identifier
           schema:
             type: string
+            example: exec_1705168800000_abc123
       responses:
         '200':
-          description: Execution state
+          description: Execution state retrieved successfully
           content:
             application/json:
               schema:
@@ -573,11 +581,15 @@ paths:
                     example: true
                   executionId:
                     type: string
+                    description: Execution identifier
+                    example: exec_1705168800000_abc123
                   state:
-                    $ref: '#/components/schemas/ExecutionState'
+                    $ref: '#/components/schemas/ExecutionArrayState'
+                    description: Current execution array state (includes simulation progress)
                   timestamp:
                     type: string
                     format: date-time
+                    example: 2026-01-13T18:00:00.000Z
         '404':
           description: Execution not found
           content:
@@ -596,7 +608,9 @@ paths:
       tags:
         - Execution
       summary: Approve execution step
-      description: Approves a pending execution step
+      description: |
+        Approves a pending execution step. Requires an active chat instance (stateful mode).
+        In stateless mode, approval should be handled on the frontend.
       operationId: approveExecutionStep
       parameters:
         - name: sessionId
@@ -637,6 +651,12 @@ paths:
                   timestamp:
                     type: string
                     format: date-time
+        '400':
+          description: Bad request (e.g., no active chat instance)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Execution not found
           content:
@@ -655,7 +675,9 @@ paths:
       tags:
         - Execution
       summary: Reject execution step
-      description: Rejects a pending execution step
+      description: |
+        Rejects a pending execution step. Requires an active chat instance (stateful mode).
+        In stateless mode, rejection should be handled on the frontend.
       operationId: rejectExecutionStep
       parameters:
         - name: sessionId
@@ -699,6 +721,12 @@ paths:
                   timestamp:
                     type: string
                     format: date-time
+        '400':
+          description: Bad request (e.g., no active chat instance)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: Execution not found
           content:
@@ -949,6 +977,11 @@ components:
           type: string
           description: Session identifier used for this request
           example: wallet:5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY:mainnet
+        chatId:
+          type: string
+          nullable: true
+          description: Current chat instance ID (if any)
+          example: chat_1705168800000_abc123
         timestamp:
           type: string
           format: date-time
@@ -1131,3 +1164,204 @@ components:
           nullable: true
           description: Execution completion timestamp (Unix ms)
           example: 1705169400000
+
+    ExecutionArrayState:
+      type: object
+      description: |
+        Complete execution array state including all items, progress, and simulation status.
+        This is the full state structure returned by the execution system.
+        Used for polling execution progress during preparation and execution.
+      required:
+        - id
+        - items
+        - currentIndex
+        - isExecuting
+        - isPaused
+        - totalItems
+        - completedItems
+        - failedItems
+        - cancelledItems
+      properties:
+        id:
+          type: string
+          description: Unique execution identifier
+          example: exec_1705168800000_abc123
+        items:
+          type: array
+          description: All execution items in the array
+          items:
+            $ref: '#/components/schemas/ExecutionItem'
+        currentIndex:
+          type: integer
+          description: Current execution index (0-based)
+          example: 0
+        isExecuting:
+          type: boolean
+          description: Whether execution is currently in progress
+          example: false
+        isPaused:
+          type: boolean
+          description: Whether execution is paused
+          example: false
+        totalItems:
+          type: integer
+          description: Total number of items in the execution array
+          example: 1
+        completedItems:
+          type: integer
+          description: Number of completed items
+          example: 0
+        failedItems:
+          type: integer
+          description: Number of failed items
+          example: 0
+        cancelledItems:
+          type: integer
+          description: Number of cancelled items
+          example: 0
+
+    ExecutionItem:
+      type: object
+      description: A single execution item in the execution array
+      required:
+        - id
+        - status
+        - executionType
+      properties:
+        id:
+          type: string
+          description: Unique item identifier
+          example: exec_1705168800001_xyz789
+        status:
+          type: string
+          enum: [pending, ready, executing, signing, broadcasting, finalized, completed, failed, cancelled]
+          description: Current status of the item
+          example: ready
+        executionType:
+          type: string
+          enum: [extrinsic, data_fetch, validation, user_input]
+          description: Type of execution operation
+          example: extrinsic
+        description:
+          type: string
+          description: Human-readable description of the operation
+          example: Transfer 1 DOT to 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+        agentResult:
+          type: object
+          description: Agent result containing the operation details
+          additionalProperties: true
+        estimatedFee:
+          type: string
+          nullable: true
+          description: Estimated transaction fee (if applicable)
+          example: 0.001 DOT
+        warnings:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: Warnings associated with this item
+          example: [Low balance warning]
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Additional metadata
+        simulationStatus:
+          $ref: '#/components/schemas/SimulationStatus'
+          nullable: true
+          description: Simulation status (if simulation is enabled and in progress)
+        error:
+          type: string
+          nullable: true
+          description: Error message (if failed)
+          example: Insufficient balance
+        result:
+          type: object
+          nullable: true
+          description: Execution result (populated after execution)
+          additionalProperties: true
+        createdAt:
+          type: number
+          description: Timestamp when item was created (Unix ms)
+          example: 1705168800000
+        startedAt:
+          type: number
+          nullable: true
+          description: Timestamp when execution started (Unix ms)
+          example: 1705168801000
+        completedAt:
+          type: number
+          nullable: true
+          description: Timestamp when execution completed (Unix ms)
+          example: 1705168805000
+        index:
+          type: integer
+          description: Index in the execution array
+          example: 0
+
+    SimulationStatus:
+      type: object
+      description: Simulation status for an execution item
+      properties:
+        phase:
+          type: string
+          enum: [initializing, forking, executing, analyzing, complete, error, validating, simulating, retrying]
+          description: Current simulation phase
+          example: executing
+        message:
+          type: string
+          description: Human-readable status message
+          example: Simulating transaction execution...
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: Simulation progress percentage
+          example: 60
+        details:
+          type: string
+          nullable: true
+          description: Additional details about the current phase
+        result:
+          type: object
+          nullable: true
+          description: Simulation result (when complete)
+          properties:
+            success:
+              type: boolean
+              description: Whether simulation succeeded
+            estimatedFee:
+              type: string
+              nullable: true
+              description: Estimated fee from simulation
+            validationMethod:
+              type: string
+              enum: [chopsticks, paymentInfo]
+              nullable: true
+              description: Method used for validation
+            balanceChanges:
+              type: array
+              nullable: true
+              items:
+                type: object
+                properties:
+                  value:
+                    type: string
+                  change:
+                    type: string
+                    enum: [send, receive]
+            runtimeInfo:
+              type: object
+              additionalProperties: true
+              nullable: true
+              description: Runtime information from simulation
+            error:
+              type: string
+              nullable: true
+              description: Error message (if simulation failed)
+            wouldSucceed:
+              type: boolean
+              nullable: true
+              description: Whether the transaction would succeed

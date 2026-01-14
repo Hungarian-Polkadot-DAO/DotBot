@@ -21,13 +21,19 @@ import LoadingOverlay from './components/common/LoadingOverlay';
 import { DotBot, Environment, ScenarioEngine } from '@dotbot/core';
 import type { ChatInstanceData } from '@dotbot/core/types/chatInstance';
 import { useWalletStore } from './stores/walletStore';
-import { ASIOneService } from '@dotbot/core/services/asiOneService';
 import { SigningRequest, BatchSigningRequest } from '@dotbot/core';
 import { Settings } from 'lucide-react';
 import {
   createDotBotInstance,
-  setupScenarioEngineDependencies
+  setupScenarioEngineDependencies,
+  getNetworkFromEnvironment
 } from './utils/appUtils';
+import {
+  createDotBotSession,
+  sendDotBotMessage,
+  getDotBotSession,
+  type WalletAccount,
+} from './services/dotbotApi';
 import './styles/globals.css';
 import './styles/chat-history.css';
 import './styles/chat-history-card.css';
@@ -54,9 +60,10 @@ const AppContent: React.FC = () => {
   const [autoSubmitPrompts, setAutoSubmitPrompts] = useState<boolean>(true);
   
   // DotBot State
+  // Frontend DotBot is now just a UI helper - all AI communication happens on backend
   const [dotbot, setDotbot] = useState<DotBot | null>(null);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [asiOne] = useState(() => new ASIOneService());
+  const [backendSessionId, setBackendSessionId] = useState<string | null>(null);
   const [isInitializing, setIsInitializing] = useState(false);
   const [initializingMessage, setInitializingMessage] = useState<string>('');
   const [initializingSubMessage, setInitializingSubMessage] = useState<string>('');
@@ -120,9 +127,31 @@ const AppContent: React.FC = () => {
   const initializeDotBot = async () => {
     setIsInitializing(true);
     setInitializingMessage('Initializing DotBot');
-    setInitializingSubMessage('Connecting...');
+    setInitializingSubMessage('Connecting to backend...');
     
     try {
+      // Create backend session first (this creates DotBot instance on backend)
+      const walletAccount: WalletAccount = {
+        address: selectedAccount!.address,
+        name: selectedAccount!.name,
+        source: selectedAccount!.source,
+      };
+      
+      setInitializingSubMessage('Creating backend session...');
+      const network = getNetworkFromEnvironment(preferredEnvironment);
+      const sessionResponse = await createDotBotSession(
+        walletAccount,
+        preferredEnvironment,
+        network,
+        undefined // sessionId will be auto-generated
+      );
+      
+      setBackendSessionId(sessionResponse.sessionId);
+      console.log('[App] Backend session created:', sessionResponse.sessionId);
+      
+      // Create frontend DotBot instance for UI state management only
+      // This is a "frontend helper" - it doesn't do AI calls
+      setInitializingSubMessage('Setting up frontend UI...');
       const dotbotInstance = await createDotBotInstance(
         selectedAccount!,
         preferredEnvironment,
@@ -132,10 +161,10 @@ const AppContent: React.FC = () => {
       
       setDotbot(dotbotInstance);
       
-      // Initialize ScenarioEngine
-        try {
-          setInitializingMessage('Initializing ScenarioEngine');
-          setInitializingSubMessage('Setting up scenario execution engine...');
+      // Initialize ScenarioEngine (still needs frontend DotBot for now)
+      try {
+        setInitializingMessage('Initializing ScenarioEngine');
+        setInitializingSubMessage('Setting up scenario execution engine...');
         
         await setupScenarioEngineDependencies(
           scenarioEngine,
@@ -173,22 +202,54 @@ const AppContent: React.FC = () => {
     setIsTyping(true);
 
     try {
-      if (!dotbot) {
+      if (!dotbot || !backendSessionId || !selectedAccount) {
         throw new Error('Please connect your wallet first');
       }
 
-      // Capture the chat result to return it (for scenario engine)
-      const chatResult = await dotbot.chat(message, {
-        llm: async (msg, systemPrompt, llmContext) => {
-          const response = await asiOne.sendMessage(msg, {
-            systemPrompt,
-            ...llmContext,
-            walletAddress: selectedAccount?.address,
-            network: dotbot.getNetwork().charAt(0).toUpperCase() + dotbot.getNetwork().slice(1)
-          });
-          return response;
-        }
+      // Send message to backend DotBot API (all AI communication happens here)
+      const walletAccount: WalletAccount = {
+        address: selectedAccount.address,
+        name: selectedAccount.name,
+        source: selectedAccount.source,
+      };
+
+      // Get conversation history from frontend DotBot for context
+      const conversationHistory = dotbot.currentChat?.getHistory() || [];
+
+      const apiResponse = await sendDotBotMessage({
+        message,
+        sessionId: backendSessionId,
+        wallet: walletAccount,
+        environment: dotbot.getEnvironment(),
+        network: dotbot.getNetwork(),
+        conversationHistory,
       });
+
+      const chatResult = apiResponse.result;
+
+      // Update frontend DotBot with the response (for UI state)
+      // Add user message
+      if (dotbot.currentChat) {
+        await dotbot.currentChat.addUserMessage(message);
+      }
+
+      // Add bot response
+      if (chatResult.response && dotbot.currentChat) {
+        await dotbot.currentChat.addBotMessage(chatResult.response);
+      }
+
+      // If there's an execution plan and executionArrayState, add execution message
+      if (chatResult.plan && chatResult.executionArrayState && dotbot.currentChat) {
+        // Add execution message with the state from backend (stateless mode)
+        await dotbot.currentChat.addExecutionMessage(
+          chatResult.executionId || chatResult.executionArrayState.id,
+          chatResult.plan,
+          chatResult.executionArrayState
+        );
+      } else if (chatResult.plan && dotbot.currentChat) {
+        // Stateful mode: execution message was already added by backend
+        // Frontend just needs to sync (polling will handle it)
+      }
 
       setConversationRefresh(prev => prev + 1);
       
@@ -410,6 +471,7 @@ const AppContent: React.FC = () => {
                   injectedPrompt={injectedPrompt?.prompt || null}
                   onPromptProcessed={notifyPromptProcessed}
                   autoSubmit={autoSubmitPrompts}
+                  backendSessionId={backendSessionId}
             />
           ) : (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
