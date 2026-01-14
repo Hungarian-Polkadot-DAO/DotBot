@@ -11,9 +11,9 @@ COPY lib/ ./lib/
 WORKDIR /app/lib/dotbot-core
 RUN npm install && npm run build
 
-# Install dotbot-express dependencies (needed for backend TypeScript compilation)
+# Build dotbot-express library (needed for backend TypeScript compilation)
 WORKDIR /app/lib/dotbot-express
-RUN npm install
+RUN npm install && npm run build || echo "No build script, skipping"
 
 # Copy backend package files (reset WORKDIR first)
 WORKDIR /app
@@ -47,6 +47,10 @@ COPY lib/ ./lib/
 # Install all deps (including dev) needed for TypeScript build, then build
 WORKDIR /app/lib/dotbot-core
 RUN npm install && npm run build
+
+# Build dotbot-express library (must be built for production stage too)
+WORKDIR /app/lib/dotbot-express
+RUN npm install && npm run build || echo "No build script, skipping"
 
 # Copy backend package files (reset WORKDIR first)
 WORKDIR /app
