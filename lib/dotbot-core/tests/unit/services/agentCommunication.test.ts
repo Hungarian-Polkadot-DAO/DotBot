@@ -126,7 +126,7 @@ describe('AgentCommunicationService', () => {
       mockMethods().sendMessage.mockRejectedValueOnce(new Error('API error'));
 
       const request: AgentRequest = {
-        agentId: 'asset-transfer',
+        agent: 'asset-transfer',
         message: 'Send 5 DOT',
         context: {},
       };

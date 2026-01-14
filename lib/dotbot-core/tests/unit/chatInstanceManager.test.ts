@@ -4,6 +4,33 @@
  * Updated for async storage API.
  */
 
+// Mock browser globals for Node.js environment
+const mockStorage: { [key: string]: string } = {};
+
+const clearStorage = () => {
+  Object.keys(mockStorage).forEach(key => delete mockStorage[key]);
+};
+
+const mockLocalStorage = {
+  getItem: jest.fn((key: string) => mockStorage[key] || null),
+  setItem: jest.fn((key: string, value: string) => {
+    mockStorage[key] = value;
+  }),
+  removeItem: jest.fn((key: string) => {
+    delete mockStorage[key];
+  }),
+  clear: jest.fn(() => clearStorage()),
+  get length() {
+    return Object.keys(mockStorage).length;
+  },
+  key: jest.fn((index: number) => {
+    const keys = Object.keys(mockStorage);
+    return keys[index] || null;
+  }),
+};
+
+(global as any).localStorage = mockLocalStorage;
+
 import { ChatInstanceManager } from '../../chatInstanceManager';
 import type {
   ChatInstanceData,
@@ -16,14 +43,26 @@ import type { ExecutionArrayState } from '../../executionEngine/types';
 describe('ChatInstanceManager', () => {
   let manager: ChatInstanceManager;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Actually clear the storage data
+    clearStorage();
+    // Reset mock call counts
+    mockLocalStorage.getItem.mockClear();
+    mockLocalStorage.setItem.mockClear();
+    mockLocalStorage.removeItem.mockClear();
+    mockLocalStorage.clear.mockClear();
     manager = new ChatInstanceManager();
-    // Clear storage before each test
-    localStorage.clear();
+    // Ensure all instances are cleared before each test
+    await manager.clearAllInstances();
   });
 
-  afterEach(() => {
-    localStorage.clear();
+  afterEach(async () => {
+    // Actually clear the storage data
+    clearStorage();
+    // Also clear via manager to ensure async operations complete
+    if (manager) {
+      await manager.clearAllInstances();
+    }
   });
 
   describe('createInstance()', () => {

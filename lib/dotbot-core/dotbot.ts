@@ -201,10 +201,12 @@ export class DotBot {
   private chatPersistenceEnabled: boolean;
   private stateful: boolean;
   
-  // Stateless mode: Temporary storage for execution sessions and plans (keyed by executionId)
+  // Stateless mode: Temporary storage for execution sessions, plans, and states (keyed by executionId)
   // These are created during prepareExecution and reused for execution
+  // executionStates stores current state during preparation (for polling)
   private executionSessions: Map<string, { relayChain: ExecutionSession; assetHub: ExecutionSession | null }> = new Map();
   private executionPlans: Map<string, ExecutionPlan> = new Map();
+  private executionStates: Map<string, ExecutionArrayState> = new Map();
   
   // Event emitter for external observers (e.g., ScenarioEngine)
   private eventListeners: Set<DotBotEventListener> = new Set();
@@ -1246,10 +1248,19 @@ export class DotBot {
         executionId
       );
       
+      // Store initial state (after orchestration, before simulation)
+      this.executionStates.set(executionId, executionArray.getState());
+      
       this.dotbotLogger.info({ 
         executionId,
         itemsCount: executionArray.getItems().length
       }, 'prepareExecutionStateless: Orchestration completed');
+      
+      // Subscribe to progress updates to keep state current (for polling)
+      const unsubscribeProgress = executionArray.onProgress(() => {
+        const currentState = executionArray.getState();
+        this.executionStates.set(executionId, currentState);
+      });
       
       // Step 3: Run simulation if enabled and not skipped
       if (!skipSimulation) {
@@ -1274,8 +1285,13 @@ export class DotBot {
         }, 'prepareExecutionStateless: Skipping simulation');
       }
       
-      // Step 4: Return the state (frontend will add it to its chat instance)
+      // Unsubscribe from progress updates (preparation complete)
+      unsubscribeProgress();
+      
+      // Step 4: Return the final state (frontend will add it to its chat instance)
       const state = executionArray.getState();
+      // Update stored state one final time
+      this.executionStates.set(executionId, state);
       this.dotbotLogger.info({ 
         executionId,
         planId: plan.id,
@@ -1284,9 +1300,10 @@ export class DotBot {
       
       return state;
     } catch (error) {
-      // Clean up sessions and plan on error
+      // Clean up sessions, plan, and state on error
       this.executionSessions.delete(executionId);
       this.executionPlans.delete(executionId);
+      this.executionStates.delete(executionId);
       
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.dotbotLogger.error({ 
@@ -1310,7 +1327,15 @@ export class DotBot {
   }
   
   /**
-   * Clean up execution sessions and plan for a given executionId (stateless mode)
+   * Get execution state for a given executionId (stateless mode)
+   * Used for polling during preparation
+   */
+  getExecutionState(executionId: string): ExecutionArrayState | null {
+    return this.executionStates.get(executionId) || null;
+  }
+  
+  /**
+   * Clean up execution sessions, plan, and state for a given executionId (stateless mode)
    */
   cleanupExecutionSessions(executionId: string): void {
     const sessions = this.executionSessions.get(executionId);
@@ -1318,7 +1343,8 @@ export class DotBot {
       // Sessions will be cleaned up by RpcManager when they disconnect
       this.executionSessions.delete(executionId);
       this.executionPlans.delete(executionId);
-      this.dotbotLogger.debug({ executionId }, 'Cleaned up execution sessions and plan');
+      this.executionStates.delete(executionId);
+      this.dotbotLogger.debug({ executionId }, 'Cleaned up execution sessions, plan, and state');
     }
   }
   

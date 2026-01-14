@@ -245,6 +245,9 @@ describe('ASIOneService', () => {
       });
 
       const serviceWithConfig = new ASIOneService({
+        apiKey: 'test-key',
+        baseUrl: 'https://api.test.com',
+        model: 'test-model',
         temperature: 0.5,
         maxTokens: 1000,
       });

@@ -2,6 +2,48 @@
  * Unit tests for RpcManager
  */
 
+// Mock browser globals for Node.js environment
+const mockStorage: { [key: string]: string } = {};
+
+const clearStorage = () => {
+  Object.keys(mockStorage).forEach(key => delete mockStorage[key]);
+};
+
+const mockLocalStorage = {
+  getItem: jest.fn((key: string) => mockStorage[key] || null),
+  setItem: jest.fn((key: string, value: string) => {
+    mockStorage[key] = value;
+  }),
+  removeItem: jest.fn((key: string) => {
+    delete mockStorage[key];
+  }),
+  clear: jest.fn(() => clearStorage()),
+  get length() {
+    return Object.keys(mockStorage).length;
+  },
+  key: jest.fn((index: number) => {
+    const keys = Object.keys(mockStorage);
+    return keys[index] || null;
+  }),
+};
+
+(global as any).window = {
+  localStorage: mockLocalStorage,
+  location: {
+    href: 'http://localhost:3000',
+    origin: 'http://localhost:3000',
+    pathname: '/',
+    search: '',
+    hash: '',
+  },
+};
+
+(global as any).localStorage = mockLocalStorage;
+
+// Set the storage instance for getStorage() to use our mock
+import { setStorage } from '../../env';
+setStorage(mockLocalStorage);
+
 // Mock Polkadot modules before imports
 jest.mock('@polkadot/api', () => ({
   ApiPromise: {
@@ -34,6 +76,12 @@ describe('RpcManager', () => {
   let localStorageMock: Storage;
 
   beforeEach(() => {
+    // Clear storage data first
+    clearStorage();
+    
+    // Reset storage instance to use mock (must be done before RpcManager is created)
+    setStorage(mockLocalStorage);
+    
     // Reset all mocks
     jest.clearAllMocks();
 
@@ -81,22 +129,28 @@ describe('RpcManager', () => {
       return provider;
     });
 
-    // Mock localStorage
-    localStorageMock = {
-      getItem: jest.fn(),
-      setItem: jest.fn(),
-      removeItem: jest.fn(),
-      clear: jest.fn(),
-      length: 0,
-      key: jest.fn(),
-    };
-    Object.defineProperty(window, 'localStorage', {
-      value: localStorageMock,
-      writable: true,
+    // Reset localStorage mocks
+    localStorageMock = mockLocalStorage;
+    // Restore the implementation after clearing
+    mockLocalStorage.getItem.mockImplementation((key: string) => mockStorage[key] || null);
+    mockLocalStorage.setItem.mockImplementation((key: string, value: string) => {
+      mockStorage[key] = value;
     });
+    mockLocalStorage.removeItem.mockImplementation((key: string) => {
+      delete mockStorage[key];
+    });
+    mockLocalStorage.clear.mockImplementation(() => clearStorage());
+    // Clear call history but keep implementation
+    mockLocalStorage.getItem.mockClear();
+    mockLocalStorage.setItem.mockClear();
+    mockLocalStorage.removeItem.mockClear();
+    mockLocalStorage.clear.mockClear();
   });
 
   afterEach(() => {
+    clearStorage();
+    // Reset storage instance
+    setStorage(mockLocalStorage);
     jest.restoreAllMocks();
   });
 
@@ -139,7 +193,8 @@ describe('RpcManager', () => {
         ],
       };
 
-      (localStorageMock.getItem as jest.Mock).mockReturnValue(JSON.stringify(storedData));
+      // Set the storage data directly in mockStorage
+      mockStorage['test_health'] = JSON.stringify(storedData);
 
       const manager = new RpcManager({
         endpoints: ['wss://rpc.polkadot.io'],

@@ -4,6 +4,27 @@
  * Tests StateAllocator with all external dependencies mocked.
  */
 
+// Mock browser globals (window, localStorage) for Node.js environment
+const mockLocalStorage = {
+  getItem: jest.fn(),
+  setItem: jest.fn(),
+  removeItem: jest.fn(),
+  clear: jest.fn(),
+};
+
+(global as any).window = {
+  localStorage: mockLocalStorage,
+  location: {
+    href: 'http://localhost:3000',
+    origin: 'http://localhost:3000',
+    pathname: '/',
+    search: '',
+    hash: '',
+  },
+};
+
+(global as any).localStorage = mockLocalStorage;
+
 // Mock external dependencies
 jest.mock('@polkadot/api', () => ({
   ApiPromise: {
@@ -19,6 +40,13 @@ jest.mock('@acala-network/chopsticks-core', () => ({
 
 jest.mock('../../../../services/simulation/database', () => ({
   ChopsticksDatabase: jest.fn(),
+  createChopsticksDatabase: jest.fn(() => ({
+    // Mock storage implementation
+    get: jest.fn(),
+    set: jest.fn(),
+    delete: jest.fn(),
+    clear: jest.fn(),
+  })),
 }));
 
 jest.mock('../../../../chatInstanceManager', () => ({
@@ -66,16 +94,11 @@ describe('StateAllocator', () => {
 
     mockEntityResolver = (name: string) => mockEntities.get(name);
 
-    // Mock localStorage
-    Object.defineProperty(window, 'localStorage', {
-      value: {
-        getItem: jest.fn(),
-        setItem: jest.fn(),
-        removeItem: jest.fn(),
-        clear: jest.fn(),
-      },
-      writable: true,
-    });
+    // Reset localStorage mocks
+    mockLocalStorage.getItem.mockClear();
+    mockLocalStorage.setItem.mockClear();
+    mockLocalStorage.removeItem.mockClear();
+    mockLocalStorage.clear.mockClear();
   });
 
   describe('Initialization', () => {

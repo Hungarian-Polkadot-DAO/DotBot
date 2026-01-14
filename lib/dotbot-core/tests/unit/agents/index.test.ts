@@ -20,6 +20,10 @@ import {
 import { AssetTransferAgent } from '../../../agents/asset-transfer';
 
 describe('Agent Registry', () => {
+  beforeEach(() => {
+    // Clear mock call counts before each test
+    jest.clearAllMocks();
+  });
   describe('AGENT_REGISTRY', () => {
     it('should contain registered agents', () => {
       expect(AGENT_REGISTRY).toBeDefined();

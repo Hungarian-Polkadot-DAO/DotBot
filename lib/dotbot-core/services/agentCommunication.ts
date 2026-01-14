@@ -134,6 +134,7 @@ export class AgentCommunicationService {
       const response: AgentResponse = {
         success: true,
         agent: request.agent,
+        agentId: request.agent,
         messageId: Date.now().toString(),
         content: aiResponse,
         type: 'text',
@@ -221,6 +222,7 @@ export class AgentCommunicationService {
     return {
       success: true,
       agent: request.agent,
+      agentId: request.agent,
       messageId: Date.now().toString(),
       content,
       type: 'text',

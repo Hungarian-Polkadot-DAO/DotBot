@@ -2,6 +2,12 @@
  * Unit tests for BrowserWalletSigner
  */
 
+// Mock env to simulate browser environment
+jest.mock('../../../../env', () => ({
+  ...jest.requireActual('../../../../env'),
+  isBrowser: jest.fn(() => true), // Mock as browser environment
+}));
+
 // Mock @polkadot/extension-dapp before imports
 jest.mock('@polkadot/extension-dapp', () => ({
   web3FromAddress: jest.fn(),

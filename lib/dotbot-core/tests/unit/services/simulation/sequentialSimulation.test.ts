@@ -12,6 +12,13 @@ jest.mock('../../../../services/simulation/database', () => ({
   ChopsticksDatabase: jest.fn().mockImplementation(() => ({
     close: jest.fn().mockResolvedValue(undefined),
   })),
+  createChopsticksDatabase: jest.fn(() => ({
+    close: jest.fn().mockResolvedValue(undefined),
+    deleteBlock: jest.fn().mockResolvedValue(undefined),
+    get: jest.fn(),
+    set: jest.fn(),
+    clear: jest.fn(),
+  })),
 }));
 
 jest.mock('@polkadot/util-crypto', () => ({

@@ -2,6 +2,13 @@
  * Unit tests for Chopsticks Database (IndexedDB)
  */
 
+// Mock browser globals for Node.js environment
+(global as any).window = {
+  indexedDB: {},
+};
+
+(global as any).indexedDB = {};
+
 // Mock idb before imports
 jest.mock('idb', () => ({
   openDB: jest.fn(),
@@ -56,15 +63,21 @@ describe('ChopsticksDatabase', () => {
   });
 
   describe('constructor', () => {
-    it('should create database with correct name', () => {
+    it('should create database with correct name', async () => {
       const db = new ChopsticksDatabase('test-db');
+      
+      // Wait for async initialization
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       expect(openDB).toHaveBeenCalledWith('test-db', 1, expect.any(Object));
     });
 
-    it('should set up database schema on upgrade', () => {
+    it('should set up database schema on upgrade', async () => {
       // Create a database instance to trigger openDB call
       new ChopsticksDatabase('test-db');
+      
+      // Wait for async initialization
+      await new Promise(resolve => setTimeout(resolve, 10));
       
       const upgradeFn = (openDB as jest.Mock).mock.calls[0][2].upgrade;
       const mockDbUpgrade = {
