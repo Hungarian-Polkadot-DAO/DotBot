@@ -24,7 +24,7 @@ jobs:
         node-version: '22'
         
     - name: Install all dependencies (workspaces)
-      run: npm ci
+      run: npm install
       
     # Build and test core library first (required by frontend/backend)
     - name: Build dotbot-core library
