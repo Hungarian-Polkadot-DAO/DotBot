@@ -164,8 +164,14 @@ jobs:
               - "3011:8000"
             environment:
               - NODE_ENV=staging
+              - PORT=8000
               - ASI_ONE_API_KEY=${ASI_ONE_API_KEY}
-              - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT}
+              - ASI_ONE_ENDPOINT=${ASI_ONE_ENDPOINT:-https://agentverse.ai/api/v1}
+              - ASI_ONE_BASE_URL=${ASI_ONE_BASE_URL:-https://api.asi1.ai/v1}
+              - CLAUDE_API_KEY=${CLAUDE_API_KEY}
+              - AI_PROVIDER=${AI_PROVIDER:-asi-one}
+              - CORS_ORIGINS=${CORS_ORIGINS:-*}
+              - LOG_LEVEL=${LOG_LEVEL:-info}
             restart: always
             networks:
               - dotbot-staging
@@ -247,18 +253,53 @@ jobs:
           # Try Docker Compose first, fallback to docker run if needed
           if ! docker-compose up -d; then
             echo "Docker Compose failed, using docker run fallback..."
-            docker run -d --name dotbot-staging-frontend --network dotbot-staging -p 3010:80 ${{ needs.build.outputs.frontend-image }}
-            docker run -d --name dotbot-staging-backend --network dotbot-staging -p 3011:8000 -e NODE_ENV=staging -e ASI_ONE_API_KEY="$ASI_ONE_API_KEY" -e ASI_ONE_ENDPOINT="$ASI_ONE_ENDPOINT" ${{ needs.build.outputs.backend-image }}
-
+            docker network create dotbot-staging 2>/dev/null || true
+            docker run -d --name dotbot-staging-frontend --network dotbot-staging -p 3010:80 -e NODE_ENV=production ${{ needs.build.outputs.frontend-image }}
+            docker run -d --name dotbot-staging-backend --network dotbot-staging -p 3011:8000 \
+              -e NODE_ENV=staging \
+              -e PORT=8000 \
+              -e ASI_ONE_API_KEY="$ASI_ONE_API_KEY" \
+              -e ASI_ONE_ENDPOINT="${ASI_ONE_ENDPOINT:-https://agentverse.ai/api/v1}" \
+              -e ASI_ONE_BASE_URL="${ASI_ONE_BASE_URL:-https://api.asi1.ai/v1}" \
+              -e CLAUDE_API_KEY="$CLAUDE_API_KEY" \
+              -e AI_PROVIDER="${AI_PROVIDER:-asi-one}" \
+              -e CORS_ORIGINS="${CORS_ORIGINS:-*}" \
+              -e LOG_LEVEL="${LOG_LEVEL:-info}" \
+              ${{ needs.build.outputs.backend-image }}
           fi
           
           # Wait for services to start
           sleep 30
           
+          # Check backend logs if it's restarting
+          if docker ps | grep -q "dotbot-staging-backend.*Restarting"; then
+            echo "⚠️ Backend is restarting, checking logs..."
+            docker logs dotbot-staging-backend --tail 50 || true
+          fi
+          
           # Verify deployment
           docker ps | grep dotbot-staging
+          
+          # Check frontend health
           curl -f http://localhost:3010/health || exit 1
-          curl -f http://localhost:3011/api/health || exit 1
+          
+          # Check backend health with retries (it might need more time)
+          echo "Checking backend health..."
+          for i in {1..5}; do
+            if curl -f http://localhost:3011/api/health; then
+              echo "✅ Backend health check passed!"
+              break
+            else
+              echo "Attempt $i failed, waiting 10 seconds..."
+              sleep 10
+              if [ $i -eq 5 ]; then
+                echo "❌ Backend health check failed after 5 attempts"
+                echo "Backend logs:"
+                docker logs dotbot-staging-backend --tail 100 || true
+                exit 1
+              fi
+            fi
+          done
           
 
 
