@@ -11,6 +11,11 @@
       "types": "./src/index.ts"
     }
   },
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
+  },
   "author": "",
   "license": "GNU General Public License v3.0",
   "dependencies": {
@@ -19,9 +24,44 @@
     "pino": "^9.9.4"
   },
   "devDependencies": {
-    "pino-pretty": "^11.2.2"
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.19.29",
+    "jest": "^29.7.0",
+    "pino-pretty": "^11.2.2",
+    "ts-jest": "^29.1.2",
+    "typescript": "^5.3.3"
   },
   "peerDependencies": {
     "express": "^4.18.2"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "roots": ["<rootDir>/src"],
+    "testMatch": ["**/__tests__/**/*.test.ts", "**/*.test.ts"],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/index.ts"
+    ],
+    "transform": {
+      "^.+\\.(ts|tsx)$": ["ts-jest", {
+        "tsconfig": {
+          "esModuleInterop": true,
+          "allowSyntheticDefaultImports": true
+        }
+      }]
+    },
+    "moduleNameMapper": {
+      "^@dotbot/core$": "<rootDir>/../dotbot-core",
+      "^@polkadot/rpc-core/types/(.*)$": "<rootDir>/../../node_modules/@polkadot/rpc-core/cjs/types/$1",
+      "^@polkadot/([^/]+)/(?!cjs/)(.+)$": "<rootDir>/../../node_modules/@polkadot/$1/cjs/$2",
+      "^@polkadot/x-bigint$": "<rootDir>/../../node_modules/@polkadot/x-bigint/cjs/index.js",
+      "^@polkadot/x-bigint/shim$": "<rootDir>/../../node_modules/@polkadot/x-bigint/cjs/shim.js"
+    },
+    "transformIgnorePatterns": [
+      "node_modules/(?!(@polkadot|@acala-network)/)"
+    ]
   }
 }
