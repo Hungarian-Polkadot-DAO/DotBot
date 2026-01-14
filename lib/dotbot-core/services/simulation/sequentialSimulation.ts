@@ -12,7 +12,11 @@ import type { SubmittableExtrinsic } from '@polkadot/api/types';
 import { BN } from '@polkadot/util';
 import { encodeAddress, decodeAddress } from '@polkadot/util-crypto';
 import { SimulationResult, SimulationStatusCallback } from './chopsticks';
-import { ChopsticksDatabase } from './database';
+import { createChopsticksDatabase, type Database } from './database';
+import { createSubsystemLogger, Subsystem } from '../logger';
+
+// Create logger instance for sequential simulation
+const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
 
 // =============================================================================
 // Types
@@ -99,7 +103,10 @@ function extractBlockOutcome(api: ApiPromise, block: any): { succeeded: boolean;
     if (block?.result) return parseOutcome(api, block.result);
     return { succeeded: true, error: null };
   } catch (error) {
-    console.warn('[SequentialSim] Could not parse block outcome, assuming success:', error);
+    simulationLogger.warn({ 
+      error: error instanceof Error ? error.message : String(error)
+    }, 'Could not parse block outcome, assuming success');
+    // TODO: is it good that we are ussuming success here?
     return { succeeded: true, error: null };
   }
 }
@@ -127,7 +134,9 @@ async function queryAccountState(api: ApiPromise, chain: any, accountKey: string
     const stateRaw = await chain.query(accountKey, blockHash);
     return stateRaw ? api.createType('FrameSystemAccountInfo', stateRaw) : null;
   } catch (err) {
-    console.warn('[SequentialSim] Could not query account state:', err);
+    simulationLogger.warn({ 
+      error: err instanceof Error ? err.message : String(err)
+    }, 'Could not query account state');
     return null;
   }
 }
@@ -177,7 +186,7 @@ async function calculateBalanceChanges(
 async function setupChainFork(
   api: ApiPromise,
   endpoints: string[],
-  storage: ChopsticksDatabase,
+  storage: Database,
   updateStatus: (phase: string, message: string, progress?: number) => void
 ): Promise<any> {
   const { BuildBlockMode, setup } = await import('@acala-network/chopsticks-core');
@@ -240,7 +249,10 @@ async function buildBlock(chain: any, extrinsic: SubmittableExtrinsic<'promise'>
     });
   } catch (blockError) {
     const errorMsg = blockError instanceof Error ? blockError.message : String(blockError);
-    console.error(`[SequentialSim] Block ${index + 1} build failed:`, errorMsg);
+    simulationLogger.error({ 
+      blockIndex: index + 1,
+      error: errorMsg
+    }, `Block ${index + 1} build failed`);
     throw new Error(errorMsg);
   }
 }
@@ -266,7 +278,7 @@ async function simulateAndBuildTransaction(
   validateChainMethods(chain);
   
   const encodedSender = encodeSenderAddress(api, item.senderAddress);
-  console.log(`[SequentialSim] Building block ${index + 1}...`);
+  simulationLogger.debug({ blockIndex: index + 1 }, `Building block ${index + 1}...`);
   
   let block: any;
   try {
@@ -277,7 +289,10 @@ async function simulateAndBuildTransaction(
   
   const newHead = await chain.head;
   const newBlockHash = toHexString(newHead);
-  console.log(`[SequentialSim] ✅ Block ${index + 1} built: ${newBlockHash.slice(0, 12)}...`);
+  simulationLogger.info({ 
+    blockIndex: index + 1,
+    blockHash: newBlockHash.slice(0, 12) + '...'
+  }, `Block ${index + 1} built`);
   
   const { succeeded, error } = extractBlockOutcome(api, block);
   if (!succeeded) {
@@ -378,9 +393,9 @@ async function initializeChainFork(
   api: ApiPromise,
   endpoints: string[],
   updateStatus: (phase: string, message: string, progress?: number) => void
-): Promise<{ chain: any; storage: ChopsticksDatabase; startBlockHash: string }> {
+): Promise<{ chain: any; storage: Database; startBlockHash: string }> {
   const dbName = `dotbot-sequential-sim:${api.genesisHash.toHex()}`;
-  const storage = new ChopsticksDatabase(dbName);
+  const storage = createChopsticksDatabase(dbName);
   const chain = await setupChainFork(api, endpoints, storage, updateStatus);
   
   const chainHead = await chain.head;
@@ -392,7 +407,7 @@ async function initializeChainFork(
 
 async function cleanupResources(
   startBlockHash: string | null,
-  storage: ChopsticksDatabase | null,
+  storage: Database | null,
   chain: any
 ): Promise<void> {
   try {
@@ -402,7 +417,9 @@ async function cleanupResources(
     if (storage) await storage.close();
     if (chain) await chain.close();
   } catch (cleanupError) {
-    console.warn('[SequentialSim] Cleanup warning:', cleanupError);
+    simulationLogger.warn({ 
+      error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+    }, 'Cleanup warning');
   }
 }
 
@@ -417,7 +434,7 @@ export async function simulateSequentialTransactions(
   onStatusUpdate?: SimulationStatusCallback
 ): Promise<SequentialSimulationResult> {
   let chain: any = null;
-  let storage: ChopsticksDatabase | null = null;
+  let storage: Database | null = null;
   let startBlockHash: string | null = null;
   
   const updateStatus = (phase: string, message: string, progress?: number) => {
@@ -429,7 +446,9 @@ export async function simulateSequentialTransactions(
         details: `Simulating ${items.length} transactions sequentially`
       });
     }
-    console.log(`[SequentialSim] ${message}${progress !== undefined ? ` [${progress}%]` : ''}`);
+    simulationLogger.debug({ 
+    progress: progress !== undefined ? progress : undefined
+  }, message);
   };
   
   try {
@@ -471,7 +490,10 @@ export async function simulateSequentialTransactions(
         
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        console.error(`[SequentialSim] Transaction ${i + 1} error:`, error);
+        simulationLogger.error({ 
+          transactionIndex: i + 1,
+          error: error instanceof Error ? error.message : String(error)
+        }, `Transaction ${i + 1} error`);
         
         const result = createSimulationResult(false, errorMsg, '0', []);
         results.push({ index: i, description: item.description, result });
@@ -493,7 +515,10 @@ export async function simulateSequentialTransactions(
     
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.error('[SequentialSim] Fatal error:', err);
+    simulationLogger.error({ 
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined
+    }, 'Fatal error');
     updateStatus('error', `✗ Sequential simulation error: ${errorMessage}`, 100);
     
     return {

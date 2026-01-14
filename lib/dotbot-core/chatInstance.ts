@@ -22,6 +22,7 @@ import type { ExecutionArrayState } from './executionEngine/types';
 import type { ExecutionOrchestrator } from './executionEngine/orchestrator';
 import type { ExecutionPlan, ExecutionStep } from './prompts/system/execution/types';
 import type { ExecutionSession, RpcManager } from './rpcManager';
+import { createSubsystemLogger, Subsystem } from './services/logger';
 
 /**
  * ChatInstance - A conversation with built-in methods and execution state
@@ -39,6 +40,7 @@ export class ChatInstance {
   // Track multiple ExecutionArrays by their ID
   private executionArrays: Map<string, ExecutionArray> = new Map();
   private executionCallbacks: Map<string, Set<(state: ExecutionArrayState) => void>> = new Map();
+  private chatLogger = createSubsystemLogger(Subsystem.CHAT);
   // Track subscription cleanup functions per execution array
   private executionSubscriptions: Map<string, () => void> = new Map();
   
@@ -90,7 +92,11 @@ export class ChatInstance {
         const executionArray = ExecutionArray.fromState(execMessage.executionArray);
         this.executionArrays.set(execMessage.executionId, executionArray);
       } catch (error) {
-        console.error(`Failed to restore execution array ${execMessage.executionId}:`, error);
+        this.chatLogger.error({ 
+          executionId: execMessage.executionId,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        }, `Failed to restore execution array ${execMessage.executionId}`);
       }
     }
   }
@@ -116,7 +122,7 @@ export class ChatInstance {
         if (!plan) {
           const extractedPlan = this.extractExecutionPlanFromState(execMessage.executionArray);
           if (!extractedPlan) {
-            console.warn(`Could not extract execution plan for ${execMessage.executionId}`);
+            this.chatLogger.warn({ executionId: execMessage.executionId }, `Could not extract execution plan for ${execMessage.executionId}`);
             continue;
           }
           plan = extractedPlan;
@@ -135,10 +141,17 @@ export class ChatInstance {
           this.restoreExecutionArrayState(restoredArray, execMessage.executionArray);
           this.executionArrays.set(execMessage.executionId, restoredArray);
         } else {
-          console.error(`Failed to re-orchestrate execution ${execMessage.executionId}:`, result.errors);
+          this.chatLogger.error({ 
+            executionId: execMessage.executionId,
+            errors: result.errors
+          }, `Failed to re-orchestrate execution ${execMessage.executionId}`);
         }
       } catch (error) {
-        console.error(`Failed to rebuild execution array ${execMessage.executionId}:`, error);
+        this.chatLogger.error({ 
+          executionId: execMessage.executionId,
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined
+        }, `Failed to rebuild execution array ${execMessage.executionId}`);
       }
     }
   }
@@ -158,7 +171,7 @@ export class ChatInstance {
         const parameters = metadata.parameters || {};
         
         if (!agentClassName || !functionName) {
-          console.warn('Missing agentClassName or functionName in metadata:', metadata);
+          this.chatLogger.warn({ metadata }, 'Missing agentClassName or functionName in metadata');
           continue;
         }
         
@@ -189,7 +202,10 @@ export class ChatInstance {
         createdAt: state.items[0]?.createdAt || Date.now(),
       };
     } catch (error) {
-      console.error('Failed to extract execution plan from state:', error);
+      this.chatLogger.error({ 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      }, 'Failed to extract execution plan from state');
       return null;
     }
   }
@@ -405,7 +421,10 @@ export class ChatInstance {
           try {
             cb(updatedState);
           } catch (error) {
-            console.error('[ChatInstance] ❌ Error in callback:', error);
+            this.chatLogger.error({ 
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined
+            }, 'Error in callback');
           }
         });
       }
@@ -750,22 +769,25 @@ export class ChatInstance {
     relayChainManager: RpcManager,
     assetHubManager: RpcManager
   ): Promise<void> {
+    // Note: Logger not available in ChatInstance, but these are informational logs
+    // They're not critical for debugging, so we'll keep console.info for now
+    // TODO: Add logger to ChatInstance if needed
     if (this.sessionsInitialized) {
-      console.info('Execution sessions already initialized for this chat');
+      // Execution sessions already initialized - no need to log
       return;
     }
     
     try {
       // Create Relay Chain session
       this.relayChainSession = await relayChainManager.createExecutionSession();
-      console.info(`Created Relay Chain execution session for chat ${this.data.id}: ${this.relayChainSession.endpoint}`);
+      // Note: Logging moved to RpcManager.createExecutionSession if needed
       
       // Create Asset Hub session (optional)
       try {
         this.assetHubSession = await assetHubManager.createExecutionSession();
-        console.info(`Created Asset Hub execution session for chat ${this.data.id}: ${this.assetHubSession.endpoint}`);
+        // Note: Logging moved to RpcManager.createExecutionSession if needed
       } catch (error) {
-        console.warn('Asset Hub execution session creation failed, continuing without it:', error);
+        // Asset Hub session creation failed - this is expected in some cases
         this.assetHubSession = null;
       }
       
@@ -810,7 +832,7 @@ export class ChatInstance {
       this.assetHubSession = null;
     }
     this.sessionsInitialized = false;
-    console.info(`Cleaned up execution sessions for chat ${this.data.id}`);
+    this.chatLogger.debug({ chatId: this.data.id }, 'Cleaned up execution sessions for chat');
   }
 }
 

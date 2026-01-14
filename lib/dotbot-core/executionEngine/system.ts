@@ -23,6 +23,7 @@ import type { RpcManager, ExecutionSession } from '../rpcManager';
 import { SimulationStatusCallback } from '../agents/types';
 import { isSimulationEnabled } from './simulation/simulationConfig';
 import { createSimulationContext, findMatchingApi } from './simulation/simulationHelpers';
+import { createSubsystemLogger, Subsystem } from '../services/logger';
 
 /**
  * Execution System
@@ -49,6 +50,7 @@ import { createSimulationContext, findMatchingApi } from './simulation/simulatio
 export class ExecutionSystem {
   private orchestrator: ExecutionOrchestrator;
   private executioner: Executioner;
+  private executionLogger = createSubsystemLogger(Subsystem.EXECUTION);
   
   // Store initialization state for re-initialization with sessions
   private initializedAccount: WalletAccount | null = null;
@@ -165,13 +167,13 @@ export class ExecutionSystem {
     onSimulationStatus?: SimulationStatusCallback
   ): Promise<void> {
     const simulationEnabled = isSimulationEnabled();
-    console.log('[ExecutionSystem] 🎯 runSimulation called:', {
+    this.executionLogger.debug({ 
       simulationEnabled,
       itemsCount: executionArray.getState().items.length,
       accountAddress,
       hasRelaySession: !!relayChainSession,
       hasAssetHubSession: !!assetHubSession
-    });
+    }, 'runSimulation called');
 
     if (simulationEnabled) {
       await this.runSimulationForExecutionArray(
@@ -184,7 +186,7 @@ export class ExecutionSystem {
         onSimulationStatus
       );
     } else {
-      console.log('[ExecutionSystem] ⏭️ Simulation disabled, skipping');
+      this.executionLogger.debug({}, 'Simulation disabled, skipping');
     }
   }
 
@@ -297,14 +299,14 @@ export class ExecutionSystem {
     const items = executionArray.getState().items
       .filter((item: ExecutionItem) => item.executionType === 'extrinsic' && item.agentResult.extrinsic);
     
-    console.log('[ExecutionSystem] 📋 Running simulation for items:', {
+    this.executionLogger.debug({ 
       totalItems: executionArray.getState().items.length,
       itemsToSimulate: items.length,
       itemIds: items.map(item => item.id)
-    });
+    }, 'Running simulation for items');
     
     if (items.length === 0) {
-      console.log('[ExecutionSystem] ⏭️ No items to simulate');
+      this.executionLogger.debug({}, 'No items to simulate');
       return;
     }
     
@@ -339,7 +341,7 @@ export class ExecutionSystem {
       );
     }
     
-    console.log('[ExecutionSystem] ✅ All simulations completed');
+    this.executionLogger.info({}, 'All simulations completed');
   }
   
   /**
@@ -360,14 +362,16 @@ export class ExecutionSystem {
     assetHubSession: ExecutionSession | null,
     onSimulationStatus?: SimulationStatusCallback
   ): Promise<void> {
-    console.log('[ExecutionSystem] 🔗 Starting sequential simulation for', items.length, 'transactions on single fork');
+    this.executionLogger.info({ 
+      itemsCount: items.length
+    }, 'Starting sequential simulation for transactions on single fork');
     
     // Group items by chain (all should be on same chain for now)
     const firstExtrinsic = items[0].agentResult.extrinsic!;
     const apiForExtrinsics = findMatchingApi(firstExtrinsic, relayApi, assetHubApi);
     
     if (!apiForExtrinsics) {
-      console.error('[ExecutionSystem] ❌ Cannot determine API for sequential simulation');
+      this.executionLogger.error({}, 'Cannot determine API for sequential simulation');
       for (const item of items) {
         executionArray.updateSimulationStatus(item.id, {
           phase: 'error',
@@ -384,7 +388,7 @@ export class ExecutionSystem {
     const chopsticksAvailable = await isChopsticksAvailable();
     
     if (!chopsticksAvailable) {
-      console.warn('[ExecutionSystem] ⚠️ Chopsticks not available, falling back to individual simulations');
+      this.executionLogger.warn({}, 'Chopsticks not available, falling back to individual simulations');
       // Fall back to individual simulations (won't see each other's state changes)
       for (const item of items) {
         await this.simulateItem(
@@ -413,10 +417,10 @@ export class ExecutionSystem {
     if (sessionEndpoint) {
       const managerEndpoints = this.getRpcEndpointsFromManager(manager, isAssetHub);
       rpcEndpoints = [sessionEndpoint, ...managerEndpoints.filter(e => e !== sessionEndpoint)];
-      console.log(`[ExecutionSystem] Using session endpoint for sequential simulation: ${sessionEndpoint}`);
+      this.executionLogger.debug({ endpoint: sessionEndpoint }, 'Using session endpoint for sequential simulation');
     } else {
       rpcEndpoints = this.getRpcEndpointsFromManager(manager, isAssetHub);
-      console.warn('[ExecutionSystem] ⚠️ No session endpoint available, using manager endpoints (may cause metadata mismatch)');
+      this.executionLogger.warn({}, 'No session endpoint available, using manager endpoints (may cause metadata mismatch)');
     }
     
     // Set initial status for all items
@@ -511,12 +515,15 @@ export class ExecutionSystem {
         }
       }
       
-      console.log('[ExecutionSystem] ✅ Sequential simulation completed:', {
+      this.executionLogger.info({ 
         totalItems: items.length,
-        success: result.success,
-      });
+        success: result.success
+      }, 'Sequential simulation completed');
     } catch (error) {
-      console.error('[ExecutionSystem] ❌ Sequential simulation failed:', error);
+      this.executionLogger.error({ 
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      }, 'Sequential simulation failed');
       const errorMsg = error instanceof Error ? error.message : String(error);
       
       // Mark all items as failed
@@ -653,11 +660,12 @@ export class ExecutionSystem {
     if (apiForExtrinsic.registry !== extrinsic.registry) {
       const isAssetHubMethod = extrinsic.method.section === 'assets' || 
                                extrinsic.method.section === 'foreignAssets';
-      console.warn(
-        `Registry mismatch for item ${item.id}: extrinsic registry does not match orchestrator API registries. ` +
-        `Using ${isAssetHubMethod ? 'Asset Hub' : 'Relay Chain'} API based on method section. ` +
-        `This may cause metadata mismatch errors.`
-      );
+      this.executionLogger.warn({ 
+        itemId: item.id,
+        isAssetHubMethod,
+        extrinsicRegistry: extrinsic.registry.constructor.name,
+        apiRegistry: apiForExtrinsic.registry.constructor.name
+      }, `Registry mismatch for item: extrinsic registry does not match orchestrator API registries. Using ${isAssetHubMethod ? 'Asset Hub' : 'Relay Chain'} API based on method section. This may cause metadata mismatch errors.`);
     }
   }
   
@@ -671,14 +679,17 @@ export class ExecutionSystem {
     apiForExtrinsic: ApiPromise
   ): void {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`Simulation failed for item ${item.id}:`, errorMsg);
+    this.executionLogger.error({ 
+      itemId: item.id,
+      error: errorMsg
+    }, `Simulation failed for item ${item.id}`);
     
     if (errorMsg.includes('Unable to find Call') || errorMsg.includes('findMetaCall')) {
-      console.error(
-        `Metadata mismatch detected. Extrinsic registry: ${extrinsic.registry.constructor.name}, ` +
-        `API registry: ${apiForExtrinsic.registry.constructor.name}, ` +
-        `Call index: [${extrinsic.method.callIndex[0]}, ${extrinsic.method.callIndex[1]}]`
-      );
+      this.executionLogger.error({
+        extrinsicRegistry: extrinsic.registry.constructor.name,
+        apiRegistry: apiForExtrinsic.registry.constructor.name,
+        callIndex: `[${extrinsic.method.callIndex[0]}, ${extrinsic.method.callIndex[1]}]`
+      }, 'Metadata mismatch detected');
     }
   }
   

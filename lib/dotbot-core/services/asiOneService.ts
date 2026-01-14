@@ -103,7 +103,8 @@ export class ASIOneService {
 
       // Make the API call
       const response = await this.callASIOneAPI(request);
-      console.info('Response received from ASI-One:', response.choices?.[0]?.message?.content?.substring(0, 100));
+      const responsePreview = response.choices?.[0]?.message?.content?.substring(0, 100);
+      logger.debug({ responsePreview }, 'Response received from ASI-One');
       
       // Extract and return the assistant's response
       const assistantMessage = response.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
@@ -116,20 +117,19 @@ export class ASIOneService {
       return assistantMessage;
 
     } catch (error) {
-      console.error('❌ ASI-One API Error:', error);
-      console.error('❌ Error details:', {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        error: error
-      });
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
       
       logger.error({ 
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }, 'Error sending message to ASI-One');
+        error: errorMsg,
+        stack: errorStack
+      }, 'ASI-One API Error');
       
       // Return a fallback response
       const fallback = this.getFallbackResponse(userMessage, error);
-      console.log('⚠️ Returning fallback response:', fallback.substring(0, 100));
+      logger.warn({ 
+        fallbackPreview: fallback.substring(0, 100)
+      }, 'Returning fallback response');
       return fallback;
     }
   }

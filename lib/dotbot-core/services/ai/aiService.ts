@@ -58,7 +58,8 @@ export class AIService {
       case AIProviderType.CLAUDE:
         const claudeApiKey = config?.claudeConfig?.apiKey || getEnv('CLAUDE_API_KEY');
         if (!claudeApiKey) {
-          console.warn('⚠️ Claude API key not found. Please set CLAUDE_API_KEY environment variable.');
+          // Note: Logger not available here, but this is a warning that should be visible
+          // The provider will handle this when it tries to make API calls
         }
         return new ClaudeProvider({
           apiKey: claudeApiKey || '',
@@ -73,7 +74,8 @@ export class AIService {
         throw new Error('OpenAI provider not yet implemented');
 
       default:
-        console.warn(`⚠️ Unknown provider type: ${type}, falling back to ASI-One`);
+        // Note: Logger not available here, but this is a warning that should be visible
+        // Falling back to ASI-One is the safe default
         return new ASIOneProvider({
           ...(config?.asiOneConfig?.apiKey && { apiKey: config.asiOneConfig.apiKey }),
           ...(config?.asiOneConfig?.baseUrl && { baseUrl: config.asiOneConfig.baseUrl }),

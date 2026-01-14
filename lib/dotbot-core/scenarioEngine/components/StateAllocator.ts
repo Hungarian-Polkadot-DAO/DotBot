@@ -79,7 +79,7 @@ import { ApiPromise as ApiPromiseClass, WsProvider } from '@polkadot/api';
 import { BN } from '@polkadot/util';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { ChatInstanceManager } from '../../chatInstanceManager';
-import { ChopsticksDatabase } from '../../services/simulation/database';
+import { createChopsticksDatabase } from '../../services/simulation/database';
 import type { Network, RpcManager } from '../../rpcManager';
 import { getEndpointsForNetwork } from '../../rpcManager';
 import type { ConversationItem, TextMessage, SystemMessage } from '../../types/chatInstance';
@@ -234,7 +234,7 @@ export class StateAllocator {
 
       // Create database for caching
       const dbName = `dotbot-scenario-allocator:${this.config.chain}`;
-      const storage = new ChopsticksDatabase(dbName);
+      const storage = createChopsticksDatabase(dbName);
 
       // Create Chopsticks chain fork
       this.chopsticksChain = await setup({

@@ -8,8 +8,9 @@ import type { SubmittableExtrinsic } from '@polkadot/api/types';
 import type { HexString } from '@polkadot/util/types';
 import { BN } from '@polkadot/util';
 
-import { ChopsticksDatabase } from './database';
+import { createChopsticksDatabase, type Database } from './database';
 import { classifyChopsticksError } from './chopsticksIgnorePolicy';
+import { createSubsystemLogger, Subsystem } from '../logger';
 
 export interface SimulationResult {
   success: boolean;
@@ -46,7 +47,7 @@ export async function simulateTransaction(
 ): Promise<SimulationResult> {
   const startTime = Date.now();
   let chain: any = null;
-  let storage: ChopsticksDatabase | null = null;
+  let storage: Database | null = null;
   
   const updateStatus = (phase: 'initializing' | 'forking' | 'executing' | 'analyzing' | 'complete' | 'error', message: string, progress?: number, details?: string) => {
     if (onStatusUpdate) {
@@ -61,7 +62,7 @@ export async function simulateTransaction(
     
     updateStatus('initializing', 'Setting up simulation environment...', 20);
     const dbName = `dotbot-sim-cache:${api.genesisHash.toHex()}`;
-    storage = new ChopsticksDatabase(dbName);
+    storage = createChopsticksDatabase(dbName);
     
     // Get chain name for error classification
     const chainName = (await api.rpc.system.chain()).toString();
@@ -90,9 +91,15 @@ export async function simulateTransaction(
       // 3. It matches the state the API instance is using
       const finalizedHash = await api.rpc.chain.getFinalizedHead();
       blockHashForFork = finalizedHash.toHex();
-      console.log(`[Chopsticks] Using finalized block for fork: ${blockHashForFork.slice(0, 12)}...`);
+      const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
+      simulationLogger.debug({ 
+        blockHash: blockHashForFork.slice(0, 12) + '...'
+      }, 'Using finalized block for fork');
     } catch (error) {
-      console.warn('[Chopsticks] Failed to get finalized block, will let Chopsticks choose:', error);
+      const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
+      simulationLogger.warn({ 
+        error: error instanceof Error ? error.message : String(error)
+      }, 'Failed to get finalized block, will let Chopsticks choose');
       // If we can't get the finalized block, let Chopsticks fetch latest
       // This is the fallback behavior (might cause metadata mismatch)
       blockHashForFork = undefined;
@@ -119,10 +126,10 @@ export async function simulateTransaction(
         errorMessage.includes('not found') ||
         errorMessage.includes('does not exist')
       )) {
-        console.warn(
-          `[Chopsticks] Block ${blockHashForFork.slice(0, 12)}... not found on endpoint (likely pruned node). ` +
-          `Falling back to latest block. This may cause metadata mismatch if runtime versions differ.`
-        );
+        const logger = createSubsystemLogger(Subsystem.SIMULATION);
+        logger.warn({ 
+          blockHash: blockHashForFork.slice(0, 12) + '...'
+        }, 'Block not found on endpoint (likely pruned node). Falling back to latest block. This may cause metadata mismatch if runtime versions differ.');
         
         updateStatus('forking', 'Block not found on endpoint, using latest block...', 40);
         

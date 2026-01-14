@@ -11,6 +11,7 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { Registry } from '@polkadot/types/types';
 import { getStorage } from './env';
+import { createSubsystemLogger, Subsystem } from './services/logger';
 
 export interface EndpointHealth {
   endpoint: string;
@@ -139,6 +140,7 @@ export class RpcManager {
   private healthCheckTimer: NodeJS.Timeout | null = null;
   private isMonitoring: boolean = false;
   private activeSessions: Set<ExecutionSession> = new Set();
+  private rpcLogger = createSubsystemLogger(Subsystem.RPC);
 
   constructor(config: RpcManagerConfig) {
     this.endpoints = config.endpoints;
@@ -362,7 +364,10 @@ export class RpcManager {
         } catch (error) {
           if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
           provider.disconnect();
-          console.error(`Failed to connect to ${endpoint}:`, error instanceof Error ? error.message : String(error));
+          this.rpcLogger.error({ 
+            endpoint,
+            error: error instanceof Error ? error.message : String(error)
+          }, `Failed to connect to ${endpoint}`);
           reject(error);
         }
       });
@@ -371,7 +376,10 @@ export class RpcManager {
         clearTimeout(connectionTimeoutHandle);
         if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
         provider.disconnect();
-        console.error(`Failed to connect to ${endpoint}:`, error.message);
+        this.rpcLogger.error({ 
+          endpoint,
+          error: error.message
+        }, `Failed to connect to ${endpoint}`);
         reject(error);
       });
     });
@@ -484,7 +492,7 @@ export class RpcManager {
    * @deprecated Use getReadApi() for reads or createExecutionSession() for transactions
    */
   async connect(): Promise<ApiPromise> {
-    console.warn('RpcManager.connect() is deprecated. Use getReadApi() or createExecutionSession()');
+    this.rpcLogger.warn({}, 'RpcManager.connect() is deprecated. Use getReadApi() or createExecutionSession()');
     return this.getReadApi();
   }
 
@@ -584,7 +592,10 @@ export class RpcManager {
     
     await Promise.all(checkPromises);
     const healthyCount = Array.from(this.healthMap.values()).filter(h => h.healthy).length;
-    console.info(`Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy`);
+    this.rpcLogger.info({ 
+      healthyCount,
+      totalEndpoints: this.endpoints.length
+    }, `Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy`);
   }
 
   /**

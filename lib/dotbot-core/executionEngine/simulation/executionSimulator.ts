@@ -12,6 +12,7 @@ import { ExecutionArray } from '../executionArray';
 import { RpcManager, RpcEndpoints } from '../../rpcManager';
 import { markItemAsFailed } from '../errorHandlers';
 import { simulateTransaction, isChopsticksAvailable } from '../../services/simulation';
+import { createSubsystemLogger, Subsystem } from '../../services/logger';
 
 export interface SimulationContext {
   api: ApiPromise;
@@ -31,16 +32,17 @@ export async function runSimulation(
   executionArray: ExecutionArray,
   item: ExecutionItem
 ): Promise<void> {
-  console.log('[Simulation] Starting simulation for item:', {
+  const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
+  simulationLogger.debug({ 
     itemId: item.id,
     description: item.description,
     status: item.status,
     method: `${extrinsic.method.section}.${extrinsic.method.method}`
-  });
+  }, 'Starting simulation for item');
 
   try {
     // Set initial simulation status IMMEDIATELY so UI can show progress
-    console.log('[Simulation] Setting initial simulation status for item:', item.id);
+    simulationLogger.debug({ itemId: item.id }, 'Setting initial simulation status for item');
     executionArray.updateSimulationStatus(item.id, {
       phase: 'initializing',
       message: 'Initializing simulation...',
@@ -49,12 +51,12 @@ export async function runSimulation(
 
     // Create a callback that updates this specific item's simulation status
     const itemSimulationCallback = (status: any) => {
-      console.log('[Simulation] Simulation status update for item:', {
+      simulationLogger.debug({ 
         itemId: item.id,
         phase: status.phase,
         message: status.message,
         progress: status.progress
-      });
+      }, 'Simulation status update for item');
       executionArray.updateSimulationStatus(item.id, status);
       // Also call the original callback if provided (for backward compatibility)
       if (context.onStatusUpdate) {
@@ -69,7 +71,10 @@ export async function runSimulation(
     };
 
     const chopsticksAvailable = await isChopsticksAvailable();
-    console.log('[Simulation] Simulation method:', chopsticksAvailable ? 'Chopsticks (full runtime validation)' : 'paymentInfo fallback (structure only)');
+    simulationLogger.debug({ 
+      method: chopsticksAvailable ? 'Chopsticks' : 'paymentInfo',
+      fullValidation: chopsticksAvailable
+    }, chopsticksAvailable ? 'Simulation method: Chopsticks (full runtime validation)' : 'Simulation method: paymentInfo fallback (structure only)');
 
     if (chopsticksAvailable) {
       // Use Chopsticks for full runtime execution simulation
@@ -77,14 +82,14 @@ export async function runSimulation(
     } else {
       // Fallback: Only use paymentInfo if Chopsticks is completely unavailable
       // This should be rare - only in environments where @acala-network/chopsticks-core can't be imported
-      console.warn('[Simulation] Chopsticks unavailable - using paymentInfo fallback (limited validation)');
+      simulationLogger.warn({}, 'Chopsticks unavailable - using paymentInfo fallback (limited validation)');
       await runPaymentInfoValidation(extrinsic, itemContext);
     }
 
     // Mark simulation as complete
     const currentSimStatus = executionArray.getItem(item.id)?.simulationStatus;
     if (currentSimStatus) {
-      console.log('[Simulation] Simulation completed successfully for item:', item.id);
+      simulationLogger.info({ itemId: item.id }, 'Simulation completed successfully for item');
       executionArray.updateSimulationStatus(item.id, {
         ...currentSimStatus,
         phase: 'complete',
@@ -92,14 +97,14 @@ export async function runSimulation(
       });
     }
 
-    console.log('[Simulation] Updating item status to ready:', item.id);
+    simulationLogger.debug({ itemId: item.id }, 'Updating item status to ready');
     executionArray.updateStatus(item.id, 'ready');
   } catch (error) {
-    console.error('[Simulation] ❌ Simulation failed for item:', {
+    simulationLogger.error({ 
       itemId: item.id,
       description: item.description,
       error: error instanceof Error ? error.message : String(error)
-    });
+    }, 'Simulation failed for item');
     handleSimulationError(error, executionArray, item);
   }
 }
@@ -111,6 +116,7 @@ async function runChopsticksSimulation(
   item: ExecutionItem,
   simulateTransaction: any
 ): Promise<void> {
+  const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
   const isAssetHub = context.api.registry.chainSS58 === 0;
   const manager = isAssetHub ? context.assetHubManager : context.relayChainManager;
 
@@ -120,11 +126,11 @@ async function runChopsticksSimulation(
     // Use session endpoint first, then manager endpoints as fallback
     const managerEndpoints = getRpcEndpoints(manager, isAssetHub);
     rpcEndpoints = [context.sessionEndpoint, ...managerEndpoints.filter(e => e !== context.sessionEndpoint)];
-    console.log(`[Simulation] Using session endpoint for metadata consistency: ${context.sessionEndpoint}`);
+    simulationLogger.debug({ endpoint: context.sessionEndpoint }, 'Using session endpoint for metadata consistency');
   } else {
     // Fallback to manager endpoints (legacy behavior)
     rpcEndpoints = getRpcEndpoints(manager, isAssetHub);
-    console.warn('[Simulation] ⚠️ No session endpoint provided, using manager endpoints (may cause metadata mismatch)');
+    simulationLogger.warn({}, 'No session endpoint provided, using manager endpoints (may cause metadata mismatch)');
   }
 
   const senderPublicKey = decodeAddress(context.accountAddress);
@@ -183,7 +189,8 @@ async function runPaymentInfoValidation(
   extrinsic: SubmittableExtrinsic<'promise'>,
   context: SimulationContext
 ): Promise<void> {
-  console.warn('[Simulation] ⚠️ Using paymentInfo fallback - this only validates structure, not runtime behavior');
+  const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
+  simulationLogger.warn({}, 'Using paymentInfo fallback - this only validates structure, not runtime behavior');
   try {
     const senderPublicKey = decodeAddress(context.accountAddress);
     const senderSS58Format = context.api.registry.chainSS58 || 0;

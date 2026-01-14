@@ -20,10 +20,12 @@ const getLogLevel = (): string => {
   // Default levels by environment
   if (isProduction) return 'info';
   if (process.env.NODE_ENV === 'test') return 'warn';
-  return 'debug'; // development
+  return 'debug'; // development - shows all logs (matches dotbot-express)
 };
 
 // Logger configuration - matches backend format but works in browser too
+// In Node.js development, use pino-pretty for readable output (like dotbot-express)
+// In browser or production, output JSON
 const loggerConfig: pino.LoggerOptions = {
   level: getLogLevel(),
   base: {
@@ -42,8 +44,8 @@ const loggerConfig: pino.LoggerOptions = {
       return { level: label };
     },
   },
-  // In browser, use console transport (pino default)
-  // In Node.js development, use pretty printing (like backend)
+  // In Node.js development, use pino-pretty for pretty printing (like dotbot-express)
+  // In browser or production, output JSON
   ...(!isBrowser && isDevelopment && {
     transport: {
       target: 'pino-pretty',

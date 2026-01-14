@@ -2,6 +2,7 @@ export enum Subsystem {
   // Core application
   APP = 'app',
   CHAT = 'chat',
+  DOTBOT = 'dotbot',
   
   // Components
   SIDEBAR = 'sidebar',
@@ -12,6 +13,9 @@ export enum Subsystem {
   AGENT_COMM = 'agent-comm',
   STORAGE = 'storage',
   WALLET = 'wallet',
+  RPC = 'rpc',
+  EXECUTION = 'execution',
+  SIMULATION = 'simulation',
   
   // External integrations
   POLKADOT_API = 'polkadot-api',
