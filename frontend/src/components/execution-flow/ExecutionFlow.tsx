@@ -91,16 +91,20 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   }
 
   // Handle execution through DotBot if using new API
-  // Option 3: Always execute on frontend (cleaner - no remote signing needed)
+  // Supports both frontend (stateful) and backend (stateless) execution
   const handleAcceptAndStart = async () => {
     if (executionMessage && dotbot) {
       try {
-        // Always use frontend's local execution
-        // Frontend DotBot is stateful, so it will:
-        // 1. Get execution message with executionPlan
-        // 2. Rebuild ExecutionArray from plan (if needed)
-        // 3. Execute using frontend's browser wallet signer
-        await dotbot.startExecution(executionMessage.executionId, { autoApprove: false });
+        // Check if we should use backend execution (stateless mode)
+        if (backendSessionId && (!dotbot.currentChat || !dotbot.currentChat.getExecutionArray(executionMessage.executionId))) {
+          // Backend execution: start on backend and rely on polling for updates
+          const { startExecution } = await import('../../services/dotbotApi');
+          await startExecution(backendSessionId, executionMessage.executionId, false);
+          console.log('[ExecutionFlow] Execution started on backend, polling for updates...');
+        } else {
+          // Frontend execution: use local DotBot instance
+          await dotbot.startExecution(executionMessage.executionId, { autoApprove: false });
+        }
       } catch (error) {
         console.error('Failed to start execution:', error);
       }

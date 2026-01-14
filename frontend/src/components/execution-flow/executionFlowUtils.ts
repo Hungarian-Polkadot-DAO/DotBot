@@ -45,40 +45,90 @@ export function setupExecutionSubscription(
   // Try to get state immediately
   updateState();
 
-  // Check if we need to poll backend (stateless mode: has state but no ExecutionArray instance)
+  // Check if we need to poll backend (stateless mode: execution on backend)
   const needsBackendPolling = 
-    executionMessage.executionArray && 
     backendSessionId &&
     (!dotbot.currentChat || !dotbot.currentChat.getExecutionArray(executionId));
 
   if (needsBackendPolling) {
-    // Poll backend for simulation progress during preparation
+    // Poll backend for execution progress (both during preparation and execution)
+    // This handles stateless mode where execution happens on the backend
+    const POLL_INTERVAL_MS = 1000; // Poll every 1 second
+    const MAX_POLL_DURATION_MS = 10 * 60 * 1000; // 10 minutes max
+    const maxPolls = Math.floor(MAX_POLL_DURATION_MS / POLL_INTERVAL_MS);
     let pollCount = 0;
-    const maxPolls = 300; // 30 seconds max (300 * 100ms)
-    pollInterval = setInterval(async () => {
+    let isPolling = true;
+    
+    const pollExecutionState = async () => {
+      if (!isPolling) return;
+      
       pollCount++;
       
       try {
         const response = await getExecutionState(backendSessionId, executionId);
         if (response.success && response.state) {
-          setLiveExecutionState(response.state);
+          const newState = response.state as ExecutionArrayState;
+          setLiveExecutionState(newState);
+          
           // Update execution message with latest state
           if (executionMessage) {
-            executionMessage.executionArray = response.state;
+            executionMessage.executionArray = newState;
+          }
+          
+          // Check if execution is complete (stop polling)
+          const isComplete = newState.items.every(item => 
+            item.status === 'completed' || 
+            item.status === 'finalized' || 
+            item.status === 'failed' || 
+            item.status === 'cancelled'
+          );
+          
+          if (isComplete) {
+            console.log('[ExecutionFlow] Execution completed, stopping polling');
+            isPolling = false;
+            if (pollInterval) {
+              clearInterval(pollInterval);
+              pollInterval = null;
+            }
+            return;
           }
         }
       } catch (error) {
         console.warn('[ExecutionFlow] Failed to poll execution state:', error);
+        // Continue polling even on error (might be temporary network issue)
       }
       
-      // Stop polling if we have ExecutionArray locally or max polls reached
-      if (updateState() || pollCount >= maxPolls) {
+      // Stop polling if we have ExecutionArray locally (switched to stateful mode)
+      if (dotbot.currentChat && dotbot.currentChat.getExecutionArray(executionId)) {
+        console.log('[ExecutionFlow] ExecutionArray available locally, switching to local updates');
+        isPolling = false;
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+        // Switch to local subscription
+        unsubscribe = dotbot.currentChat.onExecutionUpdate(executionId, (updatedState) => {
+          setLiveExecutionState(updatedState);
+        });
+        return;
+      }
+      
+      // Stop polling if max polls reached (safety timeout)
+      if (pollCount >= maxPolls) {
+        console.warn('[ExecutionFlow] Max polling duration reached (10 minutes), stopping');
+        isPolling = false;
         if (pollInterval) {
           clearInterval(pollInterval);
           pollInterval = null;
         }
       }
-    }, 100); // Poll every 100ms for responsive updates
+    };
+    
+    // Initial poll immediately
+    pollExecutionState();
+    
+    // Set up polling interval
+    pollInterval = setInterval(pollExecutionState, POLL_INTERVAL_MS);
   } else if (dotbot.currentChat) {
     // Stateful mode: subscribe to local ExecutionArray updates
     unsubscribe = dotbot.currentChat.onExecutionUpdate(executionId, (updatedState) => {
