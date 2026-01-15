@@ -374,18 +374,24 @@ export class DotBot {
       assetHubManager = managers.assetHubManager;
     }
     
+    const rpcLogger = createSubsystemLogger(Subsystem.RPC);
+    rpcLogger.debug({ network: configuredNetwork }, 'DotBot.create: Connecting to Relay Chain...');
+    
     const api = await relayChainManager.getReadApi();
     const relayChainEndpoint = relayChainManager.getCurrentEndpoint();
-    const rpcLogger = createSubsystemLogger(Subsystem.RPC);
     rpcLogger.info({ 
       endpoint: relayChainEndpoint,
       chain: 'relay'
     }, `Connected to Relay Chain via: ${relayChainEndpoint}`);
     
     // Detect actual network from chain name (in case pre-initialized managers are for a different network)
-    const chainInfo = await api.rpc.system.chain();
-    const detectedNetwork = detectNetworkFromChainName(chainInfo.toString());
-    const actualNetwork = detectedNetwork;
+    let actualNetwork = configuredNetwork;
+    try {
+      const chainInfo = await api.rpc.system.chain();
+      actualNetwork = detectNetworkFromChainName(chainInfo.toString());
+    } catch {
+      // Skip network detection if it fails
+    }
     
     const dotbotLogger = createSubsystemLogger(Subsystem.DOTBOT);
     dotbotLogger.info({ 
@@ -429,15 +435,26 @@ export class DotBot {
       await dotbot.initializeChatInstance();
     }
     
+    rpcLogger.debug({ network: configuredNetwork }, 'DotBot.create: Connecting to Asset Hub...');
+    let assetHubApi: ApiPromise | null = null;
+    
     try {
-      await dotbot.initializeAssetHub();
-    } catch (err) {
-      // Note: This is in static create() method, logger not available yet
-      // Asset Hub connection failure is non-critical, so we continue
+      assetHubApi = await assetHubManager.getReadApi();
+      const assetHubEndpoint = assetHubManager.getCurrentEndpoint();
+      rpcLogger.info({ 
+        endpoint: assetHubEndpoint,
+        chain: 'asset-hub'
+      }, `Connected to Asset Hub via: ${assetHubEndpoint}`);
+      dotbot._setAssetHubApi(assetHubApi);
+    } catch (error) {
+      rpcLogger.warn({ 
+        error: error instanceof Error ? error.message : String(error),
+        configuredNetwork 
+      }, 'DotBot.create: Asset Hub connection failed, will retry when needed');
     }
     
-    // Initialize execution system with both APIs and RPC managers (after Asset Hub is connected)
-    executionSystem.initialize(api, config.wallet, signer, dotbot.getAssetHubApi(), relayChainManager, assetHubManager, config.onSimulationStatus);
+    // Initialize execution system with both APIs and RPC managers
+    executionSystem.initialize(api, config.wallet, signer, assetHubApi, relayChainManager, assetHubManager, config.onSimulationStatus);
     
     return dotbot;
   }
@@ -650,6 +667,7 @@ export class DotBot {
       
       // Reconnect APIs
       this.api = await this.relayChainManager.getReadApi();
+      
       await this.initializeAssetHub().catch(() => {
         this.rpcLogger.warn({}, 'Asset Hub connection failed after environment/network switch');
       });
@@ -1574,6 +1592,13 @@ export class DotBot {
    */
   getAssetHubApi(): ApiPromise | null {
     return this.assetHubApi;
+  }
+  
+  /**
+   * Set Asset Hub API (internal use - called during initialization)
+   */
+  _setAssetHubApi(api: ApiPromise | null): void {
+    this.assetHubApi = api;
   }
   
   /**

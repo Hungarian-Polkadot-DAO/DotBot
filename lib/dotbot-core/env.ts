@@ -3,6 +3,8 @@
  * Works in both browser (Create React App) and Node.js environments
  */
 
+import { FileStorage } from './storage/fileStorage';
+
 // Type definitions for browser globals in Node.js environment
 declare const window: (Window & typeof globalThis) | undefined;
 declare const localStorage: Storage | undefined;
@@ -39,12 +41,18 @@ export function isNode(): boolean {
 
 /**
  * Get storage interface (localStorage in browser, in-memory in Node.js)
+ * 
+ * Extends browser localStorage API for compatibility.
+ * Note: length and key() are optional - FileStorage implements them for enumeration.
  */
 export interface Storage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
   clear(): void;
+  // Optional: for enumeration (browser localStorage has these)
+  length?: number;
+  key?: (index: number) => string | null;
 }
 
 class MemoryStorage implements Storage {
@@ -65,6 +73,15 @@ class MemoryStorage implements Storage {
   clear(): void {
     this.data.clear();
   }
+
+  get length(): number {
+    return this.data.size;
+  }
+
+  key(index: number): string | null {
+    const keys = Array.from(this.data.keys());
+    return keys[index] || null;
+  }
 }
 
 let storageInstance: Storage | null = null;
@@ -78,6 +95,7 @@ export function getStorage(): Storage {
     storageInstance = localStorage as Storage;
   } else {
     // Node.js or environment without localStorage
+    // Default to MemoryStorage (will be replaced with FileStorage if configured)
     storageInstance = new MemoryStorage();
   }
 
@@ -85,8 +103,35 @@ export function getStorage(): Storage {
 }
 
 /**
- * Set custom storage implementation (useful for testing)
+ * Set custom storage implementation (useful for testing or backend configuration)
  */
 export function setStorage(storage: Storage): void {
   storageInstance = storage;
+}
+
+/**
+ * Initialize file-based storage for Node.js backend
+ * Safe for Docker containers when storageDir is mounted to a volume
+ * 
+ * @param storageDir - Directory path for storing data files (will be created if it doesn't exist)
+ * @example
+ * ```typescript
+ * // In backend startup:
+ * initFileStorage('/app/data/storage');
+ * ```
+ */
+export function initFileStorage(storageDir: string): void {
+  if (!isNode()) {
+    console.warn('initFileStorage called in non-Node environment, ignoring');
+    return;
+  }
+  
+  try {
+    const fileStorage = new FileStorage(storageDir);
+    setStorage(fileStorage);
+    console.log(`FileStorage initialized at: ${storageDir}`);
+  } catch (error) {
+    console.error('Failed to initialize FileStorage, falling back to MemoryStorage:', error);
+    setStorage(new MemoryStorage());
+  }
 }

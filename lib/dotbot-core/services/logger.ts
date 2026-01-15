@@ -1,6 +1,6 @@
 import pino from 'pino';
 import { Subsystem, ErrorType } from './types/logging';
-import { getEnv } from '../env';
+import { getEnv, isBrowser, isNode } from '../env';
 
 // Read version from package.json with fallback
 // Note: After compilation to dist/, relative paths to package.json don't work
@@ -10,7 +10,6 @@ let LIB_VERSION = process.env.DOTBOT_CORE_VERSION || "0.5.0";
 // Detect environment
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
-const isBrowser = typeof window !== 'undefined';
 
 // Determine log level
 const getLogLevel = (): string => {
@@ -23,30 +22,51 @@ const getLogLevel = (): string => {
   return 'debug'; // development - shows all logs (matches dotbot-express)
 };
 
+// Helper function to dynamically detect backend context
+// This is called on every log to ensure we check the latest env var value
+function getBackendContext(): boolean {
+  if (!isNode() || isBrowser()) {
+    return false;
+  }
+  // Check if DOTBOT_BACKEND is set (supports both 'true' string and truthy values)
+  const backendFlag = process.env.DOTBOT_BACKEND;
+  return backendFlag === 'true' || backendFlag === '1' || backendFlag === 'yes';
+}
+
 // Logger configuration - matches backend format but works in browser too
 // In Node.js development, use pino-pretty for readable output (like dotbot-express)
 // In browser or production, output JSON
+// Service name and version are set dynamically via mixin to check DOTBOT_BACKEND at log time
 const loggerConfig: pino.LoggerOptions = {
   level: getLogLevel(),
   base: {
-    service: 'DotBot-Services',
-    version: LIB_VERSION,
+    // Don't set service or version here - mixin will set them dynamically
     environment: process.env.NODE_ENV || 'development',
     // Browser-specific context (only if in browser)
-    ...(isBrowser && typeof navigator !== 'undefined' && { userAgent: navigator.userAgent }),
-    ...(isBrowser && typeof window !== 'undefined' && { url: window.location.href }),
+    ...(isBrowser() && typeof navigator !== 'undefined' && { userAgent: navigator.userAgent }),
+    ...(isBrowser() && typeof window !== 'undefined' && { url: window.location.href }),
     // Node.js-specific context (only if in Node.js)
-    ...(!isBrowser && typeof process !== 'undefined' && { userAgent: `Node.js/${process.version}` }),
+    ...(isNode() && { userAgent: `Node.js/${process.version}` }),
   },
   timestamp: pino.stdTimeFunctions.isoTime,
   formatters: {
     level: (label) => {
       return { level: label };
     },
+    // Use formatters.log to dynamically set service and version on every log
+    // This is more reliable than mixin for dynamic values
+    log(object: any) {
+      const isBackend = getBackendContext();
+      // Override service and version dynamically based on current env var
+      object.service = isBackend ? 'DotBot-Backend' : 'DotBot-Services';
+      object.version = isBackend ? (process.env.DOTBOT_EXPRESS_VERSION || LIB_VERSION) : LIB_VERSION;
+      return object;
+    },
   },
   // In Node.js development, use pino-pretty for pretty printing (like dotbot-express)
   // In browser or production, output JSON
-  ...(!isBrowser && isDevelopment && {
+  // Pino will gracefully fall back to JSON if pino-pretty is not available
+  ...(isNode() && !isBrowser() && isDevelopment && {
     transport: {
       target: 'pino-pretty',
       options: {
@@ -54,6 +74,13 @@ const loggerConfig: pino.LoggerOptions = {
         translateTime: 'HH:MM:ss.l',
         ignore: 'pid,hostname',
         singleLine: false,
+        messageFormat: '{msg}',
+        hideObject: false,
+        // Better formatting for nested objects
+        crlf: false,
+        errorLikeObjectKeys: ['err', 'error'],
+        // Format output more consistently
+        customColors: 'info:blue,warn:yellow,error:red',
       },
     },
   }),

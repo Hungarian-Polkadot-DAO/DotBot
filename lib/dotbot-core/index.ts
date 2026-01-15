@@ -278,3 +278,16 @@ export {
 export { AIService, getAIService } from './services/ai/aiService';
 export type { AIServiceConfig } from './services/ai/aiService';
 export { AIProviderType } from './services/ai/aiService';
+
+// ============================================================================
+// Environment and Storage Utilities
+// ============================================================================
+export { 
+  getEnv, 
+  isBrowser, 
+  isNode, 
+  getStorage, 
+  setStorage, 
+  initFileStorage 
+} from './env';
+export type { Storage } from './env';

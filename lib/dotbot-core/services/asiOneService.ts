@@ -154,7 +154,6 @@ export class ASIOneService {
     
     if (context?.systemPrompt) {
       logger.info({ 
-        subsystem: 'agent-comm',
         promptLength: systemPrompt.length,
         preview: systemPrompt.substring(0, 200),
         historyLength: conversationHistory.length,
@@ -162,7 +161,6 @@ export class ASIOneService {
       }, 'Using provided systemPrompt from DotBot');
     } else {
       logger.warn({ 
-        subsystem: 'agent-comm',
         historyLength: conversationHistory.length
       }, 'WARNING: No systemPrompt provided - using default (DotBot capabilities may be limited)');
     }
