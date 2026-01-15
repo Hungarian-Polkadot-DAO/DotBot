@@ -91,18 +91,39 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   }
 
   // Handle execution through DotBot if using new API
-  // Supports both frontend (stateful) and backend (stateless) execution
+  // Execution always happens on frontend (where signing handlers are available)
+  // If backend has state, use it; otherwise rebuild from executionPlan locally
   const handleAcceptAndStart = async () => {
     if (executionMessage && dotbot) {
       try {
-        // Check if we should use backend execution (stateless mode)
+        // Check if we need to get state from backend (stateless mode)
         if (backendSessionId && (!dotbot.currentChat || !dotbot.currentChat.getExecutionArray(executionMessage.executionId))) {
-          // Backend execution: start on backend and rely on polling for updates
-          const { startExecution } = await import('../../services/dotbotApi');
-          await startExecution(backendSessionId, executionMessage.executionId, false);
-          console.log('[ExecutionFlow] Execution started on backend, polling for updates...');
+          // Try to get state from backend (may fail if server restarted)
+          try {
+            const { startExecution } = await import('../../services/dotbotApi');
+            const response = await startExecution(backendSessionId, executionMessage.executionId, false);
+            
+            // Update execution message with state from backend
+            if (response.state && executionMessage) {
+              executionMessage.executionArray = response.state;
+            }
+            console.log('[ExecutionFlow] Got execution state from backend');
+          } catch (error: any) {
+            // Backend doesn't have state (e.g., server restarted) - that's OK
+            // We'll rebuild from executionPlan locally
+            if (error.message?.includes('404') || error.message?.includes('not found')) {
+              console.log('[ExecutionFlow] Backend state not found (server may have restarted), rebuilding from executionPlan locally');
+            } else {
+              console.warn('[ExecutionFlow] Failed to get state from backend:', error);
+            }
+          }
+          
+          // Execute on frontend - startExecution will rebuild ExecutionArray from executionPlan if needed
+          // This works even if backend state was lost (server restart)
+          await dotbot.startExecution(executionMessage.executionId, { autoApprove: false });
+          console.log('[ExecutionFlow] Executing on frontend (rebuilt from executionPlan if needed)...');
         } else {
-          // Frontend execution: use local DotBot instance
+          // Frontend execution: use local DotBot instance (stateful mode)
           await dotbot.startExecution(executionMessage.executionId, { autoApprove: false });
         }
       } catch (error) {

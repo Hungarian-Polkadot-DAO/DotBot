@@ -8,6 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { WebSocketProvider } from './contexts/WebSocketContext';
 import { useScenarioPrompt } from './hooks/useScenarioPrompt';
 import WalletButton from './components/wallet/WalletButton';
 import ThemeToggle from './components/ui/ThemeToggle';
@@ -238,17 +239,44 @@ const AppContent: React.FC = () => {
         await dotbot.currentChat.addBotMessage(chatResult.response);
       }
 
-      // If there's an execution plan and executionArrayState, add execution message
-      if (chatResult.plan && chatResult.executionArrayState && dotbot.currentChat) {
-        // Add execution message with the state from backend (stateless mode)
-        await dotbot.currentChat.addExecutionMessage(
-          chatResult.executionId || chatResult.executionArrayState.id,
-          chatResult.plan,
-          chatResult.executionArrayState
-        );
-      } else if (chatResult.plan && dotbot.currentChat) {
-        // Stateful mode: execution message was already added by backend
-        // Frontend just needs to sync (polling will handle it)
+      // If there's an execution plan, add execution message (even if state not ready yet)
+      // In stateless mode: add message immediately so ExecutionFlow can display and poll for updates
+      // In stateful mode: execution message was already added by backend, but we check anyway
+      if (chatResult.plan && dotbot.currentChat) {
+        // Get executionId from result - backend should always return it
+        // If not available, generate one (fallback for edge cases)
+        let executionId = chatResult.executionId || chatResult.executionArrayState?.id;
+        
+        if (!executionId) {
+          // Fallback: generate executionId if backend didn't provide one
+          // This should rarely happen, but ensures ExecutionFlow can always display
+          executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          console.warn('[App] Generated executionId (backend did not provide one):', executionId);
+        }
+        
+        // Check if execution message already exists (stateful mode)
+        const existingMessage = dotbot.currentChat.getDisplayMessages()
+          .find(m => m.type === 'execution' && (m as any).executionId === executionId);
+        
+        if (!existingMessage) {
+          // Add execution message (stateless mode or stateful mode if not already added)
+          // State may be undefined during preparation - polling will update it
+          console.log('[App] Adding execution message:', { 
+            executionId, 
+            hasState: !!chatResult.executionArrayState,
+            hasPlan: !!chatResult.plan 
+          });
+          await dotbot.currentChat.addExecutionMessage(
+            executionId,
+            chatResult.plan,
+            chatResult.executionArrayState // May be undefined during simulation - polling will update
+          );
+        } else if (chatResult.executionArrayState) {
+          // Update existing message with state if available
+          await dotbot.currentChat.updateExecutionMessage(existingMessage.id, {
+            executionArray: chatResult.executionArrayState,
+          });
+        }
       }
 
       setConversationRefresh(prev => prev + 1);
@@ -408,7 +436,8 @@ const AppContent: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <div className={`app-container ${isSidebarExpanded ? '' : 'sidebar-collapsed'}`}>
+        <WebSocketProvider sessionId={backendSessionId} autoConnect={true}>
+          <div className={`app-container ${isSidebarExpanded ? '' : 'sidebar-collapsed'}`}>
       <CollapsibleSidebar
             onNewChat={handleNewChat}
             onSearchChat={handleSearchChat}
@@ -511,7 +540,8 @@ const AppContent: React.FC = () => {
               onAutoSubmitChange={setAutoSubmitPrompts}
         />
       )}
-    </div>
+        </div>
+        </WebSocketProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

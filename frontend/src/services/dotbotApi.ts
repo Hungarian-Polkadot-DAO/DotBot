@@ -94,24 +94,44 @@ export async function createDotBotSession(
   sessionId?: string
 ): Promise<DotBotSessionResponse> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/dotbot/session`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        sessionId,
-        wallet,
-        environment,
-        network,
-      }),
-    });
+    // Use AbortController for timeout (90 seconds - RPC connection can be slow)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90 * 1000);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/dotbot/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionId,
+          wallet,
+          environment,
+          network,
+        }),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      await handleFetchError(response, 'create DotBot session');
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        await handleFetchError(response, 'create DotBot session');
+      }
+
+      return response.json();
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        throw new Error(
+          `Session creation timed out after 90 seconds. ` +
+          `The backend may be slow to connect to RPC endpoints. ` +
+          `Please try again or check your network connection.`
+        );
+      }
+      throw fetchError;
     }
-
-    return response.json();
   } catch (error) {
     if (error instanceof TypeError && error.message.includes('fetch')) {
       throw new Error(
