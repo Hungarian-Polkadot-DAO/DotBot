@@ -291,3 +291,12 @@ export {
   initFileStorage 
 } from './env';
 export type { Storage } from './env';
+
+// ============================================================================
+// WebSocket Types (shared between frontend and backend)
+// ============================================================================
+export type {
+  ClientToServerEvents,
+  ServerToClientEvents,
+} from './types/websocket';
+export { WebSocketEvents } from './types/websocket';
