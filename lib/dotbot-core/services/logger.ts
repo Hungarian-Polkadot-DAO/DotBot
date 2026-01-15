@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { Subsystem, ErrorType } from './types/logging';
-import { getEnv, isBrowser, isNode } from '../env';
+import { isBrowser, isNode } from '../env';
+import { getConfiguredLogLevel } from '../utils/logLevel';
 
 // Read version from package.json with fallback
 // Note: After compilation to dist/, relative paths to package.json don't work
@@ -11,15 +12,9 @@ let LIB_VERSION = process.env.DOTBOT_CORE_VERSION || "0.5.0";
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Determine log level
+// Determine log level using shared utility
 const getLogLevel = (): string => {
-  const envLevel = getEnv('LOG_LEVEL') || getEnv('DOTBOT_LOG_LEVEL');
-  if (envLevel) return envLevel;
-  
-  // Default levels by environment
-  if (isProduction) return 'info';
-  if (process.env.NODE_ENV === 'test') return 'warn';
-  return 'debug'; // development - shows all logs (matches dotbot-express)
+  return getConfiguredLogLevel();
 };
 
 // Helper function to dynamically detect backend context

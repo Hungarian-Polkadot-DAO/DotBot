@@ -11,7 +11,188 @@
  */
 
 import pino from 'pino';
-import { getEnv } from '@dotbot/core/env';
+import { getConfiguredLogLevel } from '@dotbot/core/utils/logLevel';
+
+/**
+ * API Init Message Collector
+ * Collects and summarizes noisy Polkadot.js API/INIT messages
+ */
+interface ApiInitMessages {
+  rpcMethods: Set<string>;
+  runtimeApis: Map<string, Set<string>>;
+  unknownApis: Set<string>;
+}
+
+/**
+ * Clean message by removing timestamps and prefixes
+ */
+function cleanMessage(message: string): string {
+  return message.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+/, '').trim();
+}
+
+/**
+ * Handle RPC methods not decorated message
+ */
+function handleRpcMethodsMessage(
+  cleanMessage: string,
+  messages: ApiInitMessages,
+  onSummary: () => void
+): boolean {
+  if (!cleanMessage.includes('API/INIT:') || !cleanMessage.includes('RPC methods not decorated')) {
+    return false;
+  }
+  
+  const methods = cleanMessage.match(/RPC methods not decorated:\s*(.+)/)?.[1];
+  if (methods) {
+    const methodList = methods.split(',').map(m => m.trim()).filter(m => m);
+    methodList.forEach(m => messages.rpcMethods.add(m));
+    onSummary();
+  }
+  return true;
+}
+
+/**
+ * Handle runtime API version mismatch message
+ */
+function handleRuntimeApiMessage(
+  cleanMessage: string,
+  messages: ApiInitMessages,
+  onSummary: () => void
+): boolean {
+  const match = cleanMessage.match(/API\/INIT:\s*(.+?):\s*Not decorating runtime apis without matching versions:\s*(.+)/);
+  if (!match) return false;
+  
+  const [, chain, apis] = match;
+  if (!messages.runtimeApis.has(chain)) {
+    messages.runtimeApis.set(chain, new Set());
+  }
+  const apiNames = apis.split(',').map(a => a.trim().split('/')[0]).filter(a => a);
+  apiNames.forEach(api => messages.runtimeApis.get(chain)!.add(api));
+  onSummary();
+  return true;
+}
+
+/**
+ * Handle unknown runtime APIs message
+ */
+function handleUnknownApiMessage(
+  cleanMessage: string,
+  messages: ApiInitMessages,
+  onSummary: () => void
+): boolean {
+  const match = cleanMessage.match(/API\/INIT:\s*(.+?):\s*Not decorating unknown runtime apis:/);
+  if (!match) return false;
+  
+  const [, chain] = match;
+  messages.unknownApis.add(chain);
+  onSummary();
+  return true;
+}
+
+/**
+ * Create debounced summary function
+ */
+function createDebouncedSummary(
+  delay: number,
+  callback: () => void
+): () => void {
+  let timeout: NodeJS.Timeout | null = null;
+  let called = false;
+  
+  return () => {
+    if (timeout) clearTimeout(timeout);
+    if (called) return;
+    
+    timeout = setTimeout(() => {
+      callback();
+      called = true;
+    }, delay);
+  };
+}
+
+/**
+ * Shorten API/INIT messages to one line
+ * Collects similar messages and shows a summary
+ */
+function createApiInitShortener(
+  originalConsoleInfo: typeof console.info
+): (message: string) => string | null {
+  const messages: ApiInitMessages = {
+    rpcMethods: new Set(),
+    runtimeApis: new Map(),
+    unknownApis: new Set(),
+  };
+  
+  const showRpcSummary = createDebouncedSummary(1000, () => {
+    if (messages.rpcMethods.size > 0) {
+      originalConsoleInfo(
+        `[Polkadot] API initialized (${messages.rpcMethods.size} RPC methods not decorated - expected)`
+      );
+      messages.rpcMethods.clear();
+    }
+  });
+  
+  const showRuntimeApiSummary = createDebouncedSummary(1000, () => {
+    messages.runtimeApis.forEach((apis, chain) => {
+      const apiList = Array.from(apis).join(', ');
+      originalConsoleInfo(`[Polkadot] ${chain}: Runtime API version mismatches: ${apiList} (expected)`);
+    });
+    messages.runtimeApis.clear();
+  });
+  
+  const showUnknownApiSummary = createDebouncedSummary(1000, () => {
+    if (messages.unknownApis.size > 0) {
+      const chains = Array.from(messages.unknownApis).join(', ');
+      originalConsoleInfo(`[Polkadot] ${chains}: Unknown runtime APIs (expected)`);
+      messages.unknownApis.clear();
+    }
+  });
+  
+  return (message: string): string | null => {
+    const cleaned = cleanMessage(message);
+    
+    if (handleRpcMethodsMessage(cleaned, messages, showRpcSummary)) {
+      return null;
+    }
+    if (handleRuntimeApiMessage(cleaned, messages, showRuntimeApiSummary)) {
+      return null;
+    }
+    if (handleUnknownApiMessage(cleaned, messages, showUnknownApiSummary)) {
+      return null;
+    }
+    
+    return null;
+  };
+}
+
+/**
+ * Handle Polkadot version warnings
+ * Collects multiple version warnings and shows a single summary
+ */
+function createVersionWarningHandler(
+  originalConsoleWarn: typeof console.warn
+): (message: string) => boolean {
+  const versionWarnings = new Set<string>();
+  const showSummary = createDebouncedSummary(1000, () => {
+    if (versionWarnings.size > 0) {
+      const packages = Array.from(versionWarnings).sort().join(', ');
+      originalConsoleWarn(
+        `[Polkadot] Version conflicts: ${packages} (${versionWarnings.size} packages). Run 'npm dedupe' to resolve.`
+      );
+      versionWarnings.clear();
+    }
+  });
+  
+  return (message: string): boolean => {
+    const match = message.match(/@polkadot\/([^\s]+) has multiple versions/);
+    if (match) {
+      versionWarnings.add(match[1]);
+      showSummary();
+      return true; // Suppress individual message
+    }
+    return false;
+  };
+}
 
 /**
  * Shorten noisy Polkadot.js console messages
@@ -27,127 +208,12 @@ function setupConsoleShortener() {
   const originalConsoleInfo = console.info;
   const originalConsoleWarn = console.warn;
   
-  /**
-   * Shorten API/INIT messages to one line
-   * Collects similar messages and shows a summary
-   */
-  const apiInitMessages = {
-    rpcMethods: new Set<string>(),
-    runtimeApis: new Map<string, Set<string>>(), // chain -> Set of API names
-    unknownApis: new Set<string>(), // chain names
-  };
-  let apiInitTimeout: NodeJS.Timeout | null = null;
-  let apiInitSummaryShown = false;
-  
-  function shortenApiInitMessage(message: string): string | null {
-    // Extract just the message part (ignore timestamps/prefixes)
-    const cleanMessage = message.replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+/, '').trim();
-    
-    // RPC methods not decorated - collect and show summary
-    if (cleanMessage.includes('API/INIT:') && cleanMessage.includes('RPC methods not decorated')) {
-      const methods = cleanMessage.match(/RPC methods not decorated:\s*(.+)/)?.[1];
-      if (methods) {
-        const methodList = methods.split(',').map(m => m.trim()).filter(m => m);
-        methodList.forEach(m => apiInitMessages.rpcMethods.add(m));
-      }
-      
-      // Debounce summary
-      if (apiInitTimeout) clearTimeout(apiInitTimeout);
-      apiInitTimeout = setTimeout(() => {
-        if (apiInitMessages.rpcMethods.size > 0 && !apiInitSummaryShown) {
-          originalConsoleInfo(`[Polkadot] API initialized (${apiInitMessages.rpcMethods.size} RPC methods not decorated - expected)`);
-          apiInitSummaryShown = true;
-          apiInitMessages.rpcMethods.clear();
-        }
-      }, 1000);
-      
-      return null; // Suppress individual message
-    }
-    
-    // Runtime APIs - collect by chain
-    const runtimeApiMatch = cleanMessage.match(/API\/INIT:\s*(.+?):\s*Not decorating runtime apis without matching versions:\s*(.+)/);
-    if (runtimeApiMatch) {
-      const [, chain, apis] = runtimeApiMatch;
-      if (!apiInitMessages.runtimeApis.has(chain)) {
-        apiInitMessages.runtimeApis.set(chain, new Set());
-      }
-      const apiNames = apis.split(',').map(a => a.trim().split('/')[0]).filter(a => a);
-      apiNames.forEach(api => apiInitMessages.runtimeApis.get(chain)!.add(api));
-      
-      if (apiInitTimeout) clearTimeout(apiInitTimeout);
-      apiInitTimeout = setTimeout(() => {
-        if (!apiInitSummaryShown) {
-          apiInitMessages.runtimeApis.forEach((apis, chain) => {
-            const apiList = Array.from(apis).join(', ');
-            originalConsoleInfo(`[Polkadot] ${chain}: Runtime API version mismatches: ${apiList} (expected)`);
-          });
-          apiInitSummaryShown = true;
-          apiInitMessages.runtimeApis.clear();
-        }
-      }, 1000);
-      
-      return null; // Suppress individual message
-    }
-    
-    // Unknown runtime APIs - collect by chain
-    const unknownApiMatch = cleanMessage.match(/API\/INIT:\s*(.+?):\s*Not decorating unknown runtime apis:/);
-    if (unknownApiMatch) {
-      const [, chain] = unknownApiMatch;
-      apiInitMessages.unknownApis.add(chain);
-      
-      if (apiInitTimeout) clearTimeout(apiInitTimeout);
-      apiInitTimeout = setTimeout(() => {
-        if (apiInitMessages.unknownApis.size > 0 && !apiInitSummaryShown) {
-          const chains = Array.from(apiInitMessages.unknownApis).join(', ');
-          originalConsoleInfo(`[Polkadot] ${chains}: Unknown runtime APIs (expected)`);
-          apiInitSummaryShown = true;
-          apiInitMessages.unknownApis.clear();
-        }
-      }, 1000);
-      
-      return null; // Suppress individual message
-    }
-    
-    return null;
-  }
-  
-  /**
-   * Collect and summarize Polkadot version warnings
-   * Multiple versions can cause subtle bugs, so we collect them and show a single summary
-   */
-  const versionWarnings = new Set<string>();
-  let versionWarningTimeout: NodeJS.Timeout | null = null;
-  let versionWarningShown = false;
-  
-  function handleVersionWarning(message: string): boolean {
-    const match = message.match(/@polkadot\/([^\s]+) has multiple versions/);
-    if (match) {
-      const packageName = match[1];
-      versionWarnings.add(packageName);
-      
-      // Debounce: show summary after collecting warnings for 1 second
-      if (versionWarningTimeout) {
-        clearTimeout(versionWarningTimeout);
-      }
-      
-      versionWarningTimeout = setTimeout(() => {
-        if (versionWarnings.size > 0 && !versionWarningShown) {
-          const packages = Array.from(versionWarnings).sort().join(', ');
-          originalConsoleWarn(`[Polkadot] Version conflicts: ${packages} (${versionWarnings.size} packages). Run 'npm dedupe' to resolve.`);
-          versionWarningShown = true;
-          versionWarnings.clear();
-        }
-      }, 1000); // Wait 1 second to collect all warnings
-      
-      // Suppress individual messages
-      return true; // Return true to suppress
-    }
-    return false;
-  }
+  const shortenApiInit = createApiInitShortener(originalConsoleInfo);
+  const handleVersionWarning = createVersionWarningHandler(originalConsoleWarn);
   
   console.log = (...args: any[]) => {
     const message = String(args[0] || '');
-    const shortened = shortenApiInitMessage(message);
+    const shortened = shortenApiInit(message);
     if (shortened) {
       originalConsoleLog(shortened);
     } else {
@@ -157,7 +223,7 @@ function setupConsoleShortener() {
   
   console.info = (...args: any[]) => {
     const message = String(args[0] || '');
-    const shortened = shortenApiInitMessage(message);
+    const shortened = shortenApiInit(message);
     if (shortened) {
       originalConsoleInfo(shortened);
     } else {
@@ -168,13 +234,11 @@ function setupConsoleShortener() {
   console.warn = (...args: any[]) => {
     const message = String(args[0] || '');
     
-    // Handle version warnings (suppresses individual messages, shows summary)
     if (handleVersionWarning(message)) {
       return; // Suppress this message
     }
     
-    // Try API init message shortening
-    const apiShortened = shortenApiInitMessage(message);
+    const apiShortened = shortenApiInit(message);
     if (apiShortened) {
       originalConsoleWarn(apiShortened);
     } else {
@@ -193,40 +257,9 @@ setupConsoleShortener();
 const EXPRESS_VERSION = process.env.DOTBOT_EXPRESS_VERSION || '0.1.0';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// Determine log level
+// Determine log level using shared utility
 const getLogLevel = (): string => {
-  const envLevel = getEnv('LOG_LEVEL') || getEnv('DOTBOT_LOG_LEVEL');
-  if (envLevel) {
-    // Normalize log level to pino's expected format (lowercase, trim whitespace)
-    const normalized = String(envLevel).toLowerCase().trim();
-    // Map common variations to pino levels
-    // Pino standard levels: trace, debug, info, warn, error, fatal
-    const levelMap: Record<string, string> = {
-      'warning': 'warn',
-      'warn': 'warn',
-      'error': 'error',
-      'info': 'info',
-      'debug': 'debug',
-      'trace': 'trace',
-      'fatal': 'fatal',
-    };
-    const mappedLevel = levelMap[normalized];
-    if (mappedLevel) {
-      return mappedLevel;
-    }
-    // If not in map, check if it's a valid pino level
-    const validPinoLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
-    if (validPinoLevels.includes(normalized)) {
-      return normalized;
-    }
-    // Invalid level - fall back to default
-    console.warn(`[Logger] Invalid log level "${envLevel}", falling back to default`);
-  }
-  
-  // Default levels by environment
-  if (NODE_ENV === 'production') return 'info';
-  if (NODE_ENV === 'test') return 'warn';
-  return 'debug'; // development
+  return getConfiguredLogLevel();
 };
 
 // Create backend logger configuration
