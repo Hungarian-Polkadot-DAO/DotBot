@@ -13,7 +13,7 @@
 
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
+import { ExecutionArrayState, ClientToServerEvents, ServerToClientEvents, WebSocketEvents } from '@dotbot/core';
 
 const WS_URL = process.env.REACT_APP_WS_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -25,6 +25,7 @@ interface WebSocketContextValue {
   
   // Execution subscriptions
   subscribeToExecution: (executionId: string, callback: (state: ExecutionArrayState) => void) => () => void;
+  subscribeToSessionExecutions: (callback: (executionId: string, state: ExecutionArrayState) => void) => () => void;
   
   // Future: Chat subscriptions
   // subscribeToChat: (chatId: string) => () => void;
@@ -57,21 +58,31 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const executionCallbacksRef = useRef<Map<string, Set<(state: ExecutionArrayState) => void>>>(new Map());
+  const sessionExecutionCallbacksRef = useRef<Set<(executionId: string, state: ExecutionArrayState) => void>>(new Set());
+  const isSessionSubscribedRef = useRef<boolean>(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   /**
-   * Resubscribe to all active executions after reconnection
+   * Resubscribe to all active subscriptions after reconnection
    */
-  const resubscribeAll = useCallback((socket: Socket) => {
-    const executionIds = Array.from(executionCallbacksRef.current.keys());
+  const resubscribeAll = useCallback((socket: Socket<ServerToClientEvents, ClientToServerEvents>) => {
+    // Resubscribe to session-level executions if we had a subscription
+    if (isSessionSubscribedRef.current && sessionId) {
+      console.log('[WebSocket] Resubscribing to session-level executions');
+      socket.emit(WebSocketEvents.SUBSCRIBE_SESSION_EXECUTIONS, {
+        sessionId: sessionId!
+      });
+    }
     
+    // Resubscribe to specific executions
+    const executionIds = Array.from(executionCallbacksRef.current.keys());
     if (executionIds.length > 0) {
       console.log('[WebSocket] Resubscribing to executions:', executionIds);
       
       executionIds.forEach(executionId => {
-        socket.emit('subscribe-execution', {
+        socket.emit(WebSocketEvents.SUBSCRIBE_EXECUTION, {
           sessionId: sessionId!,
           executionId
         });
@@ -107,8 +118,8 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     
     console.log('[WebSocket] Connecting to', WS_URL, 'with session:', sessionId);
     
-    // Create Socket.IO client
-    const socket = io(WS_URL, {
+    // Create Socket.IO client with proper types
+    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(WS_URL, {
       query: { sessionId },
       transports: fallbackToPolling ? ['websocket', 'polling'] : ['websocket'],
       reconnection: true,
@@ -132,7 +143,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
       resubscribeAll(socket);
     });
     
-    socket.on('connected', (data) => {
+    socket.on(WebSocketEvents.CONNECTED, (data) => {
       console.log('[WebSocket] Server confirmation:', data.message);
     });
     
@@ -159,22 +170,35 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
       // If WebSocket fails, Socket.IO will automatically try polling fallback
     });
     
-    socket.on('error', (data) => {
+    socket.on(WebSocketEvents.ERROR, (data) => {
       console.error('[WebSocket] Error:', data.message);
       setConnectionError(data.message);
     });
     
     // Execution update handlers
-    socket.on('execution-update', ({ executionId, state }) => {
-      console.log('[WebSocket] Execution update:', {
+    socket.on(WebSocketEvents.EXECUTION_UPDATE, ({ executionId, state }) => {
+      console.log('[WebSocket] Execution update received:', {
         executionId,
-        status: state.status,
-        currentIndex: state.currentIndex
+        itemsCount: state.items.length,
+        hasSimulationStatus: state.items.some(item => item.simulationStatus),
+        simulationPhases: state.items.map(item => item.simulationStatus?.phase).filter(Boolean),
+        currentIndex: state.currentIndex,
+        isExecuting: state.isExecuting
       });
       
-      // Notify all callbacks for this execution
+      // Notify session-level callbacks (for early subscriptions before executionId is known)
+      sessionExecutionCallbacksRef.current.forEach(callback => {
+        try {
+          callback(executionId, state);
+        } catch (error) {
+          console.error('[WebSocket] Error in session execution callback:', error);
+        }
+      });
+      
+      // Notify execution-specific callbacks
       const callbacks = executionCallbacksRef.current.get(executionId);
       if (callbacks) {
+        console.log(`[WebSocket] Notifying ${callbacks.size} callback(s) for execution ${executionId}`);
         callbacks.forEach(callback => {
           try {
             callback(state);
@@ -185,14 +209,14 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
       }
     });
     
-    socket.on('execution-complete', ({ executionId, success }) => {
+    socket.on(WebSocketEvents.EXECUTION_COMPLETE, ({ executionId, success }) => {
       console.log('[WebSocket] Execution complete:', {
         executionId,
         success
       });
     });
     
-    socket.on('execution-error', ({ executionId, error }) => {
+    socket.on(WebSocketEvents.EXECUTION_ERROR, ({ executionId, error }) => {
       console.error('[WebSocket] Execution error:', {
         executionId,
         error
@@ -268,11 +292,53 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
           executionCallbacksRef.current.delete(executionId);
           
           if (socketRef.current?.connected && sessionId) {
-            socketRef.current.emit('unsubscribe-execution', {
+            socketRef.current.emit(WebSocketEvents.UNSUBSCRIBE_EXECUTION, {
               sessionId,
               executionId
             });
           }
+        }
+      }
+    };
+  }, [sessionId]);
+  
+  /**
+   * Subscribe to all execution updates for this session
+   * 
+   * This allows subscribing BEFORE the executionId is known, catching all updates
+   * including early simulation progress. The callback receives both executionId and state.
+   */
+  const subscribeToSessionExecutions = useCallback((
+    callback: (executionId: string, state: ExecutionArrayState) => void
+  ): (() => void) => {
+    console.log('[WebSocket] Subscribing to session-level executions');
+    
+    // Add callback to set
+    sessionExecutionCallbacksRef.current.add(callback);
+    
+    // Subscribe via Socket.IO (if connected and not already subscribed)
+    if (socketRef.current?.connected && sessionId && !isSessionSubscribedRef.current) {
+      socketRef.current.emit(WebSocketEvents.SUBSCRIBE_SESSION_EXECUTIONS, {
+        sessionId
+      });
+      isSessionSubscribedRef.current = true;
+    }
+    
+    // Return unsubscribe function
+    return () => {
+      console.log('[WebSocket] Unsubscribing from session-level executions');
+      
+      // Remove callback
+      sessionExecutionCallbacksRef.current.delete(callback);
+      
+      // If no more callbacks, unsubscribe from server
+      if (sessionExecutionCallbacksRef.current.size === 0 && isSessionSubscribedRef.current) {
+        isSessionSubscribedRef.current = false;
+        
+        if (socketRef.current?.connected && sessionId) {
+          socketRef.current.emit(WebSocketEvents.UNSUBSCRIBE_SESSION_EXECUTIONS, {
+            sessionId
+          });
         }
       }
     };
@@ -294,6 +360,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     isConnecting,
     connectionError,
     subscribeToExecution,
+    subscribeToSessionExecutions,
     connect,
     disconnect,
     reconnect,

@@ -2,15 +2,21 @@
  * Custom hook for managing execution flow state
  */
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 import { ExecutionMessage, DotBot } from '@dotbot/core';
-import { setupExecutionSubscription } from '../executionFlowUtils';
-import { useWebSocket } from '../../../contexts/WebSocketContext';
+import { useExecutionState } from '../../../App';
 
 /**
  * Hook to manage execution flow state with subscription
  * Supports both stateful (local) and stateless (backend polling/WebSocket) modes
+ * 
+ * STRATEGY:
+ * - For stateless mode (backend execution): Gets state from ExecutionStateContext
+ *   which is updated by EarlyExecutionSubscriber's WebSocket subscription
+ * - For stateful mode (local ExecutionArray): Subscribes to local updates
+ * 
+ * This avoids duplicate WebSocket subscriptions and the unsubscribe/resubscribe cycle
  */
 export function useExecutionFlowState(
   executionMessage: ExecutionMessage | undefined,
@@ -23,52 +29,84 @@ export function useExecutionFlowState(
   // Track previous executionId to detect changes
   const prevExecutionIdRef = useRef<string | undefined>(executionMessage?.executionId);
   
-  // Get WebSocket subscription function (optional - might not be connected)
-  // Use try-catch to handle case where WebSocketContext is not available
-  let subscribeToExecution: ((executionId: string, callback: (state: ExecutionArrayState) => void) => (() => void)) | undefined;
-  let isConnected = false;
-  try {
-    const wsContext = useWebSocket();
-    subscribeToExecution = wsContext.subscribeToExecution;
-    isConnected = wsContext.isConnected;
-  } catch (error) {
-    // WebSocket context not available (not wrapped in provider)
-    // This is OK - we'll fall back to polling
-  }
-
-  // Memoize wsSubscribe to avoid unnecessary re-subscriptions
-  // Only include subscribeToExecution if WebSocket is connected
-  const wsSubscribe = useMemo(() => {
-    return isConnected ? subscribeToExecution : undefined;
-  }, [isConnected, subscribeToExecution]);
+  // Get state from context (updated by EarlyExecutionSubscriber)
+  const contextState = useExecutionState(executionMessage?.executionId);
+  
+  // Sync context state to local state when it changes (triggers re-render)
+  // This ensures ExecutionFlow updates when WebSocket updates arrive
+  // Works even if executionMessage doesn't exist yet (uses executionId from contextState)
+  useEffect(() => {
+    if (contextState) {
+      // Get executionId from contextState or executionMessage
+      const executionId = executionMessage?.executionId;
+      
+      // Update local state when context state changes
+      setLiveExecutionState(prevState => {
+        // Only update if state actually changed (avoid unnecessary re-renders)
+        // Use JSON comparison to detect actual state changes, not just reference changes
+        const stateChanged = prevState !== contextState && (
+          !prevState || 
+          prevState.items.length !== contextState.items.length ||
+          prevState.currentIndex !== contextState.currentIndex ||
+          prevState.isExecuting !== contextState.isExecuting
+        );
+        
+        if (stateChanged) {
+          console.log('[useExecutionFlowState] Context state updated, syncing:', {
+            executionId,
+            itemsCount: contextState.items.length,
+            hadPreviousState: !!prevState,
+            currentIndex: contextState.currentIndex,
+            isExecuting: contextState.isExecuting
+          });
+          return contextState;
+        }
+        return prevState;
+      });
+    }
+  }, [contextState, executionMessage?.executionId]);
 
   // Reset state when executionId changes
   useEffect(() => {
     const currentExecutionId = executionMessage?.executionId;
     if (prevExecutionIdRef.current !== currentExecutionId) {
-      // Reset live state when switching to a different execution
-      setLiveExecutionState(null);
+      // Only reset live state if we're switching to a different execution
+      // Don't reset if we're just initializing (prevExecutionIdRef is undefined)
+      if (prevExecutionIdRef.current !== undefined) {
+        setLiveExecutionState(null);
+      }
       prevExecutionIdRef.current = currentExecutionId;
     }
   }, [executionMessage?.executionId]);
 
-  // Subscribe to execution updates when using new API
+  // For stateful mode (local ExecutionArray), subscribe to local updates
   useEffect(() => {
-    if (!executionMessage || !dotbot) {
+    if (!executionMessage || !dotbot || !dotbot.currentChat) {
       return;
     }
 
-    const cleanup = setupExecutionSubscription(
-      executionMessage,
-      dotbot,
-      setLiveExecutionState,
-      backendSessionId,
-      wsSubscribe
+    const executionArray = dotbot.currentChat.getExecutionArray(executionMessage.executionId);
+    if (!executionArray) {
+      // No local ExecutionArray - stateless mode (use context state)
+      return;
+    }
+
+    console.log('[useExecutionFlowState] Using stateful mode - subscribing to local ExecutionArray');
+    
+    // Set initial state
+    setLiveExecutionState(executionArray.getState());
+    
+    // Subscribe to local updates
+    const unsubscribe = dotbot.currentChat.onExecutionUpdate(
+      executionMessage.executionId,
+      (state) => {
+        setLiveExecutionState(state);
+      }
     );
 
-    return cleanup;
-  }, [executionMessage?.executionId, dotbot, backendSessionId, wsSubscribe]);
+    return unsubscribe;
+  }, [executionMessage?.executionId, dotbot]);
 
-  // Use live state if available, otherwise fall back to snapshot or legacy state
-  return liveExecutionState || executionMessage?.executionArray || legacyState || null;
+  // Priority: live state (stateful) > context state (stateless) > snapshot > legacy
+  return liveExecutionState || contextState || executionMessage?.executionArray || legacyState || null;
 }
