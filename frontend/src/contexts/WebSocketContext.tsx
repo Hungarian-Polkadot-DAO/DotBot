@@ -62,6 +62,24 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   /**
+   * Resubscribe to all active executions after reconnection
+   */
+  const resubscribeAll = useCallback((socket: Socket) => {
+    const executionIds = Array.from(executionCallbacksRef.current.keys());
+    
+    if (executionIds.length > 0) {
+      console.log('[WebSocket] Resubscribing to executions:', executionIds);
+      
+      executionIds.forEach(executionId => {
+        socket.emit('subscribe-execution', {
+          sessionId: sessionId!,
+          executionId
+        });
+      });
+    }
+  }, [sessionId]);
+  
+  /**
    * Connect to WebSocket server
    */
   const connect = useCallback(() => {
@@ -73,6 +91,15 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     if (socketRef.current?.connected) {
       console.log('[WebSocket] Already connected');
       return;
+    }
+    
+    // Clean up existing socket before creating new one
+    // This prevents memory leaks from accumulating event listeners
+    if (socketRef.current) {
+      console.log('[WebSocket] Cleaning up existing socket before reconnecting');
+      socketRef.current.removeAllListeners();
+      socketRef.current.disconnect();
+      socketRef.current = null;
     }
     
     setIsConnecting(true);
@@ -173,7 +200,7 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
     });
     
     socketRef.current = socket;
-  }, [sessionId, fallbackToPolling]);
+  }, [sessionId, fallbackToPolling, resubscribeAll]);
   
   /**
    * Disconnect from WebSocket server
@@ -203,24 +230,6 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
       connect();
     }, 100);
   }, [connect, disconnect]);
-  
-  /**
-   * Resubscribe to all active executions after reconnection
-   */
-  const resubscribeAll = useCallback((socket: Socket) => {
-    const executionIds = Array.from(executionCallbacksRef.current.keys());
-    
-    if (executionIds.length > 0) {
-      console.log('[WebSocket] Resubscribing to executions:', executionIds);
-      
-      executionIds.forEach(executionId => {
-        socket.emit('subscribe-execution', {
-          sessionId: sessionId!,
-          executionId
-        });
-      });
-    }
-  }, [sessionId]);
   
   /**
    * Subscribe to execution updates
