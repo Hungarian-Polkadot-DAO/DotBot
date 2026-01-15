@@ -293,20 +293,27 @@ export class ChatInstance {
 
   /**
    * Add a message to this conversation
+   * @param skipReload Skip reloading from disk (useful when adding multiple messages in batch)
    */
-  async addMessage(message: ConversationItem): Promise<void> {
+  async addMessage(message: ConversationItem, skipReload: boolean = false): Promise<void> {
+    // Add to in-memory array IMMEDIATELY (synchronous)
     this.data.messages.push(message);
+    console.log('[ChatInstance] Message pushed to array:', { type: message.type, id: message.id, count: this.data.messages.length });
     
     if (this.persistenceEnabled) {
+      // Persistence happens after push, so messages are already in memory
       await this.manager.addMessage(this.data.id, message);
-      await this.reload();
+      if (!skipReload) {
+        await this.reload();
+      }
     }
   }
 
   /**
    * Add a user message (convenience method)
+   * @param skipReload Skip reloading from disk (useful when adding multiple messages in batch)
    */
-  async addUserMessage(content: string): Promise<ConversationItem> {
+  async addUserMessage(content: string, skipReload: boolean = false): Promise<ConversationItem> {
     const message: ConversationItem = {
       id: this.generateMessageId(),
       type: 'user',
@@ -314,14 +321,15 @@ export class ChatInstance {
       timestamp: Date.now(),
     };
     
-    await this.addMessage(message);
+    await this.addMessage(message, skipReload);
     return message;
   }
 
   /**
    * Add a bot message (convenience method)
+   * @param skipReload Skip reloading from disk (useful when adding multiple messages in batch)
    */
-  async addBotMessage(content: string): Promise<ConversationItem> {
+  async addBotMessage(content: string, skipReload: boolean = false): Promise<ConversationItem> {
     const message: ConversationItem = {
       id: this.generateMessageId(),
       type: 'bot',
@@ -329,7 +337,7 @@ export class ChatInstance {
       timestamp: Date.now(),
     };
     
-    await this.addMessage(message);
+    await this.addMessage(message, skipReload);
     return message;
   }
 
@@ -358,11 +366,13 @@ export class ChatInstance {
    * @param executionIdOrState Either an executionId string or ExecutionArrayState
    * @param executionPlan Optional execution plan
    * @param executionArrayState Optional execution array state (if executionId is provided as first arg)
+   * @param skipReload Skip reloading from disk (useful when adding multiple messages in batch)
    */
   async addExecutionMessage(
     executionIdOrState: string | ExecutionArrayState,
     executionPlan?: ExecutionPlan,
-    executionArrayState?: ExecutionArrayState
+    executionArrayState?: ExecutionArrayState,
+    skipReload: boolean = false
   ): Promise<ExecutionMessage> {
     // Determine executionId and state based on arguments
     let executionId: string;
@@ -386,7 +396,21 @@ export class ChatInstance {
       status: 'pending',
     };
     
-    await this.addMessage(message);
+    console.log('[ChatInstance] Adding execution message:', { 
+      messageId: message.id, 
+      executionId, 
+      hasExecutionArray: !!arrayState,
+      hasExecutionPlan: !!executionPlan
+    });
+    
+    await this.addMessage(message, skipReload);
+    
+    console.log('[ChatInstance] Execution message added. Current messages:', this.data.messages.map(m => ({ 
+      type: m.type, 
+      id: m.id,
+      executionId: m.type === 'execution' ? (m as ExecutionMessage).executionId : undefined
+    })));
+    
     return message;
   }
   
@@ -402,32 +426,72 @@ export class ChatInstance {
       existingUnsubscribe();
     }
     
-    // Notify any existing callbacks immediately with current state
+    // Notify any existing callbacks immediately with current state (deferred to avoid blocking)
     const callbacks = this.executionCallbacks.get(executionId);
     if (callbacks && callbacks.size > 0) {
       const state = executionArray.getState();
-      callbacks.forEach(cb => cb(state));
+      // Defer initial callback to avoid blocking UI during setup
+      setTimeout(() => {
+        callbacks.forEach(cb => {
+          try {
+            cb(state);
+          } catch (error) {
+            // Ignore errors in initial callback
+          }
+        });
+      }, 0);
     }
     
     // Set up subscription to notify callbacks on future updates
     // Only subscribe to onProgress - it fires on ALL state changes (status updates, progress, etc.)
     // Subscribing to both onStatusUpdate AND onProgress causes duplicate callbacks since
     // updateStatus() calls both notifyStatus() and notifyProgress()
+    
+    // Throttle callback invocations to prevent UI blocking
+    let lastStateHash: string | null = null;
+    let pendingUpdate: NodeJS.Timeout | null = null;
+    
+    // Helper to create a simple hash of state for change detection
+    const getStateHash = (state: ExecutionArrayState): string => {
+      // Create a hash from key state properties that change during execution
+      const itemsHash = state.items.map(item => `${item.id}:${item.status}`).join('|');
+      return `${state.isExecuting}:${state.completedItems}:${state.failedItems}:${itemsHash}`;
+    };
+    
     const notifyCallbacks = () => {
       const updatedState = executionArray.getState();
-      const callbacks = this.executionCallbacks.get(executionId);
-      if (callbacks) {
-        callbacks.forEach((cb) => {
-          try {
-            cb(updatedState);
-          } catch (error) {
-            this.chatLogger.error({ 
-              error: error instanceof Error ? error.message : String(error),
-              stack: error instanceof Error ? error.stack : undefined
-            }, 'Error in callback');
-          }
-        });
+      const stateHash = getStateHash(updatedState);
+      
+      // Skip if state hasn't actually changed (content check, not reference)
+      if (stateHash === lastStateHash) {
+        return;
       }
+      
+      // Clear any pending update
+      if (pendingUpdate) {
+        clearTimeout(pendingUpdate);
+        pendingUpdate = null;
+      }
+      
+      // Defer callback invocation to avoid blocking UI thread
+      // Use a small delay to batch rapid updates (16ms = ~60fps)
+      pendingUpdate = setTimeout(() => {
+        lastStateHash = stateHash;
+        const callbacks = this.executionCallbacks.get(executionId);
+        if (callbacks) {
+          callbacks.forEach((cb) => {
+            try {
+              cb(updatedState);
+            } catch (error) {
+              this.chatLogger.error({ 
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined
+              }, 'Error in callback');
+            }
+          });
+        }
+        pendingUpdate = null;
+      }, 16); // ~60fps - batches updates within a frame
     };
     
     // Only subscribe to onProgress - it covers all state changes
@@ -436,6 +500,12 @@ export class ChatInstance {
     // Store unsubscribe function
     const unsubscribe = () => {
       unsubscribeProgress();
+      // Clear any pending update
+      if (pendingUpdate) {
+        clearTimeout(pendingUpdate);
+        pendingUpdate = null;
+      }
+      lastStateHash = null;
     };
     
     this.executionSubscriptions.set(executionId, unsubscribe);
@@ -739,11 +809,19 @@ export class ChatInstance {
     const callbacks = this.executionCallbacks.get(executionId)!;
     callbacks.add(callback);
 
-    // If execution array exists, call callback immediately with current state
+    // If execution array exists, call callback with current state (deferred to avoid blocking)
     // Subscription is already set up in setExecutionArray, so we don't need to set it up here
     const executionArray = this.executionArrays.get(executionId);
     if (executionArray) {
-      callback(executionArray.getState());
+      const state = executionArray.getState();
+      // Defer to avoid blocking UI during subscription setup
+      setTimeout(() => {
+        try {
+          callback(state);
+        } catch (error) {
+          // Ignore errors in callback
+        }
+      }, 0);
     }
 
     // Return cleanup function

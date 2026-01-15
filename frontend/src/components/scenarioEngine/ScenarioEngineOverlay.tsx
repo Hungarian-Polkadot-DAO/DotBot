@@ -29,6 +29,8 @@ interface ScenarioEngineOverlayProps {
   onSendMessage: (message: string) => Promise<any>;
   onAutoSubmitChange?: (autoSubmit: boolean) => void;
   autoSubmit?: boolean;
+  isInitializing?: boolean;
+  isReady?: boolean;
 }
 
 const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({ 
@@ -37,7 +39,9 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
   onClose,
   onSendMessage,
   onAutoSubmitChange,
-  autoSubmit: propAutoSubmit
+  autoSubmit: propAutoSubmit,
+  isInitializing = false,
+  isReady = false
 }) => {
   // Close on ESC key
   useEffect(() => {
@@ -86,9 +90,10 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
     appendToReport(`[NUKE] All entities cleared\n`);
   };
 
+  // Only initialize hook when engine is ready
   const { entities, runningScenario, setRunningScenario } = useScenarioEngine({
-    engine,
-    dotbot,
+    engine: isReady ? engine : null,
+    dotbot: isReady ? dotbot : null,
     onSendMessage,
     onAppendReport: appendToReport,
     onStatusChange: setStatusMessage,
@@ -160,34 +165,40 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
     }
   };
 
-  const runScenario = async (scenario: Scenario) => {
+  const runScenario = (scenario: Scenario) => {
     setActiveTab('report');
     setRunningScenario(scenario.name);
     
-    try {
-      const state = engine.getState();
-      const engineEntities = Array.from(engine.getEntities().values());
-      
-      if (engineEntities.length > 0 && state.entityMode !== executionMode) {
-        appendToReport(`[WARN] Entity mode mismatch: ${state.entityMode} → ${executionMode}\n`);
-      }
-      
-      const chain = getScenarioChain(scenario, dotbot);
-      const chainType = getChainTypeDescription(chain);
-      const modifiedScenario = createModifiedScenario(scenario, chain, executionMode);
-      
-      appendToReport(`[INFO] Using chain: ${chain} (${chainType})\n`);
-      appendToReport(`[SCENARIO] ${scenario.name} (${executionMode})\n\n`);
-      
-      await engine.runScenario(modifiedScenario);
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      appendToReport(`[ERROR] Scenario failed: ${errorMessage}\n`);
-      console.error('Scenario execution failed:', error);
-    } finally {
-      setRunningScenario(null);
-    }
+    // Defer execution to next tick to prevent UI blocking
+    // This ensures the UI updates (tab switch, running state) happen before heavy computation
+    setTimeout(() => {
+      (async () => {
+        try {
+          const state = engine.getState();
+          const engineEntities = Array.from(engine.getEntities().values());
+          
+          if (engineEntities.length > 0 && state.entityMode !== executionMode) {
+            appendToReport(`[WARN] Entity mode mismatch: ${state.entityMode} → ${executionMode}\n`);
+          }
+          
+          const chain = getScenarioChain(scenario, dotbot);
+          const chainType = getChainTypeDescription(chain);
+          const modifiedScenario = createModifiedScenario(scenario, chain, executionMode);
+          
+          appendToReport(`[INFO] Using chain: ${chain} (${chainType})\n`);
+          appendToReport(`[SCENARIO] ${scenario.name} (${executionMode})\n\n`);
+          
+          await engine.runScenario(modifiedScenario);
+          
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          appendToReport(`[ERROR] Scenario failed: ${errorMessage}\n`);
+          console.error('Scenario execution failed:', error);
+        } finally {
+          setRunningScenario(null);
+        }
+      })();
+    }, 0);
   };
 
   return (
@@ -239,46 +250,65 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
           </button>
         </div>
 
+        {/* Loading Screen */}
+        {isInitializing && (
+          <div className="scenario-content" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '400px' }}>
+            <div className="scenario-loading">
+              <div className="scenario-loading-spinner"></div>
+              <div className="scenario-loading-text">
+                <span className="scenario-title-brackets">{'['}</span>
+                <span>INITIALIZING_SCENARIO_ENGINE</span>
+                <span className="scenario-title-brackets">{']'}</span>
+              </div>
+              <div className="scenario-loading-subtext">
+                Setting up scenario execution engine...
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Content */}
-        <div className="scenario-content">
-          {activeTab === 'entities' && (
-            <EntitiesTab
-              engine={engine}
-              dotbot={dotbot}
-              mode={executionMode}
-              onModeChange={setExecutionMode}
-              entities={entities}
-              isCreating={isCreatingEntities}
-              onAppendReport={appendToReport}
-              onCreateEntities={createEntities}
-              onClearEntities={clearEntities}
-            />
-          )}
+        {!isInitializing && (
+          <div className="scenario-content">
+            {activeTab === 'entities' && (
+              <EntitiesTab
+                engine={engine}
+                dotbot={dotbot}
+                mode={executionMode}
+                onModeChange={setExecutionMode}
+                entities={entities}
+                isCreating={isCreatingEntities}
+                onAppendReport={appendToReport}
+                onCreateEntities={createEntities}
+                onClearEntities={clearEntities}
+              />
+            )}
 
-          {activeTab === 'scenarios' && (
-            <ScenariosTab
-              categories={TEST_CATEGORIES}
-              expandedCategories={expandedCategories}
-              onToggleCategory={toggleCategory}
-              mode={executionMode}
-              onModeChange={setExecutionMode}
-              onRunScenario={runScenario}
-              runningScenario={runningScenario}
-            />
-          )}
+            {activeTab === 'scenarios' && (
+              <ScenariosTab
+                categories={TEST_CATEGORIES}
+                expandedCategories={expandedCategories}
+                onToggleCategory={toggleCategory}
+                mode={executionMode}
+                onModeChange={setExecutionMode}
+                onRunScenario={runScenario}
+                runningScenario={runningScenario}
+              />
+            )}
 
-          {activeTab === 'report' && (
-            <ReportTab
-              report={report}
-              isTyping={!!runningScenario}
-              isRunning={!!runningScenario}
-              statusMessage={statusMessage}
-              executionPhase={executionPhase}
-              onClear={clearReport}
-              onEndScenario={handleEndScenario}
-            />
-          )}
-        </div>
+            {activeTab === 'report' && (
+              <ReportTab
+                report={report}
+                isTyping={!!runningScenario}
+                isRunning={!!runningScenario}
+                statusMessage={statusMessage}
+                executionPhase={executionPhase}
+                onClear={clearReport}
+                onEndScenario={handleEndScenario}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

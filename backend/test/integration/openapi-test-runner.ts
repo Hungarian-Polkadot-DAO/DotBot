@@ -31,6 +31,7 @@ class OpenAPITestRunner {
   private results: TestResult[] = [];
   private cachedSessionId: string | null = null;
   private ajv: Ajv;
+  private readonly REQUEST_TIMEOUT_MS = 120000; // 2 minutes - enough for RPC connection attempts
 
   constructor(specPath: string, baseUrl: string) {
     const specContent = fs.readFileSync(specPath, 'utf-8');
@@ -58,6 +59,7 @@ class OpenAPITestRunner {
       const chatsPath = `/api/dotbot/session/${sessionId}/chats`;
       const response = await axios.get(`${this.baseUrl}${chatsPath}`, {
         validateStatus: () => true,
+        timeout: this.REQUEST_TIMEOUT_MS,
       });
 
       if (response.status === 200 && response.data.chats && response.data.chats.length > 0) {
@@ -103,6 +105,7 @@ class OpenAPITestRunner {
       const chatResponse = await axios.post(`${this.baseUrl}${chatPath}`, requestBody, {
         headers: { 'Content-Type': 'application/json' },
         validateStatus: () => true,
+        timeout: this.REQUEST_TIMEOUT_MS,
       });
 
       if (chatResponse.status !== 200) {
@@ -117,6 +120,7 @@ class OpenAPITestRunner {
       // Get chats again to find the newly created one
       const chatsResponse = await axios.get(`${this.baseUrl}${chatsPath}`, {
         validateStatus: () => true,
+        timeout: this.REQUEST_TIMEOUT_MS,
       });
 
       if (chatsResponse.status === 200 && chatsResponse.data.chats && chatsResponse.data.chats.length > 0) {
@@ -139,6 +143,7 @@ class OpenAPITestRunner {
       const loadPath = `/api/dotbot/session/${sessionId}/chats/${chatId}/load`;
       await axios.post(`${this.baseUrl}${loadPath}`, {}, {
         validateStatus: () => true,
+        timeout: this.REQUEST_TIMEOUT_MS,
       });
 
       // Get the chat instance to check for executions
@@ -179,6 +184,7 @@ class OpenAPITestRunner {
         const getSessionPath = `/api/dotbot/session/${this.cachedSessionId}`;
         const response = await axios.get(`${this.baseUrl}${getSessionPath}`, {
           validateStatus: () => true,
+          timeout: this.REQUEST_TIMEOUT_MS,
         });
         
         // If session exists, return it
@@ -216,6 +222,7 @@ class OpenAPITestRunner {
       const response = await axios.post(`${this.baseUrl}${createSessionPath}`, requestBody, {
         headers: { 'Content-Type': 'application/json' },
         validateStatus: () => true,
+        timeout: this.REQUEST_TIMEOUT_MS,
       });
 
       if (response.status !== 200) {

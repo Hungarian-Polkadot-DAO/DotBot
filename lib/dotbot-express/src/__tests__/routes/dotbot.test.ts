@@ -76,6 +76,13 @@ describe('DotBot Routes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    // Create mock chat instance
+    const mockChatInstance = {
+      id: 'test-chat-id',
+      getDisplayMessages: jest.fn().mockReturnValue([]),
+      getHistory: jest.fn().mockReturnValue([]),
+    };
+
     // Create mock DotBot
     mockDotBot = {
       chat: jest.fn(),
@@ -95,7 +102,7 @@ describe('DotBot Routes', () => {
           title: 'Test Chat',
         }),
       }),
-      currentChat: null,
+      currentChat: mockChatInstance as any,
       stateful: false,
     } as any;
 
@@ -124,6 +131,11 @@ describe('DotBot Routes', () => {
     mockRequest = {
       body: {},
       params: {},
+      app: {
+        locals: {
+          wsManager: undefined, // WebSocket manager (optional, can be undefined)
+        },
+      } as any,
     };
 
     mockResponse = {
@@ -399,9 +411,32 @@ describe('DotBot Routes', () => {
     });
 
     it('should return session info if found', async () => {
+      // Create a dotbot mock with no currentChat for this test
+      const dotbotWithoutChat = {
+        chat: jest.fn(),
+        getEnvironment: jest.fn().mockReturnValue('mainnet'),
+        getNetwork: jest.fn().mockReturnValue('polkadot'),
+        getWallet: jest.fn().mockReturnValue(mockWallet),
+        getChatManager: jest.fn().mockReturnValue({
+          queryInstances: jest.fn().mockResolvedValue([]),
+          createInstance: jest.fn().mockResolvedValue({
+            id: 'test-chat-id',
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            environment: 'mainnet',
+            network: 'polkadot',
+            walletAddress: mockWallet.address,
+            messages: [],
+            title: 'Test Chat',
+          }),
+        }),
+        currentChat: null, // No current chat for this test
+        stateful: false,
+      } as any;
+      
       const mockSession = {
         sessionId: 'test-session',
-        dotbot: mockDotBot,
+        dotbot: dotbotWithoutChat,
         wallet: mockWallet,
         environment: 'mainnet' as const,
         network: 'polkadot' as const,
@@ -409,7 +444,9 @@ describe('DotBot Routes', () => {
         lastAccessed: new Date('2024-01-02'),
       };
 
+      // Update both the test mock and the default mock (route handler uses defaultMockSessionManager)
       mockSessionManager.getSession = jest.fn().mockResolvedValue(mockSession);
+      defaultMockSessionManager.getSession = jest.fn().mockResolvedValue(mockSession);
       mockRequest.params = { sessionId: 'test-session' };
 
       await getSessionHandler(mockRequest as Request, mockResponse as Response, mockNext);

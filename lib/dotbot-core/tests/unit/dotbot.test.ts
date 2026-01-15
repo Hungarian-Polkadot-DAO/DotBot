@@ -179,19 +179,16 @@ describe('DotBot', () => {
       expect(MockBrowserWalletSigner).toHaveBeenCalled();
     });
 
-    it('should set up connections to Relay Chain and Asset Hub', async () => {
+    it('should NOT connect to RPC endpoints during creation (lazy loading)', async () => {
       const config: DotBotConfig = {
         wallet: mockWallet,
       };
 
       await DotBot.create(config);
 
-      // Verify Relay Chain connection
-      expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
-      expect(mockRelayChainApi).toBeDefined();
-
-      // Verify Asset Hub connection attempt
-      expect(mockAssetHubManager.getReadApi).toHaveBeenCalled();
+      // LAZY LOADING: RPC connections should NOT be established during creation
+      expect(mockRelayChainManager.getReadApi).not.toHaveBeenCalled();
+      expect(mockAssetHubManager.getReadApi).not.toHaveBeenCalled();
     });
 
     it('should gracefully continue if Asset Hub connection fails', async () => {
@@ -212,7 +209,7 @@ describe('DotBot', () => {
       // The system gracefully continues without Asset Hub
     });
 
-    it('should create execution system', async () => {
+    it('should create execution system but NOT initialize it (lazy loading)', async () => {
       const config: DotBotConfig = {
         wallet: mockWallet,
       };
@@ -221,16 +218,8 @@ describe('DotBot', () => {
 
       // Verify ExecutionSystem was instantiated
       expect(MockExecutionSystem).toHaveBeenCalled();
-      // Verify it was initialized with correct parameters
-      expect(mockExecutionSystem.initialize).toHaveBeenCalledWith(
-        mockRelayChainApi,
-        mockWallet,
-        expect.any(Object), // BrowserWalletSigner instance
-        mockAssetHubApi,
-        mockRelayChainManager,
-        mockAssetHubManager,
-        undefined
-      );
+      // LAZY LOADING: Execution system should NOT be initialized during creation
+      expect(mockExecutionSystem.initialize).not.toHaveBeenCalled();
     });
 
     it('should initialize browser wallet signer with handlers', async () => {
@@ -276,7 +265,7 @@ describe('DotBot', () => {
       });
     });
 
-    it('should use pre-initialized RPC managers if provided', async () => {
+    it('should use pre-initialized RPC managers if provided (but not connect)', async () => {
       const config: DotBotConfig = {
         wallet: mockWallet,
         relayChainManager: mockRelayChainManager as RpcManager,
@@ -289,12 +278,12 @@ describe('DotBot', () => {
       expect(createRelayChainManager).not.toHaveBeenCalled();
       expect(createAssetHubManager).not.toHaveBeenCalled();
 
-      // Should use provided managers
-      expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
-      expect(mockAssetHubManager.getReadApi).toHaveBeenCalled();
+      // LAZY LOADING: Should use provided managers but NOT connect during creation
+      expect(mockRelayChainManager.getReadApi).not.toHaveBeenCalled();
+      expect(mockAssetHubManager.getReadApi).not.toHaveBeenCalled();
     });
 
-    it('should initialize execution system with simulation status callback', async () => {
+    it('should store simulation status callback but NOT initialize execution system (lazy loading)', async () => {
       const mockSimulationCallback = jest.fn();
 
       const config: DotBotConfig = {
@@ -304,16 +293,9 @@ describe('DotBot', () => {
 
       await DotBot.create(config);
 
-      // Verify execution system was initialized with simulation callback
-      expect(mockExecutionSystem.initialize).toHaveBeenCalledWith(
-        mockRelayChainApi,
-        mockWallet,
-        expect.any(Object),
-        mockAssetHubApi,
-        mockRelayChainManager,
-        mockAssetHubManager,
-        mockSimulationCallback
-      );
+      // LAZY LOADING: Execution system should NOT be initialized during creation
+      // The callback will be passed when ensureRpcConnectionsReady() is called
+      expect(mockExecutionSystem.initialize).not.toHaveBeenCalled();
     });
 
     it('should throw error if wallet is missing', async () => {
@@ -322,17 +304,20 @@ describe('DotBot', () => {
       await expect(DotBot.create(config)).rejects.toThrow();
     });
 
-    it('should throw error if Relay Chain connection fails', async () => {
+    it('should NOT throw error if Relay Chain connection fails during creation (lazy loading)', async () => {
       const config: DotBotConfig = {
         wallet: mockWallet,
       };
 
-      // Make Relay Chain connection fail
+      // Make Relay Chain connection fail (but it won't be called during creation)
       (mockRelayChainManager.getReadApi as jest.Mock).mockRejectedValue(
         new Error('Relay Chain connection failed')
       );
 
-      await expect(DotBot.create(config)).rejects.toThrow('Relay Chain connection failed');
+      // LAZY LOADING: Creation should succeed - connection errors happen later when needed
+      const dotbot = await DotBot.create(config);
+      expect(dotbot).toBeInstanceOf(DotBot);
+      // Connection will fail when ensureRpcConnectionsReady() is called (e.g., in startExecution)
     });
 
     describe('Network support', () => {
@@ -399,7 +384,7 @@ describe('DotBot', () => {
         expect(dotbot.getNetwork()).toBe('kusama');
       });
 
-      it('should detect network from chain name', async () => {
+      it('should NOT detect network from chain name during creation (lazy loading)', async () => {
         // Mock Westend chain name
         (mockRelayChainApi.rpc as any).system.chain.mockResolvedValue({ 
           toString: () => 'Westend Development' 
@@ -412,11 +397,12 @@ describe('DotBot', () => {
 
         await DotBot.create(config);
 
-        // Should detect Westend from chain name
-        expect(detectNetworkFromChainName).toHaveBeenCalledWith('Westend Development');
+        // LAZY LOADING: Network detection happens when ensureRpcConnectionsReady() is called
+        // Not during creation
+        expect(detectNetworkFromChainName).not.toHaveBeenCalled();
       });
 
-      it('should use pre-initialized managers regardless of network param', async () => {
+      it('should use pre-initialized managers regardless of network param (but not connect)', async () => {
         const config: DotBotConfig = {
           wallet: mockWallet,
           network: 'westend',
@@ -428,7 +414,8 @@ describe('DotBot', () => {
 
         // Should use provided managers, not create new ones
         expect(createRpcManagersForNetwork).not.toHaveBeenCalled();
-        expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
+        // LAZY LOADING: Should not connect during creation
+        expect(mockRelayChainManager.getReadApi).not.toHaveBeenCalled();
       });
 
       it('should log network information', async () => {
@@ -597,16 +584,30 @@ describe('DotBot', () => {
         return mockExecutionArray;
       });
       
+      // Mock initialize method for lazy loading
+      const mockInitialize = jest.fn().mockResolvedValue(undefined);
+      
       (dotbot as any).executionSystem = {
+        initialize: mockInitialize,
         getOrchestrator: jest.fn().mockReturnValue(mockOrchestrator),
         getExecutioner: jest.fn().mockReturnValue(mockExecutioner),
         orchestrateExecutionArray: mockOrchestrateExecutionArray,
         runSimulation: jest.fn().mockResolvedValue(undefined),
       };
+      
+      // Also update the mockExecutionSystem reference so the test assertion works
+      mockExecutionSystem.initialize = mockInitialize;
+
+      // Clear any previous calls from creation
+      jest.clearAllMocks();
 
       const result = await dotbot.chat('Send 2 DOT to Bob', {
         llm: mockCustomLLM,
       });
+
+      // LAZY LOADING: prepareExecution() (called by chat()) should trigger RPC connections
+      expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
+      expect(mockInitialize).toHaveBeenCalled();
 
       // chat() now only PREPARES execution (does not auto-execute)
       // If preparation succeeded, plan should be defined
@@ -860,7 +861,7 @@ describe('DotBot', () => {
       dotbot = await DotBot.create(config);
     });
 
-    it('should fetch balance from Relay Chain', async () => {
+    it('should fetch balance from Relay Chain (triggers lazy loading)', async () => {
       const mockRelayData = {
         data: {
           free: '1000000000000', // 100 DOT
@@ -877,7 +878,14 @@ describe('DotBot', () => {
         },
       };
 
+      // Clear any previous calls from creation
+      jest.clearAllMocks();
+
       const balance = await dotbot.getBalance();
+
+      // LAZY LOADING: getBalance() should trigger RPC connections
+      expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
+      expect(mockExecutionSystem.initialize).toHaveBeenCalled();
 
       expect(balance.relayChain.free).toBe('1000000000000');
       expect(balance.relayChain.reserved).toBe('50000000000');
@@ -885,7 +893,7 @@ describe('DotBot', () => {
       expect(mockRelayChainApi.query?.system?.account).toHaveBeenCalledWith(mockWallet.address);
     });
 
-    it('should fetch balance from both Relay Chain and Asset Hub', async () => {
+    it('should fetch balance from both Relay Chain and Asset Hub (triggers lazy loading)', async () => {
       const mockRelayData = {
         data: {
           free: '1000000000000', // 100 DOT
@@ -918,7 +926,15 @@ describe('DotBot', () => {
         },
       };
 
+      // Clear any previous calls from creation
+      jest.clearAllMocks();
+
       const balance = await dotbot.getBalance();
+
+      // LAZY LOADING: getBalance() should trigger RPC connections
+      expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
+      expect(mockAssetHubManager.getReadApi).toHaveBeenCalled();
+      expect(mockExecutionSystem.initialize).toHaveBeenCalled();
 
       expect(balance.relayChain.free).toBe('1000000000000');
       expect(balance.assetHub).not.toBeNull();
@@ -1077,7 +1093,7 @@ describe('DotBot', () => {
       dotbot = await DotBot.create(config);
     });
 
-    it('should retrieve chain name and version', async () => {
+    it('should retrieve chain name and version (triggers lazy loading)', async () => {
       const mockChain = {
         toString: jest.fn().mockReturnValue('Polkadot'),
       };
@@ -1093,7 +1109,14 @@ describe('DotBot', () => {
         },
       };
 
+      // Clear any previous calls from creation
+      jest.clearAllMocks();
+
       const chainInfo = await dotbot.getChainInfo();
+
+      // LAZY LOADING: getChainInfo() should trigger RPC connections
+      expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
+      expect(mockExecutionSystem.initialize).toHaveBeenCalled();
 
       expect(chainInfo.chain).toBe('Polkadot');
       expect(chainInfo.version).toBe('0.9.42');
@@ -1229,7 +1252,7 @@ describe('DotBot', () => {
       dotbot = await DotBot.create(config);
     });
 
-    it('should build system prompt with wallet, network, and balance context', async () => {
+    it('should build system prompt with wallet, network, and balance context (triggers lazy loading)', async () => {
       const mockBalance = {
         relayChain: {
           free: '1000000000000',
@@ -1249,19 +1272,37 @@ describe('DotBot', () => {
         version: '0.9.42',
       };
 
-      // Mock getBalance
-      jest.spyOn(dotbot, 'getBalance').mockResolvedValue(mockBalance as any);
-      // Mock getChainInfo
-      jest.spyOn(dotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
+      // Setup API mocks for lazy loading
+      (mockRelayChainApi.query as any) = {
+        system: {
+          account: jest.fn().mockResolvedValue({
+            toJSON: () => ({ data: { free: '1000000000000', reserved: '0', frozen: '0' } }),
+          }),
+        },
+      };
+      (mockRelayChainApi.rpc as any) = {
+        system: {
+          chain: jest.fn().mockResolvedValue({ toString: () => 'Polkadot' }),
+          version: jest.fn().mockResolvedValue({ toString: () => '0.9.42' }),
+        },
+      };
+      (mockRelayChainApi.registry as any) = { chainDecimals: [10] };
+      (mockAssetHubApi.registry as any) = { chainDecimals: [10] };
+
       // Mock RPC manager
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
       // Mock buildSystemPrompt
       (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt with context');
 
+      // Clear any previous calls from creation
+      jest.clearAllMocks();
+
       const prompt = await (dotbot as any).buildContextualSystemPrompt();
 
-      expect(dotbot.getBalance).toHaveBeenCalled();
-      expect(dotbot.getChainInfo).toHaveBeenCalled();
+      // LAZY LOADING: buildContextualSystemPrompt() should trigger RPC connections
+      expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
+      expect(mockExecutionSystem.initialize).toHaveBeenCalled();
+
       expect(buildSystemPrompt).toHaveBeenCalled();
       expect(typeof prompt).toBe('string');
       expect(prompt.length).toBeGreaterThan(0);

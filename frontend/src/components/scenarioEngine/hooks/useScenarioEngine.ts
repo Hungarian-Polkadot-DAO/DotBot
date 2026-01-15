@@ -15,8 +15,8 @@ interface ExecutionPhase {
 }
 
 interface UseScenarioEngineProps {
-  engine: ScenarioEngine;
-  dotbot: DotBot;
+  engine: ScenarioEngine | null;
+  dotbot: DotBot | null;
   onSendMessage: (message: string) => Promise<void>;
   onAppendReport: (text: string) => void;
   onStatusChange?: (message: string) => void;
@@ -42,6 +42,10 @@ export const useScenarioEngine = ({
   // Query balance for an entity address
   // For Westend/Polkadot, balances are typically on Asset Hub after migration
   const queryEntityBalance = async (address: string): Promise<string> => {
+    if (!dotbot || !engine) {
+      return '0 DOT';
+    }
+    
     try {
       const network = dotbot.getNetwork();
       const decimals = network === 'polkadot' ? 10 : 12;
@@ -109,6 +113,10 @@ export const useScenarioEngine = ({
   };
 
   useEffect(() => {
+    if (!engine || !dotbot) {
+      return;
+    }
+    
     const handleEvent = (event: any) => {
       // Report is now built inside ScenarioEngine - just pass through updates
       if (event.type === 'report-update') {
@@ -251,7 +259,7 @@ export const useScenarioEngine = ({
     
     engine.addEventListener(handleEvent);
     return () => engine.removeEventListener(handleEvent);
-  }, [engine, dotbot, onSendMessage, onAppendReport]);
+  }, [engine, dotbot, onAppendReport, onStatusChange, onPhaseChange]);
 
   return {
     entities,

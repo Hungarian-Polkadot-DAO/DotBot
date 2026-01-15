@@ -31,12 +31,17 @@ const mockLocalStorage = {
 
 import { DataManager, STORAGE_KEYS, nukeAllData, getStorageInfo } from '../../dataManager';
 import { ChatInstanceManager } from '../../chatInstanceManager';
+import { setStorage } from '../../env';
 
 describe('DataManager', () => {
   let manager: DataManager;
   let chatManager: ChatInstanceManager;
 
   beforeEach(async () => {
+    // Set the mocked storage as the storage instance
+    // This ensures DataManager uses our mocked localStorage
+    setStorage(mockLocalStorage as any);
+    
     // Create new manager first to avoid reusing old state
     chatManager = new ChatInstanceManager();
     

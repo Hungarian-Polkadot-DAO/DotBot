@@ -153,6 +153,7 @@ jobs:
         build-args: |
           REACT_APP_API_URL=https://live.dotbot.zelmacorp.io
           REACT_APP_BACKEND_URL=https://live.dotbot.zelmacorp.io
+          REACT_APP_WS_URL=wss://live.dotbot.zelmacorp.io
         cache-from: type=gha
         cache-to: type=gha,mode=max
       # Verify build args are being used (will show in build logs)
@@ -230,6 +231,7 @@ jobs:
         # Application URLs
         FRONTEND_URL=https://live.dotbot.zelmacorp.io
         BACKEND_URL=https://live.dotbot.zelmacorp.io/api
+        WS_URL=wss://live.dotbot.zelmacorp.io
         
         # Feature Flags for Production
         ENABLE_BACKEND_MEMORY=true

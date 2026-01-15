@@ -135,12 +135,12 @@ const Chat: React.FC<ChatProps> = ({
   // Get conversation items from ChatInstance
   const conversationItems: ConversationItem[] = dotbot.currentChat?.getDisplayMessages() || [];
   
-  // Subscribe to DotBot events to detect when new execution messages are added
-  // This ensures ExecutionFlow appears immediately when executionMessage is added (before executionArray exists)
+  // Subscribe to DotBot events to detect when execution messages are added or updated
+  // This ensures ExecutionFlow appears immediately when executionMessage is added or updated
   useEffect(() => {
     const handleDotBotEvent = (event: DotBotEvent) => {
-      // When a new execution message is added, force re-render
-      if (event.type === 'execution-message-added') {
+      // When execution message is added or updated, force re-render
+      if (event.type === 'execution-message-added' || event.type === 'execution-message-updated') {
         setRefreshKey(prev => prev + 1);
       }
     };

@@ -7,6 +7,10 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-https://live.dotbot.zelmacorp.io}
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-https://live.dotbot.zelmacorp.io}
+        REACT_APP_WS_URL: ${REACT_APP_WS_URL:-wss://live.dotbot.zelmacorp.io}
     ports:
       - "3020:80"
     environment:
@@ -38,6 +42,9 @@ services:
       - AI_PROVIDER=${AI_PROVIDER:-asi-one}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - STORAGE_DIR=/app/backend/data/storage
+    volumes:
+      - backend-data:/app/backend/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
@@ -48,6 +55,10 @@ services:
       - dotbot-production
     depends_on:
       - frontend
+
+volumes:
+  backend-data:
+    driver: local
 
 networks:
   dotbot-production:

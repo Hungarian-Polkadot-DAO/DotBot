@@ -25,6 +25,7 @@ import {
   isFlowSuccessful,
   isFlowFailed
 } from './executionFlowUtils';
+import { startExecution } from '../../services/dotbotApi';
 import './execution-flow.css';
 
 export interface ExecutionFlowProps {
@@ -49,6 +50,8 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   onCancel,
   show = true
 }) => {
+  // Removed verbose logging - was causing console spam
+  
   // Use custom hooks for state management (passes backendSessionId for polling)
   const executionState = useExecutionFlowState(executionMessage, dotbot, state, backendSessionId);
   const { isExpanded, toggleExpand } = useExpandedItems();
@@ -59,51 +62,107 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
     return null;
   }
 
-  // Loading states
-  if (executionMessage && !executionState) {
-    return (
-      <div className="execution-flow-container">
-        <ExecutionFlowHeader
-          executionState={null}
-          isWaitingForApproval={false}
-          isExecuting={false}
-        />
-        <LoadingState />
-      </div>
-    );
+  // If we have executionMessage, always show something (loading or content)
+  // This ensures the component is visible while state is being fetched
+  if (executionMessage) {
+    // Show loading if we don't have state yet
+    if (!executionState) {
+      return (
+        <div className="execution-flow-container">
+          <ExecutionFlowHeader
+            executionState={null}
+            isWaitingForApproval={false}
+            isExecuting={false}
+          />
+          <LoadingState />
+        </div>
+      );
+    }
+
+    // Show loading if state exists but has no items yet
+    if (executionState.items.length === 0) {
+      return (
+        <div className="execution-flow-container">
+          <ExecutionFlowHeader
+            executionState={executionState}
+            isWaitingForApproval={false}
+            isExecuting={false}
+          />
+          <LoadingState />
+        </div>
+      );
+    }
+
+    // We have state with items - render the full component
+    // (executionState is guaranteed to be truthy here)
+  } else {
+    // Legacy mode: need state to render
+    if (!executionState) {
+      return null;
+    }
+
+    // Show loading if state has no items
+    if (executionState.items.length === 0) {
+      return (
+        <div className="execution-flow-container">
+          <ExecutionFlowHeader
+            executionState={executionState}
+            isWaitingForApproval={false}
+            isExecuting={false}
+          />
+          <LoadingState />
+        </div>
+      );
+    }
   }
 
-  if (executionState && executionState.items.length === 0) {
-    return (
-      <div className="execution-flow-container">
-        <ExecutionFlowHeader
-          executionState={executionState}
-          isWaitingForApproval={false}
-          isExecuting={false}
-        />
-        <LoadingState />
-      </div>
-    );
-  }
-
+  // Final check - executionState must exist at this point
   if (!executionState) {
     return null;
   }
 
   // Handle execution through DotBot if using new API
-  // Option 3: Always execute on frontend (cleaner - no remote signing needed)
+  // Execution always happens on frontend (where signing handlers are available)
+  // If backend has state, use it; otherwise rebuild from executionPlan locally
   const handleAcceptAndStart = async () => {
     if (executionMessage && dotbot) {
-      try {
-        // Always use frontend's local execution
-        // Frontend DotBot is stateful, so it will:
-        // 1. Get execution message with executionPlan
-        // 2. Rebuild ExecutionArray from plan (if needed)
-        // 3. Execute using frontend's browser wallet signer
-        await dotbot.startExecution(executionMessage.executionId, { autoApprove: false });
-      } catch (error) {
-        console.error('Failed to start execution:', error);
+      // Check if we need to get state from backend (stateless mode)
+      if (backendSessionId && (!dotbot.currentChat || !dotbot.currentChat.getExecutionArray(executionMessage.executionId))) {
+        // Try to get state from backend (may fail if server restarted)
+        // Use Promise.race with timeout to avoid blocking UI too long
+        console.info('[ExecutionFlow] Starting execution from backend');
+        try {
+          const backendPromise = startExecution(backendSessionId, executionMessage.executionId, false);
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Backend call timeout')), 2000)
+          );
+          
+          const response = await Promise.race([backendPromise, timeoutPromise]) as Awaited<ReturnType<typeof startExecution>>;
+          
+          // Don't mutate props - WebSocket subscription will handle state updates
+          // The backend startExecution call just triggers execution on backend
+          // Frontend execution will rebuild from executionPlan if needed
+          console.info('[ExecutionFlow] Backend execution started', response);
+        } catch (error: any) {
+          // Backend doesn't have state (e.g., server restarted) - that's OK
+          // We'll rebuild from executionPlan locally
+          if (error.message?.includes('404') || error.message?.includes('not found') || error.message?.includes('timeout')) {
+            console.log('[ExecutionFlow] Backend state not found or timeout (server may have restarted), rebuilding from executionPlan locally');
+          } else {
+            console.warn('[ExecutionFlow] Failed to start execution on backend:', error);
+          }
+        }
       }
+      
+      // Execute on frontend (both stateful and stateless modes)
+      // startExecution will rebuild ExecutionArray from executionPlan if needed
+      // WebSocket subscription will update UI with state changes
+      dotbot.startExecution(executionMessage.executionId, { autoApprove: false })
+        .catch(error => {
+          console.error('[ExecutionFlow] Execution failed:', error);
+          // TODO: Add user-visible error notification
+        });
+      console.log('[ExecutionFlow] Started execution on frontend...');
     } else if (onAcceptAndStart) {
       onAcceptAndStart();
     }

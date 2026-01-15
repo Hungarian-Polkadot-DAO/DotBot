@@ -25,27 +25,17 @@ const corsOptions = {
       return callback(null, true);
     }
 
+    // In development, always allow any localhost origin (any port) for flexibility
+    if (NODE_ENV === 'development') {
+      if (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
+        return callback(null, true);
+      }
+    }
+
     // Get allowed origins from environment variable
     const allowedOrigins = process.env.CORS_ORIGINS 
       ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
       : [];
-
-    // In development, always allow localhost origins
-    if (NODE_ENV === 'development') {
-      const localhostPatterns = [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://127.0.0.1:3000',
-        'http://127.0.0.1:3001',
-      ];
-      
-      // Add localhost patterns if not already in allowedOrigins
-      localhostPatterns.forEach(pattern => {
-        if (!allowedOrigins.includes(pattern)) {
-          allowedOrigins.push(pattern);
-        }
-      });
-    }
 
     // If CORS_ORIGINS is set to '*' or empty, allow all origins
     if (process.env.CORS_ORIGINS === '*' || allowedOrigins.length === 0) {
@@ -61,9 +51,10 @@ const corsOptions = {
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   exposedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200, // Some legacy browsers (IE11, various SmartTVs) choke on 204
 };
 
 app.use(cors(corsOptions));

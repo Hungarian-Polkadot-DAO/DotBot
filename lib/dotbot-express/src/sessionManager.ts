@@ -399,7 +399,26 @@ export class DotBotSessionManager {
         environment,
         network: effectiveNetwork
       }, 'getOrCreateSession: Creating DotBot instance');
-      dotbot = await DotBot.create(dotbotConfig);
+      
+      // Allow time for multiple endpoint attempts (each endpoint can take 10s + 12s API init)
+      // For 10 Polkadot endpoints: (10s + 12s) * 10 + 30s buffer = 250 seconds
+      // For 5 Westend endpoints: (5s + 12s) * 5 + 30s buffer = 115 seconds
+      // Plus Asset Hub connection attempts (non-fatal but adds time)
+      // Set to 5 minutes to allow all endpoints to be tried with buffer
+      const DOTBOT_CREATE_TIMEOUT_MS = 300000; // 5 minutes to allow all endpoint attempts
+      const createPromise = DotBot.create(dotbotConfig);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(
+            `DotBot.create() timed out after ${DOTBOT_CREATE_TIMEOUT_MS}ms. ` +
+            `RPC connection to ${effectiveNetwork} is slow or endpoints are unavailable. ` +
+            `The system will try multiple endpoints in round-robin fashion.`
+          ));
+        }, DOTBOT_CREATE_TIMEOUT_MS);
+      });
+      
+      dotbot = await Promise.race([createPromise, timeoutPromise]);
+      
       sessionLogger.info({ 
         sessionId,
         dotbotEnvironment: dotbot.getEnvironment(),
@@ -411,7 +430,8 @@ export class DotBotSessionManager {
         stack: dotbotError.stack,
         sessionId,
         environment,
-        network: effectiveNetwork
+        network: effectiveNetwork,
+        errorName: dotbotError.name
       }, 'getOrCreateSession: Failed to create DotBot instance');
       throw dotbotError;
     }

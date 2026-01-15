@@ -4,6 +4,13 @@
  * Provides routes, middleware, and utilities to use DotBot via HTTP API
  */
 
+// CRITICAL: Set backend context BEFORE any other imports
+// This ensures dotbot-core logger uses "DotBot-Backend" service name
+if (typeof process !== 'undefined') {
+  process.env.DOTBOT_BACKEND = 'true';
+  process.env.DOTBOT_EXPRESS_VERSION = process.env.DOTBOT_EXPRESS_VERSION || '0.1.0';
+}
+
 // Import logger early to set up console filters (must be before other imports)
 import './utils/logger';
 
@@ -34,3 +41,13 @@ export type {
   DotBotSession,
   SessionStore
 } from './sessionManager';
+
+// WebSocket Manager (for real-time updates)
+export { WebSocketManager } from './websocket/WebSocketManager';
+export type { WebSocketManagerConfig } from './websocket/WebSocketManager';
+// WebSocket types are exported from @dotbot/core (shared between frontend and backend)
+export type { ClientToServerEvents, ServerToClientEvents, WebSocketEvents } from '@dotbot/core';
+export { 
+  setupExecutionBroadcasting,
+  broadcastExecutionUpdates
+} from './websocket/executionBroadcaster';

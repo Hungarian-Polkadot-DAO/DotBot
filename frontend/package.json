@@ -88,6 +88,9 @@
   "jest": {
     "transformIgnorePatterns": [
       "node_modules/(?!(@polkadot|@acala-network)/)"
-    ]
+    ],
+    "moduleNameMapper": {
+      "^react-markdown$": "<rootDir>/src/__mocks__/react-markdown.tsx"
+    }
   }
 }

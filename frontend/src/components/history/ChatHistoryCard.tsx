@@ -60,21 +60,21 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
     setEditedTitle(e.target.value);
   };
 
-  const handleTitleBlur = async () => {
-    await saveTitle();
+  const handleTitleBlur = () => {
+    saveTitle();
   };
 
-  const handleTitleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      await saveTitle();
+      saveTitle();
     } else if (e.key === 'Escape') {
       setIsEditing(false);
       setEditedTitle(chat.title || '');
     }
   };
 
-  const saveTitle = async () => {
+  const saveTitle = () => {
     if (isSaving) return;
     
     const trimmedTitle = editedTitle.trim();
@@ -84,19 +84,21 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
     }
 
     setIsSaving(true);
-    try {
-      // Update through ChatInstanceManager
-      const chatManager = dotbot.getChatManager();
-      await chatManager.updateInstance(chat.id, { title: trimmedTitle || undefined });
-      onRenamed?.();
-    } catch (error) {
-      console.error('Failed to save chat title:', error);
-      // Revert on error
-      setEditedTitle(chat.title || '');
-    } finally {
-      setIsSaving(false);
-      setIsEditing(false);
-    }
+    // Don't await - let save happen in background to keep UI responsive
+    const chatManager = dotbot.getChatManager();
+    chatManager.updateInstance(chat.id, { title: trimmedTitle || undefined })
+      .then(() => {
+        onRenamed?.();
+      })
+      .catch((error) => {
+        console.error('Failed to save chat title:', error);
+        // Revert on error
+        setEditedTitle(chat.title || '');
+      })
+      .finally(() => {
+        setIsSaving(false);
+        setIsEditing(false);
+      });
   };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
@@ -105,20 +107,23 @@ const ChatHistoryCard: React.FC<ChatHistoryCardProps> = ({
     setShowDeleteModal(true);
   };
 
-  const handleDeleteConfirm = async () => {
+  const handleDeleteConfirm = () => {
     setIsDeleting(true);
     setDeleteError(null);
-    try {
-      const chatManager = dotbot.getChatManager();
-      await chatManager.deleteInstance(chat.id);
-      setShowDeleteModal(false);
-      onDeleted?.();
-    } catch (error) {
-      console.error('Failed to delete chat:', error);
-      setDeleteError('Failed to delete chat. Please try again.');
-    } finally {
-      setIsDeleting(false);
-    }
+    // Don't await - let deletion happen in background to keep UI responsive
+    const chatManager = dotbot.getChatManager();
+    chatManager.deleteInstance(chat.id)
+      .then(() => {
+        setShowDeleteModal(false);
+        onDeleted?.();
+      })
+      .catch((error) => {
+        console.error('Failed to delete chat:', error);
+        setDeleteError('Failed to delete chat. Please try again.');
+      })
+      .finally(() => {
+        setIsDeleting(false);
+      });
   };
 
   const formatDate = (timestamp: number): string => {

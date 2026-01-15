@@ -173,11 +173,13 @@ export class RpcManager {
     // Start periodic health monitoring if enabled (default: true)
     if (config.enablePeriodicHealthChecks !== false) {
       this.startHealthMonitoring();
+      // Don't run initial health check immediately - let endpoints be tried on first use
+      // This prevents marking endpoints as failed before we even try them
     }
   }
   
   /**
-   * Load health data from storage (localStorage in browser, in-memory in Node.js)
+   * Load health data from storage (localStorage in browser, FileStorage in Node.js)
    */
   private loadHealthData(): void {
     if (!this.storageKey) return;
@@ -289,6 +291,7 @@ export class RpcManager {
     const health = this.healthMap.get(endpoint);
     if (health) {
       health.healthy = false;
+      health.lastChecked = Date.now(); // Mark as checked even on failure
       health.lastFailure = Date.now();
       health.failureCount = (health.failureCount || 0) + 1;
       this.healthMap.set(endpoint, health);
@@ -325,32 +328,65 @@ export class RpcManager {
     return new Promise<ApiPromise>((resolve, reject) => {
       const provider = new WsProvider(endpoint);
       
-      // Use a shorter timeout for API initialization (20 seconds instead of default 60)
-      const apiInitTimeout = 20000;
+      // Use a shorter timeout for API initialization (12 seconds instead of default 60)
+      // Reduced for faster failure, especially for slow testnet endpoints
+      const apiInitTimeout = 12000;
       let apiInitTimeoutHandle: NodeJS.Timeout | null = null;
       
-      const connectionTimeoutHandle = setTimeout(() => {
-        provider.disconnect();
-        if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
-        reject(new Error(`Connection timeout (${this.connectionTimeout}ms)`));
-      }, this.connectionTimeout);
+      let isResolved = false;
       
-      provider.on('connected', async () => {
+      const connectionTimeoutHandle = setTimeout(() => {
+        if (!isResolved) {
+          isResolved = true;
+          safeDisconnect();
+          if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
+          reject(new Error(`Connection timeout (${this.connectionTimeout}ms)`));
+        }
+      }, this.connectionTimeout);
+      const safeDisconnect = () => {
+        try {
+          // Always disconnect, even if not connected yet - this cancels pending connection attempts
+          if (provider && typeof provider.disconnect === 'function') {
+            provider.disconnect();
+          }
+        } catch (err) {
+          // Ignore disconnect errors
+        }
+      };
+      
+      // Define error handler first (before connected handler references it)
+      const errorHandler = (error: Error) => {
+        if (isResolved) return;
+        isResolved = true;
+        clearTimeout(connectionTimeoutHandle);
+        if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
+        safeDisconnect();
+        this.rpcLogger.error({ 
+          endpoint,
+          error: error.message
+        }, `Failed to connect to ${endpoint}`);
+        reject(error);
+      };
+      
+      const connectedHandler = async () => {
+        if (isResolved) return;
         clearTimeout(connectionTimeoutHandle);
         try {
-          // Wrap ApiPromise.create with a timeout to fail faster
-          // ApiPromise.create() has a default 60s timeout, but we want to fail faster
           const apiPromise = ApiPromise.create({ provider });
-          
-          // Race between API creation and timeout
           const timeoutPromise = new Promise<never>((_, timeoutReject) => {
             apiInitTimeoutHandle = setTimeout(() => {
-              provider.disconnect();
-              timeoutReject(new Error(`API initialization timeout (${apiInitTimeout}ms) - endpoint may be slow or unresponsive`));
+              if (!isResolved) {
+                isResolved = true;
+                safeDisconnect();
+                timeoutReject(new Error(`API initialization timeout (${apiInitTimeout}ms) - endpoint may be slow or unresponsive`));
+              }
             }, apiInitTimeout);
           });
           
           const api = await Promise.race([apiPromise, timeoutPromise]);
+          
+          if (isResolved) return; // Already resolved by timeout
+          isResolved = true;
           
           // Clear timeout on success
           if (apiInitTimeoutHandle) {
@@ -362,26 +398,20 @@ export class RpcManager {
           this.markEndpointHealthy(endpoint, responseTime);
           resolve(api);
         } catch (error) {
+          if (isResolved) return;
+          isResolved = true;
           if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
-          provider.disconnect();
+          safeDisconnect();
           this.rpcLogger.error({ 
             endpoint,
             error: error instanceof Error ? error.message : String(error)
           }, `Failed to connect to ${endpoint}`);
           reject(error);
         }
-      });
+      };
       
-      provider.on('error', (error) => {
-        clearTimeout(connectionTimeoutHandle);
-        if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
-        provider.disconnect();
-        this.rpcLogger.error({ 
-          endpoint,
-          error: error.message
-        }, `Failed to connect to ${endpoint}`);
-        reject(error);
-      });
+      provider.on('connected', connectedHandler);
+      provider.on('error', errorHandler);
     });
   }
 
@@ -399,8 +429,13 @@ export class RpcManager {
     
     // Otherwise, connect to best available endpoint
     const orderedEndpoints = this.getOrderedEndpoints();
+    this.rpcLogger.info({ 
+      totalEndpoints: this.endpoints.length,
+      availableEndpoints: orderedEndpoints.length
+    }, `Attempting to connect to RPC endpoints (${orderedEndpoints.length} available out of ${this.endpoints.length} total)`);
 
     if (orderedEndpoints.length === 0) {
+      this.rpcLogger.warn({}, 'All endpoints marked as failed, resetting health for one final attempt');
       this.endpoints.forEach(endpoint => {
         const health = this.healthMap.get(endpoint);
         if (health) {
@@ -408,19 +443,55 @@ export class RpcManager {
           this.healthMap.set(endpoint, health);
         }
       });
-      return this.getReadApi();
+      
+      // Try again with reset endpoints
+      const retryEndpoints = this.getOrderedEndpoints();
+      if (retryEndpoints.length === 0) {
+        // Still no endpoints - give up
+        throw new Error('No RPC endpoints available to connect to');
+      }
+      
+      // Try each endpoint one more time
+      let lastError: Error | null = null;
+      for (const endpoint of retryEndpoints) {
+        try {
+          const api = await this.tryConnect(endpoint);
+          this.currentEndpoint = endpoint;
+          this.currentReadApi = api;
+          return api;
+        } catch (error) {
+          lastError = error as Error;
+        }
+      }
+      throw new Error(
+        `Failed to connect to any RPC endpoint after retry. Last error: ${lastError?.message || 'Unknown'}`
+      );
     }
 
     let lastError: Error | null = null;
 
-    for (const endpoint of orderedEndpoints) {
+    for (let i = 0; i < orderedEndpoints.length; i++) {
+      const endpoint = orderedEndpoints[i];
+      this.rpcLogger.debug({ 
+        endpoint,
+        attempt: i + 1,
+        total: orderedEndpoints.length
+      }, `Trying endpoint ${i + 1}/${orderedEndpoints.length}: ${endpoint}`);
+      
       try {
         const api = await this.tryConnect(endpoint);
         this.currentEndpoint = endpoint;
         this.currentReadApi = api;
+        this.rpcLogger.info({ endpoint }, `Successfully connected to endpoint: ${endpoint}`);
         return api;
       } catch (error) {
         lastError = error as Error;
+        this.rpcLogger.warn({ 
+          endpoint,
+          error: lastError.message,
+          attempt: i + 1,
+          total: orderedEndpoints.length
+        }, `Failed to connect to endpoint ${i + 1}/${orderedEndpoints.length}, trying next endpoint`);
         this.markEndpointFailed(endpoint);
         // Continue to next endpoint
       }
@@ -447,8 +518,14 @@ export class RpcManager {
    */
   async createExecutionSession(): Promise<ExecutionSession> {
     const orderedEndpoints = this.getOrderedEndpoints();
+    
+    this.rpcLogger.info({ 
+      totalEndpoints: this.endpoints.length,
+      availableEndpoints: orderedEndpoints.length
+    }, `Creating execution session (${orderedEndpoints.length} available endpoints)`);
 
     if (orderedEndpoints.length === 0) {
+      this.rpcLogger.warn({}, 'All endpoints marked as failed, resetting health for execution session');
       this.endpoints.forEach(endpoint => {
         const health = this.healthMap.get(endpoint);
         if (health) {
@@ -461,11 +538,20 @@ export class RpcManager {
 
     let lastError: Error | null = null;
 
-    for (const endpoint of orderedEndpoints) {
+    for (let i = 0; i < orderedEndpoints.length; i++) {
+      const endpoint = orderedEndpoints[i];
+      this.rpcLogger.debug({ 
+        endpoint,
+        attempt: i + 1,
+        total: orderedEndpoints.length
+      }, `Trying endpoint ${i + 1}/${orderedEndpoints.length} for execution session: ${endpoint}`);
+      
       try {
         const api = await this.tryConnect(endpoint);
         const session = new ExecutionSession(api, endpoint);
         this.activeSessions.add(session);
+        
+        this.rpcLogger.info({ endpoint }, `Execution session created with endpoint: ${endpoint}`);
         
         // Monitor session health
         api.on('disconnected', () => {
@@ -476,6 +562,12 @@ export class RpcManager {
         return session;
       } catch (error) {
         lastError = error as Error;
+        this.rpcLogger.warn({ 
+          endpoint,
+          error: lastError.message,
+          attempt: i + 1,
+          total: orderedEndpoints.length
+        }, `Failed to connect to endpoint ${i + 1}/${orderedEndpoints.length} for execution session, trying next`);
         this.markEndpointFailed(endpoint);
         // Continue to next endpoint
       }
@@ -550,39 +642,70 @@ export class RpcManager {
    * This performs a lightweight connection test
    */
   async performHealthCheck(): Promise<void> {
-    const startTime = Date.now();
-    
     const checkPromises = this.endpoints.map(async (endpoint) => {
+      const endpointStartTime = Date.now();
       try {
         const provider = new WsProvider(endpoint);
         
         return new Promise<void>((resolve) => {
+          let isResolved = false;
+          
+          const safeResolve = () => {
+            if (isResolved) return;
+            isResolved = true;
+            resolve();
+          };
+          
+          const safeDisconnect = () => {
+            if (isResolved) return; // Prevent re-entry
+            try {
+              if (provider && typeof provider.disconnect === 'function') {
+                provider.disconnect();
+              }
+            } catch (err) {
+              // Ignore disconnect errors
+            }
+          };
+          
+          const connectedHandler = () => {
+            if (isResolved) return;
+            isResolved = true; // Set BEFORE disconnect to prevent re-entry
+            clearTimeout(timeout);
+            const responseTime = Date.now() - endpointStartTime;
+            safeDisconnect();
+            this.markEndpointHealthy(endpoint, responseTime);
+            safeResolve();
+          };
+          
+          const errorHandler = () => {
+            if (isResolved) return;
+            isResolved = true; // Set BEFORE disconnect to prevent re-entry
+            clearTimeout(timeout);
+            safeDisconnect();
+            this.markEndpointFailed(endpoint);
+            safeResolve();
+          };
+          
           const timeout = setTimeout(() => {
-            provider.disconnect();
+            if (isResolved) return;
+            isResolved = true; // Set BEFORE disconnect to prevent re-entry
+            safeDisconnect();
             this.markEndpointFailed(endpoint);
-            resolve();
-          }, 5000); // 5 second timeout for health checks
+            safeResolve();
+          }, 5000);
           
-          provider.on('connected', () => {
-            clearTimeout(timeout);
-            provider.disconnect();
-            this.markEndpointHealthy(endpoint);
-            resolve();
-          });
+          provider.on('connected', connectedHandler);
+          provider.on('error', errorHandler);
           
-          provider.on('error', () => {
-            clearTimeout(timeout);
-            provider.disconnect();
-            this.markEndpointFailed(endpoint);
-            resolve();
-          });
-          
-          // If already connected, resolve immediately
           if (provider.isConnected) {
-            clearTimeout(timeout);
-            provider.disconnect();
-            this.markEndpointHealthy(endpoint);
-            resolve();
+            if (!isResolved) {
+              isResolved = true;
+              clearTimeout(timeout);
+              const responseTime = Date.now() - endpointStartTime;
+              safeDisconnect();
+              this.markEndpointHealthy(endpoint, responseTime);
+              safeResolve();
+            }
           }
         });
       } catch (error) {
@@ -667,12 +790,13 @@ export const RpcEndpoints = {
   ],
 
   // Westend Testnet
+  // Ordered by reliability: best endpoints first based on real-world testing
   WESTEND_RELAY_CHAIN: [
-    'wss://westend-rpc.polkadot.io',                     // Parity Westend (official)
-    'wss://westend.api.onfinality.io/public-ws',         // OnFinality Westend
-    'wss://westend-rpc.dwellir.com',                     // Dwellir Westend
-    'wss://rpc.ibp.network/westend',                     // IBP network Westend
-    'wss://westend-rpc-tn.dwellir.com',                  // Dwellir Westend (Tunisia)
+    'wss://rpc.ibp.network/westend',                     // IBP network Westend (fast & reliable)
+    'wss://westend.api.onfinality.io/public-ws',         // OnFinality Westend (reliable)
+    'wss://westend-rpc-tn.dwellir.com',                  // Dwellir Westend Tunisia (backup)
+    'wss://westend-rpc.polkadot.io',                     // Parity Westend (official but can be slow)
+    'wss://westend-rpc.dwellir.com',                     // Dwellir Westend (often has issues)
   ],
   WESTEND_ASSET_HUB: [
     'wss://westend-asset-hub-rpc.polkadot.io',           // Parity Westend Asset Hub (official)
@@ -726,18 +850,21 @@ export function createRpcManagersForNetwork(network: Network): {
 } {
   const endpoints = getEndpointsForNetwork(network);
   
+  // Westend testnet endpoints are often slower, use shorter timeout to fail faster
+  const connectionTimeout = network === 'westend' ? 5000 : 10000;
+  
   return {
     relayChainManager: new RpcManager({
       endpoints: endpoints.relayChain,
       failoverTimeout: 5 * 60 * 1000,
-      connectionTimeout: 10000,
+      connectionTimeout,
       storageKey: `dotbot_rpc_health_${network}_relay`,
       healthDataMaxAge: 24 * 60 * 60 * 1000,
     }),
     assetHubManager: new RpcManager({
       endpoints: endpoints.assetHub,
       failoverTimeout: 5 * 60 * 1000,
-      connectionTimeout: 10000,
+      connectionTimeout,
       storageKey: `dotbot_rpc_health_${network}_asset_hub`,
       healthDataMaxAge: 24 * 60 * 60 * 1000,
     }),
