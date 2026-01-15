@@ -44,11 +44,9 @@ export type {
 
 // WebSocket Manager (for real-time updates)
 export { WebSocketManager } from './websocket/WebSocketManager';
-export type { 
-  WebSocketManagerConfig,
-  ClientToServerEvents,
-  ServerToClientEvents
-} from './websocket/WebSocketManager';
+export type { WebSocketManagerConfig } from './websocket/WebSocketManager';
+// WebSocket types are exported from @dotbot/core (shared between frontend and backend)
+export type { ClientToServerEvents, ServerToClientEvents, WebSocketEvents } from '@dotbot/core';
 export { 
   setupExecutionBroadcasting,
   broadcastExecutionUpdates

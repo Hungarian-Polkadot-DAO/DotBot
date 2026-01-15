@@ -20,40 +20,14 @@
 
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
+import type { ClientToServerEvents, ServerToClientEvents } from '@dotbot/core';
+import type { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 import { logger } from '../utils/logger';
 
 export interface WebSocketManagerConfig {
   httpServer: HttpServer;
   corsOrigins?: string | string[];
   path?: string;
-}
-
-export interface ClientToServerEvents {
-  // Execution subscriptions
-  'subscribe-execution': (data: { sessionId: string; executionId: string }) => void;
-  'unsubscribe-execution': (data: { sessionId: string; executionId: string }) => void;
-  
-  // Future: System notifications
-  // 'subscribe-system': (data: { sessionId: string }) => void;
-  // 'subscribe-rpc': (data: { sessionId: string }) => void;
-  // 'subscribe-notifications': (data: { sessionId: string }) => void;
-}
-
-export interface ServerToClientEvents {
-  // Execution updates
-  'execution-update': (data: { executionId: string; state: ExecutionArrayState }) => void;
-  'execution-complete': (data: { executionId: string; success: boolean }) => void;
-  'execution-error': (data: { executionId: string; error: string }) => void;
-  
-  // Future: System notifications (low overhead, event-driven)
-  // 'system-notification': (data: { level: 'info' | 'warning' | 'error'; message: string; action?: string }) => void;
-  // 'rpc-health-change': (data: { chain: 'relay' | 'assetHub'; status: string; endpoint: string }) => void;
-  // 'execution-session-lost': (data: { executionId: string; reason: string }) => void;
-  
-  // Connection events
-  'connected': (data: { message: string }) => void;
-  'error': (data: { message: string }) => void;
 }
 
 /**
@@ -69,11 +43,27 @@ export class WebSocketManager {
   
   constructor(config: WebSocketManagerConfig) {
     // Initialize Socket.IO with CORS configuration
+    // In development or if CORS_ORIGINS is '*', allow all origins
+    // Otherwise use the configured origins
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const allowAllOrigins = isDevelopment || config.corsOrigins === '*' || !config.corsOrigins;
+    
+    // Normalize corsOrigins to array format
+    let corsOrigin: string | string[] | boolean = true;
+    if (!allowAllOrigins && config.corsOrigins) {
+      if (Array.isArray(config.corsOrigins)) {
+        corsOrigin = config.corsOrigins;
+      } else {
+        corsOrigin = config.corsOrigins.split(',').map((o: string) => o.trim());
+      }
+    }
+    
     this.io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(config.httpServer, {
       cors: {
-        origin: config.corsOrigins || '*',
+        origin: corsOrigin,
         credentials: true,
-        methods: ['GET', 'POST'],
+        methods: ['GET', 'POST', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
       },
       path: config.path || '/socket.io',
       transports: ['websocket', 'polling'], // WebSocket preferred, polling fallback
@@ -148,11 +138,15 @@ export class WebSocketManager {
   /**
    * Setup execution subscription handlers
    * 
-   * Clients subscribe to specific execution IDs to receive real-time updates
-   * during simulation, signing, broadcasting, and finalization.
+   * Clients can subscribe to:
+   * 1. Specific execution IDs (for targeted updates)
+   * 2. All executions for a session (for early subscription before executionId is known)
+   * 
+   * This enables subscribing BEFORE the executionId is available, catching all updates
+   * including early simulation progress.
    */
   private setupExecutionHandlers(socket: Socket, sessionId: string): void {
-    // Subscribe to execution updates
+    // Subscribe to specific execution updates
     socket.on('subscribe-execution', ({ sessionId: requestSessionId, executionId }) => {
       // Validate session ID matches
       if (requestSessionId !== sessionId) {
@@ -177,7 +171,7 @@ export class WebSocketManager {
       }, 'Client subscribed to execution updates');
     });
     
-    // Unsubscribe from execution updates
+    // Unsubscribe from specific execution updates
     socket.on('unsubscribe-execution', ({ sessionId: requestSessionId, executionId }) => {
       // Validate session ID matches
       if (requestSessionId !== sessionId) {
@@ -195,31 +189,91 @@ export class WebSocketManager {
         room
       }, 'Client unsubscribed from execution updates');
     });
+    
+    // Subscribe to all executions for this session (session-level room)
+    socket.on('subscribe-session-executions', ({ sessionId: requestSessionId }) => {
+      // Validate session ID matches
+      if (requestSessionId !== sessionId) {
+        logger.warn({
+          subsystem: 'websocket',
+          clientId: socket.id,
+          requestSessionId,
+          actualSessionId: sessionId
+        }, 'Session ID mismatch on session-level execution subscription');
+        return;
+      }
+      
+      const room = `session:${sessionId}:executions`;
+      socket.join(room);
+      
+      logger.debug({
+        subsystem: 'websocket',
+        clientId: socket.id,
+        sessionId,
+        room
+      }, 'Client subscribed to all session execution updates');
+    });
+    
+    // Unsubscribe from all executions for this session
+    socket.on('unsubscribe-session-executions', ({ sessionId: requestSessionId }) => {
+      // Validate session ID matches
+      if (requestSessionId !== sessionId) {
+        return;
+      }
+      
+      const room = `session:${sessionId}:executions`;
+      socket.leave(room);
+      
+      logger.debug({
+        subsystem: 'websocket',
+        clientId: socket.id,
+        sessionId,
+        room
+      }, 'Client unsubscribed from session execution updates');
+    });
   }
   
   /**
    * Broadcast execution state update to all subscribers
    * 
    * This is called by the backend when ExecutionArray state changes.
-   * All clients subscribed to this execution will receive the update.
+   * Broadcasts to both:
+   * 1. Execution-specific room (for targeted subscriptions)
+   * 2. Session-level room (for early subscriptions before executionId is known)
+   * 
+   * @param executionId The execution ID
+   * @param state The execution state
+   * @param sessionId Optional session ID for session-level broadcasting
    */
-  broadcastExecutionUpdate(executionId: string, state: ExecutionArrayState): void {
-    const room = `execution:${executionId}`;
+  broadcastExecutionUpdate(executionId: string, state: ExecutionArrayState, sessionId?: string): void {
+    const executionRoom = `execution:${executionId}`;
     
     logger.debug({
       subsystem: 'websocket',
       executionId,
-      room,
+      executionRoom,
+      sessionId,
       currentIndex: state.currentIndex,
       isExecuting: state.isExecuting,
       completedItems: state.completedItems,
       totalItems: state.totalItems
     }, 'Broadcasting execution update');
     
-    this.io.to(room).emit('execution-update', {
+    // Broadcast to execution-specific room
+    this.io.to(executionRoom).emit('execution-update', {
       executionId,
       state
     });
+    
+    // Also broadcast to session-level room if sessionId provided
+    // This allows clients to receive updates even if they subscribed before executionId was known
+    if (sessionId) {
+      const sessionRoom = `session:${sessionId}:executions`;
+      this.io.to(sessionRoom).emit('execution-update', {
+        executionId,
+        state
+      });
+    }
   }
   
   /**
