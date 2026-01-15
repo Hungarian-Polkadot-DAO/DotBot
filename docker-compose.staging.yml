@@ -38,6 +38,9 @@ services:
       - AI_PROVIDER=${AI_PROVIDER:-asi-one}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - STORAGE_DIR=/app/backend/data/storage
+    volumes:
+      - backend-data:/app/backend/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
@@ -48,6 +51,10 @@ services:
       - dotbot-staging
     depends_on:
       - frontend
+
+volumes:
+  backend-data:
+    driver: local
 
 networks:
   dotbot-staging:

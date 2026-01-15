@@ -64,8 +64,14 @@ RUN npm install --omit=dev
 # Copy built application from builder
 COPY --from=builder /app/backend/dist ./dist
 
+# Create data directory for persistent storage
+RUN mkdir -p /app/backend/data/storage
+
 # Expose port
 EXPOSE 8000
+
+# Define volume for persistent RPC health data
+VOLUME ["/app/backend/data"]
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

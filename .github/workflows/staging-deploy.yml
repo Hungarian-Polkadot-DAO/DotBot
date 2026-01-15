@@ -111,6 +111,7 @@ jobs:
         build-args: |
           REACT_APP_API_URL=https://sandbox.dotbot.zelmacorp.io
           REACT_APP_BACKEND_URL=https://sandbox.dotbot.zelmacorp.io
+          REACT_APP_WS_URL=wss://sandbox.dotbot.zelmacorp.io
         cache-from: type=gha
         cache-to: type=gha,mode=max
       # Verify build args are being used (will show in build logs)
@@ -219,6 +220,7 @@ jobs:
         # Application URLs
         FRONTEND_URL=https://sandbox.dotbot.zelmacorp.io
         BACKEND_URL=https://sandbox.dotbot.zelmacorp.io/api
+        WS_URL=wss://sandbox.dotbot.zelmacorp.io
         EOF
         
         # Conditionally add CLAUDE_API_KEY only if secret exists (to avoid empty string warnings)
