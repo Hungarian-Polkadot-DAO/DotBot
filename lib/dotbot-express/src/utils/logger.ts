@@ -197,9 +197,10 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const getLogLevel = (): string => {
   const envLevel = getEnv('LOG_LEVEL') || getEnv('DOTBOT_LOG_LEVEL');
   if (envLevel) {
-    // Normalize log level to pino's expected format (lowercase)
-    const normalized = envLevel.toLowerCase();
+    // Normalize log level to pino's expected format (lowercase, trim whitespace)
+    const normalized = String(envLevel).toLowerCase().trim();
     // Map common variations to pino levels
+    // Pino standard levels: trace, debug, info, warn, error, fatal
     const levelMap: Record<string, string> = {
       'warning': 'warn',
       'warn': 'warn',
@@ -209,7 +210,17 @@ const getLogLevel = (): string => {
       'trace': 'trace',
       'fatal': 'fatal',
     };
-    return levelMap[normalized] || normalized;
+    const mappedLevel = levelMap[normalized];
+    if (mappedLevel) {
+      return mappedLevel;
+    }
+    // If not in map, check if it's a valid pino level
+    const validPinoLevels = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'];
+    if (validPinoLevels.includes(normalized)) {
+      return normalized;
+    }
+    // Invalid level - fall back to default
+    console.warn(`[Logger] Invalid log level "${envLevel}", falling back to default`);
   }
   
   // Default levels by environment
