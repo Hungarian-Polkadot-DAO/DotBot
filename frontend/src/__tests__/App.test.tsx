@@ -341,7 +341,8 @@ describe('App', () => {
       // Remove executionId and executionArrayState.id to test error handling
       delete chatResult.executionId;
       if (chatResult.executionArrayState) {
-        delete chatResult.executionArrayState.id;
+        // Use type assertion to allow deletion of required property for testing
+        delete (chatResult.executionArrayState as any).id;
       }
       
       mockSendDotBotMessage.mockResolvedValue({
