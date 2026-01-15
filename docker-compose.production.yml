@@ -9,7 +9,6 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         REACT_APP_API_URL: ${REACT_APP_API_URL:-https://live.dotbot.zelmacorp.io}
-        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-https://live.dotbot.zelmacorp.io}
         REACT_APP_WS_URL: ${REACT_APP_WS_URL:-wss://live.dotbot.zelmacorp.io}
     ports:
       - "3020:80"

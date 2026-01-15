@@ -152,7 +152,6 @@ jobs:
         labels: ${{ steps.meta-frontend.outputs.labels }}
         build-args: |
           REACT_APP_API_URL=https://live.dotbot.zelmacorp.io
-          REACT_APP_BACKEND_URL=https://live.dotbot.zelmacorp.io
           REACT_APP_WS_URL=wss://live.dotbot.zelmacorp.io
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -229,8 +228,10 @@ jobs:
         SESSION_SECRET=${{ secrets.SESSION_SECRET }}
         
         # Application URLs
+        # NOTE: Base URLs should NOT include /api suffix
+        # API paths will be appended by application code
         FRONTEND_URL=https://live.dotbot.zelmacorp.io
-        BACKEND_URL=https://live.dotbot.zelmacorp.io/api
+        BACKEND_URL=https://live.dotbot.zelmacorp.io
         WS_URL=wss://live.dotbot.zelmacorp.io
         
         # Feature Flags for Production

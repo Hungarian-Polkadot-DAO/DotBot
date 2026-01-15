@@ -111,6 +111,55 @@ function createDebouncedSummary(
 }
 
 /**
+ * Create RPC methods summary callback
+ */
+function createRpcSummaryCallback(
+  messages: ApiInitMessages,
+  originalConsoleInfo: typeof console.info
+): () => void {
+  return () => {
+    if (messages.rpcMethods.size > 0) {
+      originalConsoleInfo(
+        `[Polkadot] API initialized (${messages.rpcMethods.size} RPC methods not decorated - expected)`
+      );
+      messages.rpcMethods.clear();
+    }
+  };
+}
+
+/**
+ * Create runtime API summary callback
+ */
+function createRuntimeApiSummaryCallback(
+  messages: ApiInitMessages,
+  originalConsoleInfo: typeof console.info
+): () => void {
+  return () => {
+    messages.runtimeApis.forEach((apis, chain) => {
+      const apiList = Array.from(apis).join(', ');
+      originalConsoleInfo(`[Polkadot] ${chain}: Runtime API version mismatches: ${apiList} (expected)`);
+    });
+    messages.runtimeApis.clear();
+  };
+}
+
+/**
+ * Create unknown API summary callback
+ */
+function createUnknownApiSummaryCallback(
+  messages: ApiInitMessages,
+  originalConsoleInfo: typeof console.info
+): () => void {
+  return () => {
+    if (messages.unknownApis.size > 0) {
+      const chains = Array.from(messages.unknownApis).join(', ');
+      originalConsoleInfo(`[Polkadot] ${chains}: Unknown runtime APIs (expected)`);
+      messages.unknownApis.clear();
+    }
+  };
+}
+
+/**
  * Shorten API/INIT messages to one line
  * Collects similar messages and shows a summary
  */
@@ -123,30 +172,9 @@ function createApiInitShortener(
     unknownApis: new Set(),
   };
   
-  const showRpcSummary = createDebouncedSummary(1000, () => {
-    if (messages.rpcMethods.size > 0) {
-      originalConsoleInfo(
-        `[Polkadot] API initialized (${messages.rpcMethods.size} RPC methods not decorated - expected)`
-      );
-      messages.rpcMethods.clear();
-    }
-  });
-  
-  const showRuntimeApiSummary = createDebouncedSummary(1000, () => {
-    messages.runtimeApis.forEach((apis, chain) => {
-      const apiList = Array.from(apis).join(', ');
-      originalConsoleInfo(`[Polkadot] ${chain}: Runtime API version mismatches: ${apiList} (expected)`);
-    });
-    messages.runtimeApis.clear();
-  });
-  
-  const showUnknownApiSummary = createDebouncedSummary(1000, () => {
-    if (messages.unknownApis.size > 0) {
-      const chains = Array.from(messages.unknownApis).join(', ');
-      originalConsoleInfo(`[Polkadot] ${chains}: Unknown runtime APIs (expected)`);
-      messages.unknownApis.clear();
-    }
-  });
+  const showRpcSummary = createDebouncedSummary(1000, createRpcSummaryCallback(messages, originalConsoleInfo));
+  const showRuntimeApiSummary = createDebouncedSummary(1000, createRuntimeApiSummaryCallback(messages, originalConsoleInfo));
+  const showUnknownApiSummary = createDebouncedSummary(1000, createUnknownApiSummaryCallback(messages, originalConsoleInfo));
   
   return (message: string): string | null => {
     const cleaned = cleanMessage(message);

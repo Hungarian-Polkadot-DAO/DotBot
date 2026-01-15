@@ -101,6 +101,27 @@ Update the config files with your specific values:
 - `config/staging.env`: Staging environment variables
 - `config/production.env`: Production environment variables
 
+**Important Configuration Rules:**
+- **URLs**: Base URLs should NOT include `/api` suffix (e.g., `https://example.com`, not `https://example.com/api`)
+- **Log Levels**: Use lowercase format (`info`, `warn`, `error`, not `INFO`, `WARNING`)
+- See `config/env.example` for complete configuration template
+
+#### Configuration Validation
+
+DotBot validates environment configuration at startup:
+- **Production**: Fails fast on configuration errors (prevents deployment with invalid config)
+- **Development/Staging**: Logs warnings for deprecated formats, continues with defaults
+
+**Common Configuration Errors:**
+- ❌ `BACKEND_URL=https://example.com/api` → Will cause double `/api/api` paths
+- ❌ `LOG_LEVEL=WARNING` → Deprecated format, use `LOG_LEVEL=warn`
+- ✅ `BACKEND_URL=https://example.com` → Correct
+- ✅ `LOG_LEVEL=warn` → Correct
+
+The backend automatically validates configuration on startup and will:
+- Log warnings for deprecated formats (uppercase log levels, trailing slashes)
+- Throw errors in production for invalid configurations (URLs with `/api` suffix, invalid log levels)
+
 ## 🔌 Port Allocation
 
 ### Staging Environment

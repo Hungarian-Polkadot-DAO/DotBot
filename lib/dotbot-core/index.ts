@@ -293,6 +293,18 @@ export {
 export type { Storage } from './env';
 
 // ============================================================================
+// Configuration Validation
+// ============================================================================
+export { 
+  validateEnvironment, 
+  validateAndReport 
+} from './utils/validateEnv';
+export type { 
+  ValidationError, 
+  ValidationResult 
+} from './utils/validateEnv';
+
+// ============================================================================
 // WebSocket Types (shared between frontend and backend)
 // ============================================================================
 export type {

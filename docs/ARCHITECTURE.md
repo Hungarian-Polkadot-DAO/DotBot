@@ -1746,6 +1746,29 @@ getNetworkMetadata(network)
 3. **Constants**: UPPER_SNAKE_CASE (`MAX_BATCH_SIZE`, `DEFAULT_TIMEOUT`)
 4. **Files**: camelCase for utilities, PascalCase for classes
 
+### URL Configuration Conventions
+
+DotBot uses a consistent URL pattern to prevent the "double /api" problem:
+
+**Base URLs (Environment Variables):**
+- **Never** include `/api` suffix in base URLs
+- Examples: `REACT_APP_API_URL=https://example.com`, `BACKEND_URL=https://example.com`
+
+**API Paths (Application Code):**
+- **Always** append `/api` prefix when making API calls
+- Examples: `${API_BASE_URL}/api/health`, `${API_BASE_URL}/api/dotbot/chat`
+
+**Rationale:**
+- Single source of truth for domain configuration
+- Flexibility to change API path prefix if needed
+- Clear separation between base URL and API paths
+- Prevents double `/api/api` paths in requests
+
+**Configuration Validation:**
+- Backend validates URLs at startup
+- Production fails fast on invalid configurations (URLs with `/api` suffix)
+- Development/staging logs warnings for deprecated formats
+
 ### Agent Development
 
 When creating a new agent:

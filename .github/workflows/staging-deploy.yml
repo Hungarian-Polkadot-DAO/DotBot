@@ -110,7 +110,6 @@ jobs:
         labels: ${{ steps.meta-frontend.outputs.labels }}
         build-args: |
           REACT_APP_API_URL=https://sandbox.dotbot.zelmacorp.io
-          REACT_APP_BACKEND_URL=https://sandbox.dotbot.zelmacorp.io
           REACT_APP_WS_URL=wss://sandbox.dotbot.zelmacorp.io
         cache-from: type=gha
         cache-to: type=gha,mode=max
@@ -218,8 +217,10 @@ jobs:
         CORS_ORIGINS=${{ secrets.CORS_ORIGINS || '*' }}
         
         # Application URLs
+        # NOTE: Base URLs should NOT include /api suffix
+        # API paths will be appended by application code
         FRONTEND_URL=https://sandbox.dotbot.zelmacorp.io
-        BACKEND_URL=https://sandbox.dotbot.zelmacorp.io/api
+        BACKEND_URL=https://sandbox.dotbot.zelmacorp.io
         WS_URL=wss://sandbox.dotbot.zelmacorp.io
         EOF
         

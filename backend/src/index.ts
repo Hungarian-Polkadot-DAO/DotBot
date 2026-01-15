@@ -8,11 +8,14 @@ import app from './app';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { WebSocketManager } from '@dotbot/express';
-import { initFileStorage } from '@dotbot/core';
+import { initFileStorage, validateAndReport } from '@dotbot/core';
 import path from 'path';
 import fs from 'fs';
 
 const execAsync = promisify(exec);
+
+// Validate environment configuration before starting
+validateAndReport();
 
 const PORT = process.env.PORT || 8000;
 

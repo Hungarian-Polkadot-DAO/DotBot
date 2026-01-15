@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "DotBot Environment Configuration Schema",
+  "description": "Schema for validating DotBot environment variables",
+  "properties": {
+    "NODE_ENV": {
+      "type": "string",
+      "enum": ["development", "staging", "production", "test"],
+      "description": "Application environment"
+    },
+    "LOG_LEVEL": {
+      "type": "string",
+      "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
+      "description": "Log level (lowercase required). Aliases: warning -> warn"
+    },
+    "REACT_APP_API_URL": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://[^/]+$",
+      "description": "Frontend API base URL without /api suffix (build-time)"
+    },
+    "BACKEND_URL": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://[^/]+$",
+      "description": "Backend API base URL without /api suffix (runtime)"
+    },
+    "FRONTEND_URL": {
+      "type": "string",
+      "format": "uri",
+      "description": "Frontend application URL (runtime)"
+    },
+    "WS_URL": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^wss?://[^/]+$",
+      "description": "WebSocket URL for real-time features (runtime)"
+    },
+    "DEBUG": {
+      "type": "string",
+      "enum": ["true", "false"],
+      "description": "Enable debug logging"
+    },
+    "ASI_ONE_API_KEY": {
+      "type": "string",
+      "description": "ASI-One API key for AI provider"
+    },
+    "ASI_ONE_ENDPOINT": {
+      "type": "string",
+      "format": "uri",
+      "description": "ASI-One endpoint URL"
+    },
+    "ASI_ONE_BASE_URL": {
+      "type": "string",
+      "format": "uri",
+      "description": "ASI-One base URL"
+    },
+    "CLAUDE_API_KEY": {
+      "type": "string",
+      "description": "Claude API key for AI provider"
+    },
+    "AI_PROVIDER": {
+      "type": "string",
+      "enum": ["asi-one", "claude"],
+      "description": "AI provider to use"
+    },
+    "DATABASE_URL": {
+      "type": "string",
+      "description": "Database connection URL"
+    },
+    "REDIS_URL": {
+      "type": "string",
+      "format": "uri",
+      "description": "Redis connection URL"
+    },
+    "SESSION_SECRET": {
+      "type": "string",
+      "description": "Session encryption secret"
+    },
+    "CORS_ORIGINS": {
+      "type": "string",
+      "description": "Comma-separated list of allowed CORS origins"
+    }
+  },
+  "required": ["NODE_ENV"],
+  "additionalProperties": true
+}

@@ -145,8 +145,8 @@ The frontend is already configured to work with the backend:
 
 ```typescript
 // Default URLs (in frontend .env)
-REACT_APP_BACKEND_URL=http://localhost:8000
 REACT_APP_API_URL=http://localhost:8000
+REACT_APP_WS_URL=ws://localhost:8000
 ```
 
 ## Development Workflow
