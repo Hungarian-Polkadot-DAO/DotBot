@@ -9,6 +9,8 @@
 import { Router, Request, Response } from 'express';
 import { ChatOptions, ChatResult, Environment, Network, AIProviderType, ExecutionArrayState, ChatInstance } from '@dotbot/core';
 import { createSessionManager } from '../sessionManager';
+import { broadcastExecutionUpdates } from '../websocket/executionBroadcaster';
+import { WebSocketManager } from '../websocket/WebSocketManager';
 import { apiLogger, dotbotLogger, sessionLogger, errorLogger } from '../utils/logger';
 
 const router = Router();
@@ -198,8 +200,20 @@ router.post('/chat', async (req: Request, res: Response) => {
         responseLength: result.response?.length || 0,
         hasPlan: !!result.plan,
         planSteps: result.plan?.steps?.length || 0,
-        currentChatId: dotbot.currentChat?.id || null
+        currentChatId: dotbot.currentChat?.id || null,
+        executionId: result.executionId
       }, 'DotBot chat completed successfully');
+      
+      // Setup WebSocket broadcasting for new executions
+      if (result.executionId && dotbot.currentChat && req.app.locals.wsManager) {
+        const wsManager: WebSocketManager = req.app.locals.wsManager;
+        broadcastExecutionUpdates(dotbot.currentChat, result.executionId, wsManager);
+        
+        dotbotLogger.debug({
+          executionId: result.executionId,
+          sessionId: effectiveSessionId
+        }, 'WebSocket broadcasting enabled for execution');
+      }
     } catch (chatError: any) {
       errorLogger.error({ 
         error: chatError.message,
@@ -626,7 +640,12 @@ router.post('/session/:sessionId/chats/:chatId/load', async (req: Request, res: 
 
 /**
  * POST /api/dotbot/session/:sessionId/execution/:executionId/start
- * Start execution of a specific execution plan
+ * Get execution state for frontend execution (does NOT execute on backend)
+ * 
+ * NOTE: Execution must happen on the frontend where signing handlers are available.
+ * The backend cannot sign transactions. This endpoint simply returns ExecutionArrayState
+ * (a lightweight serializable state object). The frontend will rebuild ExecutionArray
+ * from executionPlan when executing.
  */
 router.post('/session/:sessionId/execution/:executionId/start', async (req: Request, res: Response) => {
   const { sessionId, executionId } = req.params;
@@ -643,42 +662,33 @@ router.post('/session/:sessionId/execution/:executionId/start', async (req: Requ
       });
     }
 
-    // Start execution (works in both stateful and stateless modes)
-    await session.dotbot.startExecution(executionId, { autoApprove });
-
-    // Get execution state
-    // In stateful mode: get from chat
-    // In stateless mode: rebuild from stored plan (already done in startExecutionStateless)
-    let state;
+    // Simply return ExecutionArrayState - it's lightweight and serializable
+    // Frontend will rebuild ExecutionArray from executionPlan when executing
+    let state: ExecutionArrayState | null = null;
+    
     if (session.dotbot.currentChat) {
-      // Stateful mode
+      // Stateful mode: get from chat
       const executionArray = session.dotbot.currentChat.getExecutionArray(executionId);
-      if (!executionArray) {
-        return res.status(404).json({
-          error: 'Execution not found',
-          message: `Execution ${executionId} not found in current chat`,
-          timestamp: new Date().toISOString()
-        });
+      if (executionArray) {
+        state = executionArray.getState();
       }
-      state = executionArray.getState();
-    } else {
-      // Stateless mode: ExecutionArray was rebuilt during startExecution
-      // We need to get it from the execution system or return a success response
-      // For now, return success - the execution is in progress
-      // Frontend can poll for status if needed
-      state = {
-        id: executionId,
-        items: [],
-        currentIndex: 0,
-        isExecuting: true,
-        isPaused: false,
-        totalItems: 0,
-        completedItems: 0,
-        failedItems: 0,
-        cancelledItems: 0
-      };
+    }
+    
+    // If not found, try to get from stored execution state (stateless mode)
+    if (!state) {
+      state = session.dotbot.getExecutionState(executionId);
+    }
+    
+    if (!state) {
+      return res.status(404).json({
+        error: 'Execution not found',
+        message: `Execution ${executionId} not found. It may not have been prepared yet.`,
+        timestamp: new Date().toISOString()
+      });
     }
 
+    // Return ExecutionArrayState to frontend (lightweight, serializable state object)
+    // Frontend will use this for display and rebuild ExecutionArray from executionPlan when executing
     res.json({
       success: true,
       executionId,
@@ -692,11 +702,11 @@ router.post('/session/:sessionId/execution/:executionId/start', async (req: Requ
       stack: error.stack,
       sessionId,
       executionId 
-    }, 'Error starting execution');
+    }, 'Error preparing execution');
     
     res.status(500).json({
       error: 'Internal server error',
-      message: error.message || 'Failed to start execution',
+      message: error.message || 'Failed to prepare execution',
       timestamp: new Date().toISOString()
     });
   }

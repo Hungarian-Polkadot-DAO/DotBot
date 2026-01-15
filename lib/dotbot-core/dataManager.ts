@@ -7,10 +7,13 @@
  * - Delete all user data
  * - Manage specific data types
  * - Clear storage completely
+ * 
+ * Uses storage abstraction (getStorage) to work in both browser and Node.js.
  */
 
 import { ChatInstanceManager } from './chatInstanceManager';
 import type { ChatInstanceData } from './types/chatInstance';
+import { getStorage } from './env';
 
 /**
  * All localStorage keys used by DotBot
@@ -19,13 +22,13 @@ export const STORAGE_KEYS = {
   /** Chat instances (ChatInstanceManager) */
   CHAT_INSTANCES: 'dotbot_chat_instances',
   
-  /** RPC endpoint health tracking */
-  RPC_HEALTH_POLKADOT_RELAY: 'rpc_health_polkadot_relay',
-  RPC_HEALTH_POLKADOT_ASSETHUB: 'rpc_health_polkadot_assethub',
-  RPC_HEALTH_KUSAMA_RELAY: 'rpc_health_kusama_relay',
-  RPC_HEALTH_KUSAMA_ASSETHUB: 'rpc_health_kusama_assethub',
-  RPC_HEALTH_WESTEND_RELAY: 'rpc_health_westend_relay',
-  RPC_HEALTH_WESTEND_ASSETHUB: 'rpc_health_westend_assethub',
+  /** RPC endpoint health tracking (matches RpcManager storage keys) */
+  RPC_HEALTH_POLKADOT_RELAY: 'dotbot_rpc_health_polkadot_relay',
+  RPC_HEALTH_POLKADOT_ASSETHUB: 'dotbot_rpc_health_polkadot_asset_hub',
+  RPC_HEALTH_KUSAMA_RELAY: 'dotbot_rpc_health_kusama_relay',
+  RPC_HEALTH_KUSAMA_ASSETHUB: 'dotbot_rpc_health_kusama_asset_hub',
+  RPC_HEALTH_WESTEND_RELAY: 'dotbot_rpc_health_westend_relay',
+  RPC_HEALTH_WESTEND_ASSETHUB: 'dotbot_rpc_health_westend_asset_hub',
   
   /** User preferences (future) */
   USER_PREFERENCES: 'dotbot_user_preferences',
@@ -91,6 +94,7 @@ export interface DeletionReport {
  */
 export class DataManager {
   private chatManager: ChatInstanceManager;
+  private storage = getStorage();
 
   constructor(chatManager?: ChatInstanceManager) {
     this.chatManager = chatManager || new ChatInstanceManager();
@@ -105,7 +109,7 @@ export class DataManager {
     const rpcHealth: Record<string, any> = {};
     for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
       if (key.startsWith('RPC_HEALTH_')) {
-        const data = localStorage.getItem(storageKey);
+        const data = this.storage.getItem(storageKey);
         if (data) {
           try {
             rpcHealth[key] = JSON.parse(data);
@@ -123,10 +127,12 @@ export class DataManager {
     const other: Record<string, any> = {};
     const knownKeys = new Set<string>(Object.values(STORAGE_KEYS));
     
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
+    // Enumerate storage keys (works with both localStorage and FileStorage)
+    const length = this.storage.length ?? 0;
+    for (let i = 0; i < length; i++) {
+      const key = this.storage.key?.(i);
       if (key && key.startsWith('dotbot_') && !knownKeys.has(key)) {
-        const value = localStorage.getItem(key);
+        const value = this.storage.getItem(key);
         if (value) {
           try {
             other[key] = JSON.parse(value);
@@ -200,36 +206,37 @@ export class DataManager {
     // Delete RPC health data
     for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
       if (key.startsWith('RPC_HEALTH_')) {
-        if (localStorage.getItem(storageKey)) {
-          localStorage.removeItem(storageKey);
+        if (this.storage.getItem(storageKey)) {
+          this.storage.removeItem(storageKey);
           report.deleted.rpcHealthEntries++;
         }
       }
     }
 
     // Delete user preferences
-    if (localStorage.getItem(STORAGE_KEYS.USER_PREFERENCES)) {
-      localStorage.removeItem(STORAGE_KEYS.USER_PREFERENCES);
+    if (this.storage.getItem(STORAGE_KEYS.USER_PREFERENCES)) {
+      this.storage.removeItem(STORAGE_KEYS.USER_PREFERENCES);
       report.deleted.preferences = true;
     }
 
     // Delete wallet cache
-    if (localStorage.getItem(STORAGE_KEYS.WALLET_CACHE)) {
-      localStorage.removeItem(STORAGE_KEYS.WALLET_CACHE);
+    if (this.storage.getItem(STORAGE_KEYS.WALLET_CACHE)) {
+      this.storage.removeItem(STORAGE_KEYS.WALLET_CACHE);
       report.deleted.walletCache = true;
     }
 
     // Delete any other DotBot-related keys
     const keysToDelete: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
+    const length = this.storage.length ?? 0;
+    for (let i = 0; i < length; i++) {
+      const key = this.storage.key?.(i);
       if (key && (key.startsWith('dotbot_') || key.startsWith('rpc_health_'))) {
         keysToDelete.push(key);
       }
     }
 
     for (const key of keysToDelete) {
-      localStorage.removeItem(key);
+      this.storage.removeItem(key);
       report.deleted.other++;
     }
 
@@ -264,8 +271,8 @@ export class DataManager {
     let count = 0;
     for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
       if (key.startsWith('RPC_HEALTH_')) {
-        if (localStorage.getItem(storageKey)) {
-          localStorage.removeItem(storageKey);
+        if (this.storage.getItem(storageKey)) {
+          this.storage.removeItem(storageKey);
           count++;
         }
       }
@@ -277,8 +284,8 @@ export class DataManager {
    * Delete user preferences
    */
   deletePreferences(): boolean {
-    if (localStorage.getItem(STORAGE_KEYS.USER_PREFERENCES)) {
-      localStorage.removeItem(STORAGE_KEYS.USER_PREFERENCES);
+    if (this.storage.getItem(STORAGE_KEYS.USER_PREFERENCES)) {
+      this.storage.removeItem(STORAGE_KEYS.USER_PREFERENCES);
       return true;
     }
     return false;
@@ -288,8 +295,8 @@ export class DataManager {
    * Delete wallet cache
    */
   deleteWalletCache(): boolean {
-    if (localStorage.getItem(STORAGE_KEYS.WALLET_CACHE)) {
-      localStorage.removeItem(STORAGE_KEYS.WALLET_CACHE);
+    if (this.storage.getItem(STORAGE_KEYS.WALLET_CACHE)) {
+      this.storage.removeItem(STORAGE_KEYS.WALLET_CACHE);
       return true;
     }
     return false;
@@ -305,15 +312,16 @@ export class DataManager {
 
     // Check all known keys
     for (const storageKey of Object.values(STORAGE_KEYS)) {
-      if (localStorage.getItem(storageKey)) {
+      if (this.storage.getItem(storageKey)) {
         return false;
       }
     }
 
     // Check for any remaining DotBot keys
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith('dotbot_') || key.startsWith('rpc_health_'))) {
+    const length = this.storage.length ?? 0;
+    for (let i = 0; i < length; i++) {
+      const key = this.storage.key?.(i);
+      if (key && (key.startsWith('dotbot_') || key.startsWith('dotbot_rpc_health_'))) {
         return false;
       }
     }
@@ -336,7 +344,7 @@ export class DataManager {
     
     let rpcHealthCount = 0;
     for (const [key, storageKey] of Object.entries(STORAGE_KEYS)) {
-      if (key.startsWith('RPC_HEALTH_') && localStorage.getItem(storageKey)) {
+      if (key.startsWith('RPC_HEALTH_') && this.storage.getItem(storageKey)) {
         rpcHealthCount++;
       }
     }
@@ -344,8 +352,9 @@ export class DataManager {
     const otherKeys: string[] = [];
     const knownKeys = new Set<string>(Object.values(STORAGE_KEYS));
     
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
+    const length = this.storage.length ?? 0;
+    for (let i = 0; i < length; i++) {
+      const key = this.storage.key?.(i);
       if (key && key.startsWith('dotbot_') && !knownKeys.has(key)) {
         otherKeys.push(key);
       }
@@ -353,10 +362,10 @@ export class DataManager {
 
     // Estimate storage size
     let totalSize = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.startsWith('dotbot_') || key.startsWith('rpc_health_'))) {
-        const value = localStorage.getItem(key);
+    for (let i = 0; i < length; i++) {
+      const key = this.storage.key?.(i);
+      if (key && (key.startsWith('dotbot_') || key.startsWith('dotbot_rpc_health_'))) {
+        const value = this.storage.getItem(key);
         if (value) {
           totalSize += key.length + value.length;
         }
@@ -366,8 +375,8 @@ export class DataManager {
     return {
       chatInstances: instances.length,
       rpcHealthEntries: rpcHealthCount,
-      hasPreferences: !!localStorage.getItem(STORAGE_KEYS.USER_PREFERENCES),
-      hasWalletCache: !!localStorage.getItem(STORAGE_KEYS.WALLET_CACHE),
+      hasPreferences: !!this.storage.getItem(STORAGE_KEYS.USER_PREFERENCES),
+      hasWalletCache: !!this.storage.getItem(STORAGE_KEYS.WALLET_CACHE),
       otherKeys,
       estimatedSize: this.formatBytes(totalSize * 2), // UTF-16 = 2 bytes per char
     };
@@ -377,7 +386,7 @@ export class DataManager {
    * Helper to get and parse storage item
    */
   private getStorageItem(key: string): any {
-    const value = localStorage.getItem(key);
+    const value = this.storage.getItem(key);
     if (!value) return null;
     
     try {

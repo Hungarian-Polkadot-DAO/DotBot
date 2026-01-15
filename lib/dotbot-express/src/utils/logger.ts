@@ -232,7 +232,8 @@ const loggerConfig: pino.LoggerOptions = {
       return { level: label };
     },
   },
-  // In development, use pretty printing
+  // In development, use pretty printing with improved formatting
+  // Pino will gracefully fall back to JSON if pino-pretty is not available
   ...(NODE_ENV === 'development' && {
     transport: {
       target: 'pino-pretty',
@@ -241,6 +242,13 @@ const loggerConfig: pino.LoggerOptions = {
         translateTime: 'HH:MM:ss.l',
         ignore: 'pid,hostname',
         singleLine: false,
+        messageFormat: '{msg}',
+        hideObject: false,
+        // Better formatting for nested objects
+        crlf: false,
+        errorLikeObjectKeys: ['err', 'error'],
+        // Format output more consistently
+        customColors: 'info:blue,warn:yellow,error:red',
       },
     },
   }),
