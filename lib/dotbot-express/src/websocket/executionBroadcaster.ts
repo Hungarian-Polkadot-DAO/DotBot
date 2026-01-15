@@ -101,21 +101,24 @@ export function setupExecutionBroadcasting(
  * @param chat ChatInstance containing the execution
  * @param executionId Execution ID to subscribe to
  * @param wsManager WebSocket manager to broadcast through
+ * @param sessionId Optional session ID for session-level broadcasting
  * @returns Cleanup function
  */
 export function broadcastExecutionUpdates(
   chat: ChatInstance,
   executionId: string,
-  wsManager: WebSocketManager
+  wsManager: WebSocketManager,
+  sessionId?: string
 ): () => void {
   logger.debug({
     chatId: chat.id,
-    executionId
+    executionId,
+    sessionId
   }, 'Setting up WebSocket broadcasting for execution');
   
   const unsubscribe = chat.onExecutionUpdate(executionId, (state) => {
-    // Broadcast state update via WebSocket
-    wsManager.broadcastExecutionUpdate(executionId, state);
+    // Broadcast state update via WebSocket (to both execution-specific and session-level rooms)
+    wsManager.broadcastExecutionUpdate(executionId, state, sessionId);
     
     // Check if execution is complete
     // Empty array means no items executed yet, so not complete
