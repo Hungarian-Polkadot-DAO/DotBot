@@ -13,6 +13,7 @@
 import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 import { ExecutionMessage, DotBot } from '@dotbot/core';
 import { getExecutionState } from '../../services/dotbotApi';
+import { hasStateChanged, updateStateDeferred } from './stateUtils';
 
 /**
  * Setup WebSocket subscription for execution updates
@@ -27,40 +28,6 @@ function setupWebSocketSubscription(
   
   let lastState: ExecutionArrayState | null = null;
   
-  // Helper to check if state actually changed (avoid unnecessary re-renders)
-  const hasStateChanged = (newState: ExecutionArrayState, oldState: ExecutionArrayState | null): boolean => {
-    if (!oldState) return true;
-    // Quick reference check first
-    if (newState === oldState) return false;
-    // Check if items count or status changed
-    if (newState.items.length !== oldState.items.length) return true;
-    // Check if any item status changed
-    for (let i = 0; i < newState.items.length; i++) {
-      const newItem = newState.items[i];
-      const oldItem = oldState.items[i];
-      if (!oldItem || newItem.status !== oldItem.status || newItem.id !== oldItem.id) {
-        return true;
-      }
-    }
-    // Check if execution status changed
-    if (newState.isExecuting !== oldState.isExecuting) return true;
-    return false;
-  };
-  
-  // Defer state updates to avoid blocking UI thread
-  const updateStateDeferred = (newState: ExecutionArrayState) => {
-    // Use requestIdleCallback if available, otherwise setTimeout with 0
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(() => {
-        setLiveExecutionState(newState);
-      }, { timeout: 100 });
-    } else {
-      setTimeout(() => {
-        setLiveExecutionState(newState);
-      }, 0);
-    }
-  };
-  
   return wsSubscribe(executionId, (state) => {
     // Log all updates to debug simulation progress
     console.log('[ExecutionFlow] WebSocket update received:', {
@@ -73,7 +40,7 @@ function setupWebSocketSubscription(
     // Only update state if it actually changed (prevents unnecessary re-renders)
     if (hasStateChanged(state, lastState)) {
       lastState = state;
-      updateStateDeferred(state);
+      updateStateDeferred(() => setLiveExecutionState(state));
       executionMessage.executionArray = state;
       
       // Log completion (subscription continues until cleanup)
@@ -110,40 +77,6 @@ function setupPollingFallback(
   let lastState: ExecutionArrayState | null = null;
   let pollCount = 0;
   
-  // Helper to check if state actually changed (avoid unnecessary re-renders)
-  const hasStateChanged = (newState: ExecutionArrayState, oldState: ExecutionArrayState | null): boolean => {
-    if (!oldState) return true;
-    // Quick reference check first
-    if (newState === oldState) return false;
-    // Check if items count or status changed
-    if (newState.items.length !== oldState.items.length) return true;
-    // Check if any item status changed
-    for (let i = 0; i < newState.items.length; i++) {
-      const newItem = newState.items[i];
-      const oldItem = oldState.items[i];
-      if (!oldItem || newItem.status !== oldItem.status || newItem.id !== oldItem.id) {
-        return true;
-      }
-    }
-    // Check if execution status changed
-    if (newState.isExecuting !== oldState.isExecuting) return true;
-    return false;
-  };
-  
-  // Defer state updates to avoid blocking UI thread
-  const updateStateDeferred = (newState: ExecutionArrayState) => {
-    // Use requestIdleCallback if available, otherwise setTimeout with 0
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(() => {
-        setLiveExecutionState(newState);
-      }, { timeout: 100 });
-    } else {
-      setTimeout(() => {
-        setLiveExecutionState(newState);
-      }, 0);
-    }
-  };
-  
   const pollExecutionState = async () => {
     if (!isPolling) return;
     pollCount++;
@@ -156,7 +89,7 @@ function setupPollingFallback(
         // Only update state if it actually changed (prevents unnecessary re-renders)
         if (hasStateChanged(newState, lastState)) {
           lastState = newState;
-          updateStateDeferred(newState);
+          updateStateDeferred(() => setLiveExecutionState(newState));
           executionMessage.executionArray = newState;
         }
         
@@ -288,38 +221,11 @@ export function setupExecutionSubscription(
     // Use deferred updates to prevent UI blocking
     let lastLocalState: ExecutionArrayState | null = null;
     
-    const hasStateChanged = (newState: ExecutionArrayState, oldState: ExecutionArrayState | null): boolean => {
-      if (!oldState) return true;
-      if (newState === oldState) return false;
-      if (newState.items.length !== oldState.items.length) return true;
-      for (let i = 0; i < newState.items.length; i++) {
-        const newItem = newState.items[i];
-        const oldItem = oldState.items[i];
-        if (!oldItem || newItem.status !== oldItem.status || newItem.id !== oldItem.id) {
-          return true;
-        }
-      }
-      if (newState.isExecuting !== oldState.isExecuting) return true;
-      return false;
-    };
-    
-    const updateStateDeferred = (newState: ExecutionArrayState) => {
-      if (typeof requestIdleCallback !== 'undefined') {
-        requestIdleCallback(() => {
-          setLiveExecutionState(newState);
-        }, { timeout: 100 });
-      } else {
-        setTimeout(() => {
-          setLiveExecutionState(newState);
-        }, 0);
-      }
-    };
-    
     unsubscribe = dotbot.currentChat.onExecutionUpdate(executionId, (state) => {
       // Only update if state actually changed
       if (hasStateChanged(state, lastLocalState)) {
         lastLocalState = state;
-        updateStateDeferred(state);
+        updateStateDeferred(() => setLiveExecutionState(state));
       }
     });
   }

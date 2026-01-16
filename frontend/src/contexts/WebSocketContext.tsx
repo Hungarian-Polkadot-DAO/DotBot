@@ -14,6 +14,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ExecutionArrayState, ClientToServerEvents, ServerToClientEvents, WebSocketEvents } from '@dotbot/core';
+import { setupConnectionHandlers, setupExecutionHandlers } from './websocketUtils';
 
 const WS_URL = process.env.REACT_APP_WS_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -129,99 +130,21 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({
       timeout: 10000,
     });
     
-    // Connection event handlers
-    socket.on('connect', () => {
-      console.log('[WebSocket] Connected', {
-        id: socket.id,
-        transport: socket.io.engine.transport.name
-      });
-      setIsConnected(true);
-      setIsConnecting(false);
-      setConnectionError(null);
-      
-      // Re-subscribe to all active executions
-      resubscribeAll(socket);
-    });
+    // Setup event handlers
+    setupConnectionHandlers(
+      socket,
+      setIsConnected,
+      setIsConnecting,
+      setConnectionError,
+      resubscribeAll,
+      reconnectTimeoutRef
+    );
     
-    socket.on(WebSocketEvents.CONNECTED, (data) => {
-      console.log('[WebSocket] Server confirmation:', data.message);
-    });
-    
-    socket.on('disconnect', (reason) => {
-      console.log('[WebSocket] Disconnected:', reason);
-      setIsConnected(false);
-      setIsConnecting(false);
-      
-      // Auto-reconnect for certain disconnect reasons
-      if (reason === 'io server disconnect') {
-        // Server disconnected us - try to reconnect after a delay
-        reconnectTimeoutRef.current = setTimeout(() => {
-          console.log('[WebSocket] Attempting manual reconnection...');
-          socket.connect();
-        }, 2000);
-      }
-    });
-    
-    socket.on('connect_error', (error) => {
-      console.error('[WebSocket] Connection error:', error.message);
-      setIsConnecting(false);
-      setConnectionError(error.message);
-      
-      // If WebSocket fails, Socket.IO will automatically try polling fallback
-    });
-    
-    socket.on(WebSocketEvents.ERROR, (data) => {
-      console.error('[WebSocket] Error:', data.message);
-      setConnectionError(data.message);
-    });
-    
-    // Execution update handlers
-    socket.on(WebSocketEvents.EXECUTION_UPDATE, ({ executionId, state }) => {
-      console.log('[WebSocket] Execution update received:', {
-        executionId,
-        itemsCount: state.items.length,
-        hasSimulationStatus: state.items.some(item => item.simulationStatus),
-        simulationPhases: state.items.map(item => item.simulationStatus?.phase).filter(Boolean),
-        currentIndex: state.currentIndex,
-        isExecuting: state.isExecuting
-      });
-      
-      // Notify session-level callbacks (for early subscriptions before executionId is known)
-      sessionExecutionCallbacksRef.current.forEach(callback => {
-        try {
-          callback(executionId, state);
-        } catch (error) {
-          console.error('[WebSocket] Error in session execution callback:', error);
-        }
-      });
-      
-      // Notify execution-specific callbacks
-      const callbacks = executionCallbacksRef.current.get(executionId);
-      if (callbacks) {
-        console.log(`[WebSocket] Notifying ${callbacks.size} callback(s) for execution ${executionId}`);
-        callbacks.forEach(callback => {
-          try {
-            callback(state);
-          } catch (error) {
-            console.error('[WebSocket] Error in execution callback:', error);
-          }
-        });
-      }
-    });
-    
-    socket.on(WebSocketEvents.EXECUTION_COMPLETE, ({ executionId, success }) => {
-      console.log('[WebSocket] Execution complete:', {
-        executionId,
-        success
-      });
-    });
-    
-    socket.on(WebSocketEvents.EXECUTION_ERROR, ({ executionId, error }) => {
-      console.error('[WebSocket] Execution error:', {
-        executionId,
-        error
-      });
-    });
+    setupExecutionHandlers(
+      socket,
+      executionCallbacksRef,
+      sessionExecutionCallbacksRef
+    );
     
     socketRef.current = socket;
   }, [sessionId, fallbackToPolling, resubscribeAll]);
