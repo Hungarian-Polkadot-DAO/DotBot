@@ -110,13 +110,44 @@ async function simulateTransactionInternal(
     // NOTE: The extrinsic hex should be the method call hex, not the full extrinsic
     // If it's a full extrinsic, we need to extract the method
     let callHex: string;
+    let extrinsicForFee: any = null;
     try {
       // Try to decode as full extrinsic first
       const extrinsic = api.createType('Extrinsic', request.extrinsicHex);
       callHex = extrinsic.method.toHex();
+      extrinsicForFee = extrinsic; // Save for fee calculation
     } catch {
       // If that fails, assume it's already the method call hex
       callHex = request.extrinsicHex;
+      
+      // Reconstruct extrinsic from method call hex for fee calculation
+      try {
+        // Decode the call hex as a Call type
+        const call = api.createType('Call', callHex);
+        // Extract method details from the call
+        const callMethod = call as any;
+        if (callMethod.section && callMethod.method) {
+          // Reconstruct using api.tx[section][method](...args)
+          const txMethod = (api.tx as any)[callMethod.section]?.[callMethod.method];
+          if (txMethod) {
+            // Get the args from the call - decode them properly
+            const args: any[] = [];
+            if (callMethod.args && callMethod.args.length > 0) {
+              for (let i = 0; i < callMethod.args.length; i++) {
+                const arg = callMethod.args[i];
+                // Convert the arg to its native type (not hex)
+                args.push(arg);
+              }
+            }
+            extrinsicForFee = txMethod(...args);
+          }
+        }
+      } catch (reconstructError) {
+        // If reconstruction fails, we'll skip fee calculation
+        simulationLogger.debug({ 
+          error: reconstructError instanceof Error ? reconstructError.message : String(reconstructError)
+        }, 'Could not reconstruct extrinsic for fee calculation, will skip');
+      }
     }
 
     // Execute simulation
@@ -141,28 +172,29 @@ async function simulateTransactionInternal(
 
     // Calculate fee (try, but don't fail if it doesn't work)
     let fee = '0';
-    try {
-      const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
-      const publicKey = decodeAddress(request.senderAddress);
-      const ss58Format = api.registry.chainSS58 || 0;
-      const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
-      
-      const extrinsicObj = api.createType('Extrinsic', request.extrinsicHex) as any;
-      const feeInfo = await extrinsicObj.paymentInfo(encodedSenderAddress);
-      fee = feeInfo.partialFee.toString();
-    } catch (feeError) {
-      // Fee calculation can fail, but simulation already succeeded
-      const errorMessage = feeError instanceof Error ? feeError.message : String(feeError);
-      const errorClassification = classifyChopsticksError(errorMessage, 'paymentInfo', chainName);
-      
-      if (!errorClassification.ignore) {
-        return {
-          success: false,
-          error: `${errorClassification.classification}: ${errorMessage}`,
-          estimatedFee: '0',
-          balanceChanges: [],
-          events: [],
-        };
+    if (extrinsicForFee) {
+      try {
+        const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
+        const publicKey = decodeAddress(request.senderAddress);
+        const ss58Format = api.registry.chainSS58 || 0;
+        const encodedSenderAddress = encodeAddress(publicKey, ss58Format);
+        
+        const feeInfo = await extrinsicForFee.paymentInfo(encodedSenderAddress);
+        fee = feeInfo.partialFee.toString();
+      } catch (feeError) {
+        // Fee calculation can fail, but simulation already succeeded
+        const errorMessage = feeError instanceof Error ? feeError.message : String(feeError);
+        const errorClassification = classifyChopsticksError(errorMessage, 'paymentInfo', chainName);
+        
+        if (!errorClassification.ignore) {
+          return {
+            success: false,
+            error: `${errorClassification.classification}: ${errorMessage}`,
+            estimatedFee: '0',
+            balanceChanges: [],
+            events: [],
+          };
+        }
       }
     }
 
@@ -251,14 +283,46 @@ async function simulateSequentialTransactionsInternal(
     for (let i = 0; i < request.items.length; i++) {
       const item = request.items[i];
       
-      // Decode extrinsic and get method hex
+      // Decode extrinsic and get full extrinsic hex for chain.newBlock
+      // NOTE: The client sends method call hex, but chain.newBlock needs full extrinsic
       let extrinsicHex: string;
+      let extrinsicForFee: any = null;
       try {
+        // Try to decode as full extrinsic first
         const extrinsic = api.createType('Extrinsic', item.extrinsicHex);
         extrinsicHex = extrinsic.toHex();
+        extrinsicForFee = extrinsic; // Save for fee calculation
       } catch {
-        // If decoding fails, assume it's already the full extrinsic hex
-        extrinsicHex = item.extrinsicHex;
+        // If that fails, assume it's a method call hex
+        // Reconstruct full extrinsic from method call hex
+        try {
+          const call = api.createType('Call', item.extrinsicHex);
+          const callMethod = call as any;
+          if (callMethod.section && callMethod.method) {
+            const txMethod = (api.tx as any)[callMethod.section]?.[callMethod.method];
+            if (txMethod) {
+              const args: any[] = [];
+              if (callMethod.args && callMethod.args.length > 0) {
+                for (let j = 0; j < callMethod.args.length; j++) {
+                  args.push(callMethod.args[j]);
+                }
+              }
+              extrinsicForFee = txMethod(...args);
+              extrinsicHex = extrinsicForFee.toHex();
+            } else {
+              // If we can't reconstruct, use the call hex directly (may fail)
+              extrinsicHex = item.extrinsicHex;
+            }
+          } else {
+            extrinsicHex = item.extrinsicHex;
+          }
+        } catch (reconstructError) {
+          // If reconstruction fails, use the hex as-is (may cause errors)
+          simulationLogger.warn({ 
+            error: reconstructError instanceof Error ? reconstructError.message : String(reconstructError)
+          }, 'Could not reconstruct extrinsic from method call hex, using as-is');
+          extrinsicHex = item.extrinsicHex;
+        }
       }
 
       // Build block with this extrinsic
@@ -274,27 +338,18 @@ async function simulateSequentialTransactionsInternal(
 
       // Calculate fee
       let fee = '0';
-      try {
-        const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
-        const publicKey = decodeAddress(item.senderAddress);
-        const ss58Format = api.registry.chainSS58 || 0;
-        const encodedSender = encodeAddress(publicKey, ss58Format);
-        
-        // Decode extrinsic for fee calculation
-        let extrinsicForFee: any;
+      if (extrinsicForFee) {
         try {
-          extrinsicForFee = api.createType('Extrinsic', item.extrinsicHex);
-        } catch {
-          // If decoding fails, skip fee calculation
-          extrinsicForFee = null;
-        }
-        
-        if (extrinsicForFee) {
+          const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
+          const publicKey = decodeAddress(item.senderAddress);
+          const ss58Format = api.registry.chainSS58 || 0;
+          const encodedSender = encodeAddress(publicKey, ss58Format);
+          
           const feeInfo = await extrinsicForFee.paymentInfo(encodedSender);
           fee = feeInfo.partialFee.toString();
+        } catch {
+          // Fee calculation can fail
         }
-      } catch {
-        // Fee calculation can fail
       }
 
       if (!succeeded) {
