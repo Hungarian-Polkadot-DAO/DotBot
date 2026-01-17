@@ -494,6 +494,100 @@ Delete a session and clean up resources.
 
 ---
 
+### Simulation Endpoints
+
+**NEW** in v0.2.2: Backend simulation endpoints for Chopsticks integration.
+
+#### `POST /api/simulation/simulate`
+
+Simulate a single transaction using Chopsticks.
+
+**Request:**
+```json
+{
+  "rpcEndpoints": ["wss://rpc.polkadot.io"],
+  "extrinsicHex": "0x...",
+  "senderAddress": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+  "blockHash": "0x...",
+  "buildBlockMode": "Batch"
+}
+```
+
+**Parameters:**
+- `rpcEndpoints` (string[], required): RPC endpoints to use for simulation
+- `extrinsicHex` (string, required): Extrinsic method call hex
+- `senderAddress` (string, required): Sender's address
+- `blockHash` (string, optional): Block hash to fork from (default: latest finalized)
+- `buildBlockMode` (string, optional): `"Batch"` or `"Instant"` (default: `"Batch"`)
+
+**Response:**
+```json
+{
+  "success": true,
+  "estimatedFee": "1000000000",
+  "balanceChanges": [
+    {
+      "address": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+      "value": "100000000000",
+      "change": "send"
+    }
+  ],
+  "events": [...]
+}
+```
+
+---
+
+#### `POST /api/simulation/simulate-sequential`
+
+Simulate multiple transactions sequentially on a single fork.
+
+**Request:**
+```json
+{
+  "rpcEndpoints": ["wss://rpc.polkadot.io"],
+  "items": [
+    {
+      "extrinsicHex": "0x...",
+      "description": "Transfer 5 DOT",
+      "senderAddress": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+    }
+  ],
+  "buildBlockMode": "Instant"
+}
+```
+
+**Parameters:**
+- `rpcEndpoints` (string[], required): RPC endpoints
+- `items` (array, required): Array of transactions to simulate sequentially
+- `buildBlockMode` (string, optional): `"Batch"` or `"Instant"` (default: `"Instant"`)
+
+**Response:**
+```json
+{
+  "success": true,
+  "results": [
+    {
+      "index": 0,
+      "description": "Transfer 5 DOT",
+      "result": {
+        "success": true,
+        "estimatedFee": "1000000000",
+        "balanceChanges": [...],
+        "events": [...]
+      }
+    }
+  ],
+  "totalFee": "1000000000"
+}
+```
+
+**Note:** These endpoints are used internally by `@dotbot/core` client. Frontend code should use the high-level simulation functions, not call these endpoints directly.
+
+**Version Added:** v0.2.2 (January 2026)
+
+---
+
 ### Error Responses
 
 All endpoints return consistent error format:
@@ -2521,7 +2615,9 @@ const api = await this.getApiForChain('assetHub');
 
 **`dryRunExtrinsic(api, extrinsic, address, rpcEndpoint?): Promise<DryRunResult>`**
 
-Simulate extrinsic with Chopsticks (optional) or dry-run.
+Simulate extrinsic with Chopsticks via backend server (optional) or dry-run.
+
+**Note:** Chopsticks simulation requires the backend server to be running. The client makes HTTP requests to `/api/simulation` endpoints.
 
 ```typescript
 const result = await this.dryRunExtrinsic(api, extrinsic, address);
@@ -2703,6 +2799,8 @@ const unsubscribe = executionArray.subscribe((state) => {
 
 Control transaction simulation behavior via `SettingsManager`. Settings persist to localStorage.
 
+**Important:** Simulation requires the backend server to be running with Chopsticks support. The client (`@dotbot/core`) makes HTTP requests to `/api/simulation` endpoints on the backend server (`@dotbot/express`).
+
 **Import:**
 ```typescript
 import { 
@@ -2732,7 +2830,7 @@ interface SimulationConfig {
   timeout: number;        // Simulation timeout (ms)
   skipOnFailure?: boolean;      // Skip simulation if it fails (future)
   allowIgnoreResults?: boolean; // Allow ignoring results (future)
-  useChopsticks?: boolean;      // Use Chopsticks vs dry-run (future)
+  useChopsticks?: boolean;      // Use Chopsticks vs dry-run (via backend server)
 }
 ```
 
@@ -3098,7 +3196,7 @@ ScenarioEngine enables systematic testing of DotBot's LLM-driven behavior throug
 
 **Execution Modes:**
 - `'synthetic'`: Fully mocked (fastest, for unit tests)
-- `'emulated'`: Uses Chopsticks for realistic simulation
+- `'emulated'`: Uses Chopsticks for realistic simulation (requires backend server, currently disabled)
 - `'live'`: Real chain interaction (requires testnet)
 
 ---
@@ -3346,7 +3444,7 @@ async allocateBalance(
 
 **Mode Behavior:**
 - **Synthetic**: Tracks in memory
-- **Emulated**: Sets via Chopsticks `setStorage()`
+- **Emulated**: Sets via Chopsticks `setStorage()` (requires backend server, currently disabled)
 - **Live**: Creates real transfer transaction
 
 **Version Added:** v0.2.0 (January 2026)
@@ -3748,7 +3846,7 @@ export class CustomAgent extends BaseAgent {
       // 3. Create extrinsic
       const extrinsic = api.tx.system.remark('Hello from CustomAgent!');
       
-      // 4. Optional: Dry run
+      // 4. Optional: Simulate (via backend server)
       const dryRunResult = await this.dryRunExtrinsic(
         api,
         extrinsic,
@@ -3790,6 +3888,8 @@ export class CustomAgent extends BaseAgent {
 
 Simulation can be enabled/disabled via `SettingsManager`. Configuration persists to localStorage.
 
+**Backend Requirement:** Simulation requires the backend server (`@dotbot/express`) to be running with Chopsticks support. The client makes HTTP requests to `/api/simulation` endpoints.
+
 **API:**
 ```typescript
 import { 
@@ -3827,7 +3927,7 @@ disableSimulation();
 
 ### Simulation Status Tracking
 
-**Note:** Simulation is optional. Status callbacks are only invoked when simulation is enabled. Use `isSimulationEnabled()` to check current state.
+**Note:** Simulation is optional and requires the backend server to be running. Status callbacks are only invoked when simulation is enabled. Use `isSimulationEnabled()` to check current state. If the backend server is unavailable, simulation will fail gracefully with an error message.
 
 ```typescript
 agent.initialize(
@@ -3850,11 +3950,11 @@ agent.initialize(
 
 **Status phases:**
 - `'starting'` - Simulation starting
-- `'connecting'` - Connecting to RPC
-- `'building'` - Building simulation environment
-- `'executing'` - Executing extrinsic
+- `'initializing'` - Connecting to simulation server (backend)
+- `'forking'` - Getting current blockchain state
+- `'executing'` - Simulating transaction on backend server
 - `'complete'` - Simulation successful
-- `'error'` - Simulation failed
+- `'error'` - Simulation failed (backend error or unavailable)
 
 **When simulation is disabled:**
 - Status callback is never invoked
@@ -3881,7 +3981,7 @@ class AgentError extends Error {
 - `INSUFFICIENT_BALANCE` - Not enough funds
 - `BELOW_EXISTENTIAL_DEPOSIT` - Would leave account below ED
 - `CAPABILITY_NOT_SUPPORTED` - Runtime missing required method
-- `SIMULATION_FAILED` - Chopsticks simulation failed
+- `SIMULATION_FAILED` - Chopsticks simulation failed (backend server error or unavailable)
 - `ASSET_HUB_NOT_AVAILABLE` - Asset Hub API not connected
 - `API_CHAIN_MISMATCH` - API connected to wrong chain
 
@@ -4206,7 +4306,7 @@ const array = dotbot.currentChat.getExecutionArray(execMessage.executionId);
 **New Features:**
 - Production-safe extrinsic building
 - Runtime capability detection
-- Chopsticks simulation integration
+- Chopsticks simulation integration (frontend-embedded)
 - Pluggable signer architecture
 - Multi-endpoint RPC management
 
@@ -4229,6 +4329,36 @@ const array = dotbot.currentChat.getExecutionArray(execMessage.executionId);
 - All components use `isSimulationEnabled()` for consistent simulation state checking
 - Settings persist across sessions via localStorage
 - Better multi-transaction flow support with state tracking
+
+---
+
+### v0.2.2 (January 2026)
+
+**Architecture Changes:**
+- ⚠️ **Chopsticks moved to backend**: Refactored from frontend-embedded to client-server architecture
+- **Removed**: `@acala-network/chopsticks-core` dependency from `@dotbot/core`
+- **Added**: `@acala-network/chopsticks-core` dependency to `@dotbot/express`
+- **Client Interface**: `@dotbot/core` now provides client interface that makes HTTP requests to backend
+- **Backend Implementation**: All Chopsticks simulation logic moved to `@dotbot/express` server
+
+**Benefits:**
+- No frontend bundling issues (Chopsticks never touches the browser)
+- Clean separation of concerns (client vs server)
+- Better performance (server handles heavy simulation workloads)
+- Easier maintenance (all Chopsticks code in one place)
+
+**Breaking Changes:**
+- ⚠️ **Backend server required**: Simulation now requires backend server (`@dotbot/express`) to be running
+- ⚠️ **Emulated mode disabled**: StateAllocator emulated mode temporarily disabled (requires server-side implementation)
+
+**New Backend Endpoints:**
+- `POST /api/simulation/simulate` - Single transaction simulation
+- `POST /api/simulation/simulate-sequential` - Sequential multi-transaction simulation
+
+**Migration:**
+- No code changes required for frontend users
+- Backend must have `@acala-network/chopsticks-core` installed
+- Backend must mount simulation routes at `/api/simulation`
 
 ---
 

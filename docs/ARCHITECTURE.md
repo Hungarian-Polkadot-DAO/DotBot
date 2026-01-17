@@ -282,7 +282,7 @@ const result = buildSafeTransferExtrinsic(api, params, capabilities);
 **Pluggable Components:**
 - **Signers**: BrowserWalletSigner, KeyringSigner, CustomSigner
 - **RPC Providers**: Multiple endpoints with automatic failover
-- **Simulation**: Chopsticks (optional), can be replaced with dry-run
+- **Simulation**: Chopsticks client (optional, makes HTTP requests to backend), can be replaced with dry-run
 
 ---
 
@@ -334,7 +334,7 @@ agents/
 - Detect runtime capabilities
 - Create production-safe extrinsics
 - Return standardized AgentResult
-- Optionally dry-run with Chopsticks
+- Optionally simulate with Chopsticks (via backend server)
 
 ---
 
@@ -364,8 +364,8 @@ executionEngine/
 ```
 
 **Flow:**
-1. **Simulation**: Validate with Chopsticks (optional)
-   - If enabled: Items start as `'pending'`, simulation runs before signing
+1. **Simulation**: Validate with Chopsticks (optional, via backend server)
+   - If enabled: Items start as `'pending'`, simulation runs on backend before signing
    - If disabled: Items start as `'ready'`, execution proceeds directly to signing
 2. **Signing**: Get user approval and sign
 3. **Broadcasting**: Send to network
@@ -391,11 +391,9 @@ executionEngine/
 
 **Key Services:**
 - **RpcManager**: Multi-endpoint management with health monitoring, failover, and **network-awareness**
-- **Chopsticks**: Runtime simulation for pre-execution validation (network-configurable)
+- **Chopsticks Client**: Client interface for runtime simulation (makes HTTP requests to backend server)
 - **SettingsManager**: Centralized settings management with persistence (simulation config, extensible for future settings)
-- **SequentialSimulation**: Multi-transaction simulation service (sequential execution on single fork for state tracking)
-- **SettingsManager**: Centralized settings management with persistence (simulation config, future: UI preferences, etc.)
-- **SequentialSimulation**: Multi-transaction simulation with state tracking (uses single fork for sequential state)
+- **SequentialSimulation**: Multi-transaction simulation service (sequential execution on single fork for state tracking, client interface)
 
 **RpcManager Network Features:**
 - Network-scoped storage keys (health tracking isolated per network)
@@ -624,7 +622,7 @@ scenarioEngine/
 2. **StateAllocator**
    - Sets up initial state for scenario execution
    - **Synthetic mode**: Tracks balances/assets in memory
-   - **Emulated mode**: Uses Chopsticks to set chain state
+   - **Emulated mode**: Uses Chopsticks to set chain state (requires backend server, currently disabled)
    - **Live mode**: Creates real transactions (with warnings)
    - Integrates with RpcManager for reliable connections
    - Restores chat history from snapshots
@@ -647,7 +645,7 @@ scenarioEngine/
 
 1. **Execution Modes**
    - **Synthetic**: Fully mocked, no chain interaction (fastest, for unit tests)
-   - **Emulated**: Uses Chopsticks for realistic simulation (balanced)
+   - **Emulated**: Uses Chopsticks for realistic simulation via backend server (balanced, requires backend)
    - **Live**: Real chain interaction (most realistic, requires testnet)
 
 2. **Scenario Structure**
@@ -885,9 +883,16 @@ async execute(item) {
 - Failed transactions waste fees
 - Some errors only appear during runtime execution
 - Simulation adds latency (1-3 seconds) which may not always be desired
+- Chopsticks is a Node.js package that cannot run in the browser
 
 **Decision:**
 Simulation is **optional** and can be enabled/disabled. When enabled, all extrinsics are simulated with Chopsticks before signing. When disabled, execution proceeds directly to signing. Execution items initialize with status based on simulation setting (`'pending'` when enabled, `'ready'` when disabled).
+
+**Architecture:**
+- **Client-Server Model**: Chopsticks runs exclusively on the backend server (`@dotbot/express`)
+- **Client Interface**: `@dotbot/core` provides a client interface that makes HTTP requests to the backend
+- **Backend Implementation**: Server handles all Chopsticks setup, chain forking, and simulation execution
+- **Benefits**: No frontend bundling issues, better performance, clean separation of concerns
 
 **Rationale:**
 1. **Error Prevention**: Catch failures before spending fees (when enabled)
@@ -895,6 +900,7 @@ Simulation is **optional** and can be enabled/disabled. When enabled, all extrin
 3. **Better UX**: Explain why transaction would fail (when enabled)
 4. **Flexibility**: Can be disabled for speed or when simulation infrastructure unavailable
 5. **Status-Aware Initialization**: UI correctly reflects execution flow based on simulation setting
+6. **Client-Server Separation**: Chopsticks never touches the browser, avoiding bundling issues
 
 **Alternatives Considered:**
 1. ❌ **Always simulate**: Required simulation for all transactions
@@ -909,17 +915,23 @@ Simulation is **optional** and can be enabled/disabled. When enabled, all extrin
    - Doesn't actually execute runtime logic
    - Misses balance/permission issues
    
-4. ✅ **Optional Chopsticks simulation**: Real runtime execution locally (when enabled)
+4. ❌ **Frontend-embedded Chopsticks**: Bundle Chopsticks in frontend
+   - Problem: Node.js package cannot run in browser
+   - Problem: Causes bundling errors and compatibility issues
+   
+5. ✅ **Optional Chopsticks simulation (client-server)**: Real runtime execution on backend server (when enabled)
    - Most accurate when enabled
    - Shows actual balance changes when enabled
-   - Falls back to dry-run if Chopsticks unavailable
+   - Falls back gracefully if backend server unavailable
    - Can be disabled for speed
    - Status initialization adapts to simulation setting
+   - No frontend bundling issues
 
 **Consequences:**
-- **When enabled**: Requires Chopsticks dependency, adds latency (1-3 seconds), greatly improves UX, reduces failed transactions
+- **When enabled**: Requires backend server running with Chopsticks dependency, adds latency (1-3 seconds), greatly improves UX, reduces failed transactions
 - **When disabled**: Faster execution, no simulation infrastructure needed, items start as `'ready'` instead of `'pending'`
 - **Status Flow**: Items initialize with `'pending'` status when simulation enabled (will be simulated), `'ready'` when disabled (ready for signing)
+- **Backend Dependency**: Backend must have `@acala-network/chopsticks-core` installed and simulation routes mounted
 
 **Implementation:**
 ```typescript
@@ -962,9 +974,10 @@ if (items.length > 1) {
 ```
 
 **History:**
+- v0.2.2 (January 2026): Refactored to client-server architecture - Chopsticks moved from `@dotbot/core` to `@dotbot/express` (backend only)
 - v0.2.0 (January 2026): Made simulation optional with status-aware initialization
 - v0.2.1 (January 2026): Added SettingsManager for persistent configuration, UI toggle, sequential multi-transaction simulation
-- v0.1.0 (January 2026): Initial implementation (simulation always attempted)
+- v0.1.0 (January 2026): Initial implementation (simulation always attempted, frontend-embedded)
 
 ---
 
@@ -1606,7 +1619,8 @@ export const STORAGE_KEYS = {
 │    │ b) Detect runtime capabilities          │           │
 │    │ c) Validate balance + ED                │           │
 │    │ d) Create production-safe extrinsic     │           │
-│    │ e) Optionally dry-run with Chopsticks   │           │
+│    │ e) Optionally simulate with Chopsticks  │           │
+│    │    (via backend server)                 │           │
 │    └─────────────────────────────────────────┘           │
 │                                                             │
 │    Returns: AgentResult {                                  │
@@ -1622,9 +1636,10 @@ export const STORAGE_KEYS = {
 │    executioner.execute(agentResult)                        │
 │                                                             │
 │    ┌─────────────────────────────────────────┐           │
-│    │ a) Simulation (optional)                │           │
+│    │ a) Simulation (optional, backend)      │           │
 │    │    - If enabled:                        │           │
-│    │      • Chopsticks runtime execution      │           │
+│    │      • HTTP request to backend          │           │
+│    │      • Backend runs Chopsticks          │           │
 │    │      • Show balance changes              │           │
 │    │      • Catch errors early                │           │
 │    │    - If disabled:                        │           │
@@ -1777,7 +1792,7 @@ When creating a new agent:
 2. **Create Extrinsics**: Agent must return ready-to-sign extrinsic
 3. **Detect Capabilities**: Use runtime introspection
 4. **Handle Errors**: Use AgentError with error codes
-5. **Dry Run**: Optionally validate with Chopsticks
+5. **Simulation**: Optionally validate with Chopsticks (via backend server)
 6. **Document**: JSDoc for all public methods
 
 **Template:**
@@ -1834,7 +1849,7 @@ class AgentError extends Error {
 - `INVALID_ADDRESS`: Address validation failed
 - `INSUFFICIENT_BALANCE`: Not enough funds
 - `CAPABILITY_NOT_SUPPORTED`: Runtime missing required method
-- `SIMULATION_FAILED`: Chopsticks simulation failed
+- `SIMULATION_FAILED`: Chopsticks simulation failed (backend server error or unavailable)
 - `SIGNING_REJECTED`: User rejected transaction
 - `BROADCAST_FAILED`: Network submission failed
 
@@ -1854,12 +1869,14 @@ class AgentError extends Error {
 - Why: Polkadot-native utilities
 - Version: ^14.0.1
 
-**Chopsticks** (`@acala-network/chopsticks`)
-- Purpose: Runtime simulation
-- Why: Most accurate pre-execution validation
-- Optional: Falls back to dry-run if unavailable
-
 ### Backend Dependencies
+
+**Chopsticks** (`@acala-network/chopsticks-core`)
+- Purpose: Runtime simulation (backend only)
+- Location: `@dotbot/express` package only
+- Why: Most accurate pre-execution validation
+- Note: Not available in `@dotbot/core` (client makes HTTP requests to backend)
+- Optional: Falls back gracefully if backend server unavailable
 
 **Express.js** (`express`)
 - Purpose: HTTP server and routing
@@ -1868,8 +1885,9 @@ class AgentError extends Error {
 
 **@dotbot/express**
 - Purpose: Express integration layer for DotBot
-- Why: Encapsulates routing, middleware, session management
+- Why: Encapsulates routing, middleware, session management, **Chopsticks simulation**
 - Location: `lib/dotbot-express` (workspace)
+- **Chopsticks Integration**: Contains all Chopsticks simulation logic (server-side only)
 
 **@dotbot/core**
 - Purpose: Core blockchain logic (shared with frontend)
