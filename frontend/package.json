@@ -1,6 +1,6 @@
 {
   "name": "dotbot-frontend",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "dependencies": {
     "@dotbot/core": "file:../lib/dotbot-core",
