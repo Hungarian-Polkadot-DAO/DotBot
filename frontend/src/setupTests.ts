@@ -7,8 +7,8 @@ import '@testing-library/jest-dom';
 // Polyfill TextEncoder/TextDecoder for Node.js test environment
 // Required by @polkadot/util-crypto and other crypto libraries
 import { TextEncoder, TextDecoder } from 'util';
-global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder as typeof global.TextDecoder;
+global.TextEncoder = TextEncoder as any;
+global.TextDecoder = TextDecoder as any;
 
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
@@ -35,9 +35,13 @@ global.ResizeObserver = jest.fn().mockImplementation(() => ({
 // Suppress console warnings during tests
 const originalError = console.error;
 console.error = (...args) => {
+  // Suppress ReactDOMTestUtils.act deprecation warning
+  // This is a known issue with @testing-library/react and React 18
+  // The warning is harmless and will be fixed in future versions
   if (
     typeof args[0] === 'string' &&
-    args[0].includes('ReactDOMTestUtils.act is deprecated')
+    (args[0].includes('ReactDOMTestUtils.act is deprecated') ||
+     args[0].includes('Warning: `ReactDOMTestUtils.act` is deprecated'))
   ) {
     return;
   }

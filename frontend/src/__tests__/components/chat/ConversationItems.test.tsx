@@ -82,7 +82,6 @@ describe('ConversationItems', () => {
         <ConversationItems
           items={items as any}
           dotbot={mockDotBot}
-          backendSessionId="test-session"
         />
       );
 

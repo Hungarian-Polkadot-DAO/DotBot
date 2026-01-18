@@ -236,14 +236,13 @@ describe('App', () => {
       });
 
       // Verify addExecutionMessage was called with correct parameters
+      // Note: Third parameter is undefined because frontend rebuilds execution array
       expect(mockChat.addExecutionMessage).toHaveBeenCalledWith(
         executionId,
         expect.objectContaining({
           steps: expect.any(Array),
         }),
-        expect.objectContaining({
-          id: executionId,
-        }),
+        undefined, // executionArrayState - intentionally undefined, frontend rebuilds it
         true // skipReload
       );
     });

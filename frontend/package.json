@@ -75,7 +75,8 @@
   "overrides": {
     "@polkadot/util": "^14.0.1",
     "@polkadot/util-crypto": "^14.0.1",
-    "@polkadot/rpc-augment": "^14.3.1"
+    "@polkadot/rpc-augment": "^14.3.1",
+    "@polkadot/rpc-provider": "^14.3.1"
   },
   "jest": {
     "transformIgnorePatterns": [

@@ -97,7 +97,7 @@ describe('ExecutionFlow', () => {
       expect(screen.getByTestId('execution-flow-footer')).toBeInTheDocument();
     });
 
-    it('should call useExecutionFlowState with the correct executionId', () => {
+    it('should call useExecutionFlowState with the correct parameters', () => {
       const executionMessage = createMockExecutionMessage({
         executionId: 'exec-456',
       });
@@ -106,15 +106,13 @@ describe('ExecutionFlow', () => {
         <ExecutionFlow
           executionMessage={executionMessage}
           dotbot={mockDotBot}
-          backendSessionId="test-session"
         />
       );
 
       expect(mockUseExecutionFlowState).toHaveBeenCalledWith(
         executionMessage,
         mockDotBot,
-        undefined,
-        'test-session'
+        undefined
       );
     });
 
@@ -248,8 +246,7 @@ describe('ExecutionFlow', () => {
       expect(mockUseExecutionFlowState).toHaveBeenCalledWith(
         undefined,
         mockDotBot,
-        executionState,
-        undefined
+        executionState
       );
     });
 
@@ -271,8 +268,7 @@ describe('ExecutionFlow', () => {
       expect(mockUseExecutionFlowState).toHaveBeenCalledWith(
         executionMessage,
         mockDotBot,
-        legacyState,
-        undefined
+        legacyState
       );
     });
   });

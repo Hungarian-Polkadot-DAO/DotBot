@@ -8,11 +8,8 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { useExecutionFlowState } from '../../components/execution-flow/hooks/useExecutionFlowState';
 import { createMockDotBot, createMockExecutionMessage, createMockExecutionArrayState } from '../../test-utils/mocks';
 
-// Mock useExecutionState from App.tsx (context provider)
-const mockUseExecutionState = jest.fn();
-jest.mock('../../App', () => ({
-  useExecutionState: (executionId: string | undefined) => mockUseExecutionState(executionId),
-}));
+// Note: useExecutionFlowState no longer uses useExecutionState from App.tsx
+// It's a simpler implementation that only handles stateful mode
 
 describe('useExecutionFlowState', () => {
   let mockDotBot: ReturnType<typeof createMockDotBot>;
@@ -23,23 +20,19 @@ describe('useExecutionFlowState', () => {
     
     mockDotBot = createMockDotBot();
     mockUnsubscribe = jest.fn();
-    
-    // Default: no context state (returns undefined)
-    mockUseExecutionState.mockReturnValue(undefined);
   });
 
   describe('state sources', () => {
-    it('should return state from context when available', () => {
+    it('should return state from executionMessage.executionArray when available', () => {
       const executionMessage = createMockExecutionMessage();
-      const contextState = createMockExecutionArrayState({ id: executionMessage.executionId });
-      
-      mockUseExecutionState.mockReturnValue(contextState);
+      const executionState = createMockExecutionArrayState({ id: executionMessage.executionId });
+      executionMessage.executionArray = executionState;
 
       const { result } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, 'test-session')
+        useExecutionFlowState(executionMessage, mockDotBot, undefined)
       );
 
-      expect(result.current).toBe(contextState);
+      expect(result.current).toBe(executionState);
     });
 
     it('should return correct initial state from executionMessage', () => {
@@ -48,7 +41,7 @@ describe('useExecutionFlowState', () => {
       executionMessage.executionArray = executionState;
 
       const { result } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, undefined)
+        useExecutionFlowState(executionMessage, mockDotBot, undefined)
       );
 
       // Should return state from executionMessage
@@ -59,7 +52,7 @@ describe('useExecutionFlowState', () => {
       const legacyState = createMockExecutionArrayState();
 
       const { result } = renderHook(() =>
-        useExecutionFlowState(undefined, mockDotBot, legacyState, undefined)
+        useExecutionFlowState(undefined, mockDotBot, legacyState)
       );
 
       expect(result.current).toBe(legacyState);
@@ -77,7 +70,7 @@ describe('useExecutionFlowState', () => {
       (mockDotBot.currentChat as any).onExecutionUpdate = jest.fn().mockReturnValue(mockUnsubscribe);
 
       const { unmount } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, undefined)
+        useExecutionFlowState(executionMessage, mockDotBot, undefined)
       );
 
       unmount();
@@ -105,7 +98,7 @@ describe('useExecutionFlowState', () => {
 
       const { result, rerender } = renderHook(
         ({ executionMessage }) =>
-          useExecutionFlowState(executionMessage, mockDotBot, undefined, undefined),
+          useExecutionFlowState(executionMessage, mockDotBot, undefined),
         {
           initialProps: { executionMessage: executionMessage1 },
         }
@@ -163,7 +156,7 @@ describe('useExecutionFlowState', () => {
 
       const { result, rerender } = renderHook(
         ({ executionMessage }) =>
-          useExecutionFlowState(executionMessage, mockDotBot, undefined, undefined),
+          useExecutionFlowState(executionMessage, mockDotBot, undefined),
         {
           initialProps: { executionMessage: executionMessage1 },
         }
@@ -197,7 +190,7 @@ describe('useExecutionFlowState', () => {
   });
 
   describe('state updates', () => {
-    it('should update state when context state changes', async () => {
+    it('should update state when ExecutionArray state changes', async () => {
       const executionMessage = createMockExecutionMessage();
       const initialState = createMockExecutionArrayState({ id: 'exec-123' });
       const updatedState = createMockExecutionArrayState({
@@ -205,31 +198,41 @@ describe('useExecutionFlowState', () => {
         items: [{ id: 'item-1', type: 'transfer', status: 'executing' }] as any,
       });
 
-      // Start with initial state
-      mockUseExecutionState.mockReturnValue(initialState);
+      const mockExecutionArray = {
+        getState: jest.fn().mockReturnValue(initialState),
+      };
+      
+      (mockDotBot.currentChat as any).getExecutionArray = jest.fn().mockReturnValue(mockExecutionArray);
+      
+      // Mock onExecutionUpdate to simulate state update
+      (mockDotBot.currentChat as any).onExecutionUpdate = jest.fn().mockImplementation((executionId, callback) => {
+        // Simulate state update after a delay
+        setTimeout(() => {
+          mockExecutionArray.getState.mockReturnValue(updatedState);
+          callback(updatedState);
+        }, 10);
+        return mockUnsubscribe;
+      });
 
-      const { result, rerender } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, undefined)
+      const { result } = renderHook(() =>
+        useExecutionFlowState(executionMessage, mockDotBot, undefined)
       );
 
       // Should return initial state
       expect(result.current).toBe(initialState);
 
-      // Update context state
-      mockUseExecutionState.mockReturnValue(updatedState);
-      rerender();
-
+      // Wait for state update
       await waitFor(() => {
         expect(result.current).toBe(updatedState);
-      });
+      }, { timeout: 1000 });
     });
 
-    it('should prioritize liveExecutionState (stateful) over context state', async () => {
+    it('should prioritize liveExecutionState over executionMessage.executionArray', async () => {
       const executionMessage = createMockExecutionMessage();
-      const contextState = createMockExecutionArrayState({ id: 'from-context' });
+      const messageState = createMockExecutionArrayState({ id: 'from-message' });
       const liveState = createMockExecutionArrayState({ id: 'live-state' });
       
-      mockUseExecutionState.mockReturnValue(contextState);
+      executionMessage.executionArray = messageState;
       
       const mockExecutionArray = {
         getState: jest.fn().mockReturnValue(liveState),
@@ -245,78 +248,62 @@ describe('useExecutionFlowState', () => {
       });
 
       const { result } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, undefined)
+        useExecutionFlowState(executionMessage, mockDotBot, undefined)
       );
 
-      // Should prioritize live state (stateful mode) over context state
+      // Should prioritize live state (stateful mode) over message state
       await waitFor(() => {
         expect(result.current).toBe(liveState);
       });
       
-      // Should not use context state when live state is available
-      expect(result.current).not.toBe(contextState);
+      // Should not use message state when live state is available
+      expect(result.current).not.toBe(messageState);
     });
   });
 
-  describe('context integration', () => {
-    it('should use context state when available (stateless mode)', () => {
-      const executionMessage = createMockExecutionMessage();
-      const contextState = createMockExecutionArrayState({ id: executionMessage.executionId });
-      
-      mockUseExecutionState.mockReturnValue(contextState);
-
-      const { result } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, 'test-session')
-      );
-
-      expect(result.current).toBe(contextState);
-      expect(mockUseExecutionState).toHaveBeenCalledWith(executionMessage.executionId);
-    });
-
-    it('should fall back to executionMessage state when context state not available', () => {
+  describe('fallback behavior', () => {
+    it('should fall back to executionMessage.executionArray when no ExecutionArray available', () => {
       const executionMessage = createMockExecutionMessage();
       const messageState = createMockExecutionArrayState();
       executionMessage.executionArray = messageState;
       
-      mockUseExecutionState.mockReturnValue(undefined);
+      (mockDotBot.currentChat as any).getExecutionArray = jest.fn().mockReturnValue(null);
 
       const { result } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, 'test-session')
+        useExecutionFlowState(executionMessage, mockDotBot, undefined)
       );
 
       expect(result.current).toBe(messageState);
     });
 
-    it('should handle context returning undefined gracefully', () => {
+    it('should fall back to legacyState when no other state available', () => {
       const executionMessage = createMockExecutionMessage();
-      const messageState = createMockExecutionArrayState();
-      executionMessage.executionArray = messageState;
+      const legacyState = createMockExecutionArrayState();
       
-      mockUseExecutionState.mockReturnValue(undefined);
+      (mockDotBot.currentChat as any).getExecutionArray = jest.fn().mockReturnValue(null);
 
       const { result } = renderHook(() =>
-        useExecutionFlowState(executionMessage, mockDotBot, undefined, 'test-session')
+        useExecutionFlowState(executionMessage, mockDotBot, legacyState)
       );
 
-      // Should fall back to executionMessage state
-      expect(result.current).toBe(messageState);
+      expect(result.current).toBe(legacyState);
     });
   });
 
   describe('edge cases', () => {
     it('should return null when no state sources available', () => {
       const { result } = renderHook(() =>
-        useExecutionFlowState(undefined, mockDotBot, null, undefined)
+        useExecutionFlowState(undefined, mockDotBot, null)
       );
 
       expect(result.current).toBeNull();
     });
 
     it('should handle missing executionMessage gracefully', () => {
-      mockUseExecutionState.mockReturnValue(undefined);
+      (mockDotBot.currentChat as any).getExecutionArray = jest.fn().mockReturnValue(null);
       
       const { result } = renderHook(() =>
-        useExecutionFlowState(undefined, mockDotBot, undefined, undefined)
+        useExecutionFlowState(undefined, mockDotBot, undefined)
       );
 
       expect(result.current).toBeNull();
@@ -324,14 +311,15 @@ describe('useExecutionFlowState', () => {
 
     it('should handle missing dotbot gracefully', () => {
       const executionMessage = createMockExecutionMessage();
-      mockUseExecutionState.mockReturnValue(undefined);
+      const messageState = createMockExecutionArrayState();
+      executionMessage.executionArray = messageState;
 
       const { result } = renderHook(() =>
-        useExecutionFlowState(executionMessage, undefined, undefined, undefined)
+        useExecutionFlowState(executionMessage, undefined, undefined)
       );
 
-      // Should return context state if available, otherwise null
-      expect(result.current).toBeNull();
+      // Should fall back to executionMessage.executionArray
+      expect(result.current).toBe(messageState);
     });
   });
 });
