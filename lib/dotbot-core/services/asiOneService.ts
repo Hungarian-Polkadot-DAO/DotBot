@@ -137,19 +137,15 @@ export class ASIOneService {
   /**
    * Build contextual messages for the API request
    * 
-   * This is now STATELESS - history comes from context (managed by frontend)
+   * Stateless service - conversation history is managed by the caller (frontend).
+   * Filters out system messages from history to ensure the system prompt is first.
    * 
-   * @param context - Context object with conversationHistory from DotBot/frontend
+   * @param context - Context object with conversationHistory and optional systemPrompt
    * @param currentUserMessage - The current user message to include
    */
   private buildContextualMessages(context?: any, currentUserMessage?: string): ASIOneMessage[] {
     const messages: ASIOneMessage[] = [];
-
-    // Use provided systemPrompt from context if available (from DotBot)
-    // Otherwise fall back to default
     const systemPrompt = context?.systemPrompt || this.getSystemPrompt(context);
-    
-    // Get conversation history from context (provided by frontend)
     const conversationHistory = context?.conversationHistory || [];
     
     if (context?.systemPrompt) {
@@ -165,27 +161,21 @@ export class ASIOneService {
       }, 'WARNING: No systemPrompt provided - using default (DotBot capabilities may be limited)');
     }
     
-    // Add system message FIRST (ASI-One API requires system message to be first)
+    // ASI-One API requires system message to be first (and only system message)
     messages.push({
       role: 'system',
       content: systemPrompt
     });
 
     // Add conversation history (from context/frontend)
-    // IMPORTANT: Filter out any system messages from history to ensure our system prompt is first
+    // Filter out system messages to ensure our system prompt is the first (and only) system message
+    // System messages are informational context, not part of the conversation flow
     if (conversationHistory.length > 0) {
-      // Limit to last 20 messages to avoid token limits
-      const recentHistory = conversationHistory.slice(-20);
+      const MAX_HISTORY_MESSAGES = 20; // Limit to avoid token limits
+      const recentHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
       
-      // Filter out system messages - they're informational context, not part of the conversation flow
-      // This ensures the system prompt above is always the first (and only) system message
-      // Execution plan context is still useful but shouldn't be in the message flow to avoid confusing the LLM
-      const filteredHistory = recentHistory.filter((msg: ASIOneMessage) => {
-        // Skip system messages - they're context, not conversation
-        return msg.role !== 'system';
-      });
-      
-      messages.push(...filteredHistory);
+      const conversationMessages = recentHistory.filter((msg: ASIOneMessage) => msg.role !== 'system');
+      messages.push(...conversationMessages);
     }
 
     // ALWAYS add the current user message

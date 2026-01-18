@@ -399,77 +399,86 @@ export class RpcManager {
   }
   
   /**
+   * Normalize various error types to a consistent Error object with message
+   * 
+   * Handles Error objects, strings, and unknown types consistently
+   */
+  private normalizeError(error: Error | string | unknown): { message: string; error: Error } {
+    if (error instanceof Error) {
+      return {
+        message: error.message || 'Unknown error',
+        error
+      };
+    }
+    if (typeof error === 'string') {
+      return {
+        message: error,
+        error: new Error(error)
+      };
+    }
+    const message = 'Connection failed (unknown error type)';
+    return {
+      message,
+      error: new Error(message)
+    };
+  }
+
+  /**
    * Attempt to connect to an endpoint
    */
   private async tryConnect(endpoint: string): Promise<ApiPromise> {
     const startTime = Date.now();
+    const API_INIT_TIMEOUT_MS = 12000; // 12 seconds - faster failure for slow testnet endpoints
+    
     return new Promise<ApiPromise>((resolve, reject) => {
       const provider = new WsProvider(endpoint);
-      
-      // Use a shorter timeout for API initialization (12 seconds instead of default 60)
-      // Reduced for faster failure, especially for slow testnet endpoints
-      const apiInitTimeout = 12000;
       let apiInitTimeoutHandle: NodeJS.Timeout | null = null;
-      
       let isResolved = false;
       
       const connectionTimeoutHandle = setTimeout(() => {
         if (!isResolved) {
-          isResolved = true;
-          safeDisconnect();
-          if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
+          cleanup();
           reject(new Error(`Connection timeout (${this.connectionTimeout}ms)`));
         }
       }, this.connectionTimeout);
+      
       const safeDisconnect = () => {
         try {
-          // Always disconnect, even if not connected yet - this cancels pending connection attempts
           if (provider && typeof provider.disconnect === 'function') {
             provider.disconnect();
           }
-        } catch (err) {
+        } catch {
           // Ignore disconnect errors
         }
       };
       
-      // Define error handler first (before connected handler references it)
-      const errorHandler = (error: Error | string | unknown) => {
+      const cleanup = () => {
         if (isResolved) return;
         isResolved = true;
         clearTimeout(connectionTimeoutHandle);
-        if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
-        safeDisconnect();
-        
-        // Handle different error types
-        let errorMessage: string;
-        let errorObj: Error;
-        
-        if (error instanceof Error) {
-          errorMessage = error.message || 'Unknown error';
-          errorObj = error;
-        } else if (typeof error === 'string') {
-          errorMessage = error;
-          errorObj = new Error(error);
-        } else {
-          errorMessage = 'Connection failed (unknown error type)';
-          errorObj = new Error(errorMessage);
+        if (apiInitTimeoutHandle) {
+          clearTimeout(apiInitTimeoutHandle);
+          apiInitTimeoutHandle = null;
         }
+        safeDisconnect();
+      };
+      
+      const errorHandler = (error: Error | string | unknown) => {
+        if (isResolved) return;
+        cleanup();
         
+        const { message, error: errorObj } = this.normalizeError(error);
         this.rpcLogger.error({ 
           endpoint,
-          error: errorMessage,
+          error: message,
           errorType: typeof error
         }, `Failed to connect to ${endpoint}`);
         reject(errorObj);
       };
       
-      // Handle disconnections during initialization
       const disconnectedHandler = () => {
         if (isResolved) return;
-        isResolved = true;
-        clearTimeout(connectionTimeoutHandle);
-        if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
-        safeDisconnect();
+        cleanup();
         const error = new Error(`Connection lost during initialization - endpoint disconnected unexpectedly`);
         this.rpcLogger.error({ 
           endpoint,
@@ -481,21 +490,21 @@ export class RpcManager {
       const connectedHandler = async () => {
         if (isResolved) return;
         clearTimeout(connectionTimeoutHandle);
+        
         try {
           const apiPromise = ApiPromise.create({ provider });
           const timeoutPromise = new Promise<never>((_, timeoutReject) => {
             apiInitTimeoutHandle = setTimeout(() => {
               if (!isResolved) {
-                isResolved = true;
-                safeDisconnect();
-                timeoutReject(new Error(`API initialization timeout (${apiInitTimeout}ms) - endpoint may be slow or unresponsive`));
+                cleanup();
+                timeoutReject(new Error(`API initialization timeout (${API_INIT_TIMEOUT_MS}ms) - endpoint may be slow or unresponsive`));
               }
-            }, apiInitTimeout);
+            }, API_INIT_TIMEOUT_MS);
           });
           
           const api = await Promise.race([apiPromise, timeoutPromise]);
           
-          if (isResolved) return; // Already resolved by timeout or disconnection
+          if (isResolved) return;
           isResolved = true;
           
           // Clear timeout on success
@@ -509,19 +518,17 @@ export class RpcManager {
           resolve(api);
         } catch (error) {
           if (isResolved) return;
-          isResolved = true;
-          if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
-          safeDisconnect();
+          cleanup();
           
-          // Check if error is due to disconnection during initialization
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          const isDisconnectionError = errorMessage.includes('disconnected') || 
-                                       errorMessage.includes('Abnormal Closure') ||
-                                       errorMessage.includes('1006');
+          const { message: errorMessage } = this.normalizeError(error);
+          const isDisconnectionError = 
+            errorMessage.includes('disconnected') || 
+            errorMessage.includes('Abnormal Closure') ||
+            errorMessage.includes('1006');
           
           const finalError = isDisconnectionError 
             ? new Error(`Connection lost during API initialization: ${errorMessage}`)
-            : error;
+            : (error instanceof Error ? error : new Error(errorMessage));
           
           this.rpcLogger.error({ 
             endpoint,
@@ -583,11 +590,13 @@ export class RpcManager {
           this.currentReadApi = api;
           return api;
         } catch (error) {
-          lastError = error as Error;
+          const { error: errorObj } = this.normalizeError(error);
+          lastError = errorObj;
         }
       }
+      const lastErrorMessage = lastError?.message || 'Unknown error';
       throw new Error(
-        `Failed to connect to any RPC endpoint after retry. Last error: ${lastError?.message || 'Unknown'}`
+        `Failed to connect to any RPC endpoint after retry. Last error: ${lastErrorMessage}`
       );
     }
 
@@ -684,23 +693,17 @@ export class RpcManager {
         
         return session;
       } catch (error) {
-        // Convert error to Error object if needed
-        if (error instanceof Error) {
-          lastError = error;
-        } else {
-          lastError = new Error(error ? String(error) : 'Unknown error');
-        }
+        const { message, error: errorObj } = this.normalizeError(error);
+        lastError = errorObj;
         
-        const errorMessage = lastError.message || 'Unknown error';
         this.rpcLogger.warn({ 
           endpoint,
-          error: errorMessage,
+          error: message,
           attempt: i + 1,
           total: orderedEndpoints.length,
           errorType: typeof error
         }, `Failed to connect to endpoint ${i + 1}/${orderedEndpoints.length} for execution session, trying next`);
         this.markEndpointFailed(endpoint);
-        // Continue to next endpoint
       }
     }
 
