@@ -30,8 +30,9 @@ COPY frontend/public ./frontend/public
 # Install frontend dependencies (npm will resolve file:../lib/dotbot-core)
 # Use npm install instead of npm ci to handle file: dependencies in monorepo
 # Use --legacy-peer-deps to handle TypeScript version conflict with react-scripts
+# and remaining peer dependency conflicts in the ajv ecosystem
 WORKDIR /app/frontend
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy frontend source code
 COPY frontend/src ./src
