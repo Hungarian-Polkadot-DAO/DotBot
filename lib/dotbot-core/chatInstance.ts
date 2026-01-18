@@ -571,9 +571,12 @@ export class ChatInstance {
    * - SystemMessage → System notification
    * 
    * Multiple ExecutionFlows can exist in the conversation, each with its own state.
+   * 
+   * NOTE: Returns a new array reference to ensure React detects changes when messages are added.
    */
   getDisplayMessages(): ConversationItem[] {
-    return this.data.messages;
+    // Return a new array reference so React can detect changes
+    return [...this.data.messages];
   }
 
   /**
@@ -650,12 +653,53 @@ export class ChatInstance {
 
   /**
    * Reload data from storage
+   * Merges messages from storage with in-memory messages to avoid losing unsaved messages
+   * IMPORTANT: Always preserves in-memory messages, even if they're not in storage yet
    */
   private async reload(): Promise<void> {
     if (this.persistenceEnabled) {
+      // Save current in-memory messages before reloading
+      const inMemoryMessages = [...this.data.messages];
+      const inMemoryMessageIds = new Set(inMemoryMessages.map(m => m.id));
+      
       const updated = await this.manager.loadInstance(this.data.id);
       if (updated) {
-        this.data = updated;
+        const storageMessageIds = new Set(updated.messages.map(m => m.id));
+        
+        // Find messages in memory that aren't in storage yet (unsaved messages)
+        const unsavedMessages = inMemoryMessages.filter(m => !storageMessageIds.has(m.id));
+        
+        // Merge: combine storage messages with unsaved in-memory messages
+        // Use a Map to deduplicate by ID and preserve order
+        const messageMap = new Map<string, ConversationItem>();
+        
+        // First, add all storage messages (these are persisted)
+        for (const msg of updated.messages) {
+          messageMap.set(msg.id, msg);
+        }
+        
+        // Then, add unsaved in-memory messages (these might not be persisted yet)
+        for (const msg of unsavedMessages) {
+          if (!messageMap.has(msg.id)) {
+            messageMap.set(msg.id, msg);
+          }
+        }
+        
+        // Convert back to array, preserving temporal order by timestamp
+        const mergedMessages = Array.from(messageMap.values()).sort((a, b) => a.timestamp - b.timestamp);
+        
+        // Update data with merged messages, preserving all other fields from storage
+        this.data = {
+          ...updated,
+          messages: mergedMessages
+        };
+        
+        console.log('[ChatInstance] Reloaded and merged messages:', {
+          storageCount: updated.messages.length,
+          unsavedCount: unsavedMessages.length,
+          mergedCount: mergedMessages.length,
+          messageTypes: mergedMessages.map(m => m.type)
+        });
       }
     }
   }

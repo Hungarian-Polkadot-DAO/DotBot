@@ -1110,8 +1110,9 @@ export class DotBot {
   
   /**
    * Emit event to all listeners
+   * Public so frontend can emit events when managing its own state
    */
-  private emit(event: DotBotEvent): void {
+  emit(event: DotBotEvent): void {
     for (const listener of this.eventListeners) {
       try {
         listener(event);
@@ -1288,7 +1289,9 @@ export class DotBot {
     }
     
     // Generate friendly message (pre-execution)
-    const friendlyMessage = `I've prepared a transaction flow with ${plan.steps.length} step${plan.steps.length !== 1 ? 's' : ''}. Review the details below and click "Accept and Start" when ready.`;
+    // Include the original request so the LLM can recognize it in conversation history
+    const originalRequestText = plan.originalRequest ? ` for: "${plan.originalRequest}"` : '';
+    const friendlyMessage = `I've prepared a transaction flow with ${plan.steps.length} step${plan.steps.length !== 1 ? 's' : ''}${originalRequestText}. Review the details below and click "Accept and Start" when ready.`;
     
     this.dotbotLogger.info({ 
       planId: plan.id,

@@ -359,7 +359,35 @@ export function toConversationMessage(message: ConversationItem): ConversationMe
         timestamp: message.timestamp,
       };
     
-    // Don't include execution, knowledge-request, search messages in LLM context
+    case 'execution':
+      // Convert execution messages to descriptive text so LLM knows about existing execution plans
+      // This prevents the LLM from creating duplicate execution plans
+      const execMessage = message as ExecutionMessage;
+      const plan = execMessage.executionPlan;
+      
+      if (plan) {
+        // Create a descriptive message about the execution plan
+        const stepDescriptions = plan.steps.map((step, idx) => 
+          `${idx + 1}. ${step.description || `${step.agentClassName}.${step.functionName}(${JSON.stringify(step.parameters)})`}`
+        ).join('\n');
+        
+        const executionContext = `[Execution Plan Created] Execution ID: ${execMessage.executionId}\nOriginal Request: "${plan.originalRequest}"\nSteps:\n${stepDescriptions}\nStatus: ${execMessage.status}\n\nThis execution plan is already prepared and waiting for user approval. Do NOT create a new execution plan for this request.`;
+        
+        return {
+          role: 'system',
+          content: executionContext,
+          timestamp: message.timestamp,
+        };
+      }
+      
+      // If no plan, just include basic info
+      return {
+        role: 'system',
+        content: `[Execution Flow] Execution ID: ${execMessage.executionId}, Status: ${execMessage.status}`,
+        timestamp: message.timestamp,
+      };
+    
+    // Don't include knowledge-request, search messages in LLM context
     // (They're for UI display only)
     default:
       return null;

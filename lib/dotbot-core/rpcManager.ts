@@ -13,6 +13,83 @@ import type { Registry } from '@polkadot/types/types';
 import { getStorage } from './env';
 import { createSubsystemLogger, Subsystem } from './services/logger';
 
+/**
+ * Network type for multi-network support
+ */
+export type Network = 'polkadot' | 'kusama' | 'westend';
+
+/**
+ * Predefined RPC endpoints organized by network
+ */
+export const RpcEndpoints = {
+  // Polkadot Mainnet
+  POLKADOT_RELAY_CHAIN: [
+    'wss://polkadot.api.onfinality.io/public-ws',        // OnFinality
+    'wss://polkadot-rpc.dwellir.com',                    // Dwellir public
+    'wss://rpc.ibp.network/polkadot',                    // IBP network
+    'wss://polkadot.dotters.network',                    // Dotters
+    'wss://rpc-polkadot.luckyfriday.io',                 // LuckyFriday
+    'wss://dot-rpc.stakeworld.io',                       // Stakeworld
+    'wss://polkadot.public.curie.radiumblock.co/ws',     // RadiumBlock
+    'wss://rockx-dot.w3node.com/polka-public-dot/ws',    // RockX public
+    'wss://polkadot.rpc.subquery.network/public/ws',     // SubQuery
+    'wss://polkadot.api.integritee.network/ws',          // Integritee (community)
+    'wss://rpc.polkadot.io',                             // Parity (official)
+  ],
+  POLKADOT_ASSET_HUB: [
+    'wss://statemint.api.onfinality.io/public-ws',       // OnFinality Asset Hub
+    'wss://statemint-rpc.dwellir.com',                   // Dwellir Asset Hub
+    'wss://dot-rpc.stakeworld.io/assethub',              // Stakeworld Asset Hub
+    'wss://sys.ibp.network/statemint',                   // IBP network Asset Hub
+    'wss://rpc-asset-hub.polkadot.io',                   // Parity Asset Hub (official)
+  ],
+
+  // Kusama Canary Network
+  KUSAMA_RELAY_CHAIN: [
+    'wss://kusama.api.onfinality.io/public-ws',          // OnFinality
+    'wss://kusama-rpc.dwellir.com',                      // Dwellir
+    'wss://rpc.ibp.network/kusama',                      // IBP network
+    'wss://kusama.dotters.network',                      // Dotters
+    'wss://ksm-rpc.stakeworld.io',                       // Stakeworld
+    'wss://kusama.public.curie.radiumblock.co/ws',       // RadiumBlock
+    'wss://rpc.polkadot.io/kusama',                      // Parity (mirror)
+  ],
+  KUSAMA_ASSET_HUB: [
+    'wss://statemine.api.onfinality.io/public-ws',       // OnFinality Statemine
+    'wss://statemine-rpc.dwellir.com',                   // Dwellir Statemine
+    'wss://ksm-rpc.stakeworld.io/assethub',              // Stakeworld Statemine
+    'wss://sys.ibp.network/statemine',                   // IBP network Statemine
+    'wss://rpc.polkadot.io/ksmstatemine',                // Parity (mirror)
+  ],
+
+  // Westend Testnet
+  // Ordered by reliability: best endpoints first based on real-world testing
+  WESTEND_RELAY_CHAIN: [
+    'wss://rpc.ibp.network/westend',                     // IBP network Westend (fast & reliable)
+    'wss://westend.api.onfinality.io/public-ws',         // OnFinality Westend (reliable)
+    'wss://westend-rpc-tn.dwellir.com',                  // Dwellir Westend Tunisia (backup)
+    'wss://westend-rpc.polkadot.io',                     // Parity Westend (official but can be slow)
+    'wss://westend-rpc.dwellir.com',                     // Dwellir Westend (often has issues)
+    'wss://westend.public.curie.radiumblock.co/ws',      // RadiumBlock Westend
+  ],
+  WESTEND_ASSET_HUB: [
+    'wss://westend-asset-hub-rpc.polkadot.io',           // Parity Westend Asset Hub (official)
+    'wss://westmint.api.onfinality.io/public-ws',        // OnFinality Westend Asset Hub
+    'wss://sys.ibp.network/westmint',                    // IBP network Westend Asset Hub
+  ],
+
+  ROCSTAR_RELAY_CHAIN: [
+    'wss://rococo-rpc.polkadot.io',                      // Rococo
+  ],
+  ROCSTAR_ASSET_HUB: [
+    'wss://rococo-asset-hub-rpc.polkadot.io',            // Rococo Asset Hub
+  ],
+
+  // Legacy or Aliases
+  RELAY_CHAIN: [] as string[],
+  ASSET_HUB: [] as string[],
+};
+
 export interface EndpointHealth {
   endpoint: string;
   healthy: boolean;
@@ -356,16 +433,48 @@ export class RpcManager {
       };
       
       // Define error handler first (before connected handler references it)
-      const errorHandler = (error: Error) => {
+      const errorHandler = (error: Error | string | unknown) => {
         if (isResolved) return;
         isResolved = true;
         clearTimeout(connectionTimeoutHandle);
         if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
         safeDisconnect();
+        
+        // Handle different error types
+        let errorMessage: string;
+        let errorObj: Error;
+        
+        if (error instanceof Error) {
+          errorMessage = error.message || 'Unknown error';
+          errorObj = error;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+          errorObj = new Error(error);
+        } else {
+          errorMessage = 'Connection failed (unknown error type)';
+          errorObj = new Error(errorMessage);
+        }
+        
+        this.rpcLogger.error({ 
+          endpoint,
+          error: errorMessage,
+          errorType: typeof error
+        }, `Failed to connect to ${endpoint}`);
+        reject(errorObj);
+      };
+      
+      // Handle disconnections during initialization
+      const disconnectedHandler = () => {
+        if (isResolved) return;
+        isResolved = true;
+        clearTimeout(connectionTimeoutHandle);
+        if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
+        safeDisconnect();
+        const error = new Error(`Connection lost during initialization - endpoint disconnected unexpectedly`);
         this.rpcLogger.error({ 
           endpoint,
           error: error.message
-        }, `Failed to connect to ${endpoint}`);
+        }, `Disconnected from ${endpoint} during API initialization`);
         reject(error);
       };
       
@@ -386,7 +495,7 @@ export class RpcManager {
           
           const api = await Promise.race([apiPromise, timeoutPromise]);
           
-          if (isResolved) return; // Already resolved by timeout
+          if (isResolved) return; // Already resolved by timeout or disconnection
           isResolved = true;
           
           // Clear timeout on success
@@ -403,16 +512,29 @@ export class RpcManager {
           isResolved = true;
           if (apiInitTimeoutHandle) clearTimeout(apiInitTimeoutHandle);
           safeDisconnect();
+          
+          // Check if error is due to disconnection during initialization
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          const isDisconnectionError = errorMessage.includes('disconnected') || 
+                                       errorMessage.includes('Abnormal Closure') ||
+                                       errorMessage.includes('1006');
+          
+          const finalError = isDisconnectionError 
+            ? new Error(`Connection lost during API initialization: ${errorMessage}`)
+            : error;
+          
           this.rpcLogger.error({ 
             endpoint,
-            error: error instanceof Error ? error.message : String(error)
-          }, `Failed to connect to ${endpoint}`);
-          reject(error);
+            error: errorMessage,
+            isDisconnectionError
+          }, `Failed to initialize API for ${endpoint}`);
+          reject(finalError);
         }
       };
       
       provider.on('connected', connectedHandler);
       provider.on('error', errorHandler);
+      provider.on('disconnected', disconnectedHandler);
     });
   }
 
@@ -562,12 +684,20 @@ export class RpcManager {
         
         return session;
       } catch (error) {
-        lastError = error as Error;
+        // Convert error to Error object if needed
+        if (error instanceof Error) {
+          lastError = error;
+        } else {
+          lastError = new Error(error ? String(error) : 'Unknown error');
+        }
+        
+        const errorMessage = lastError.message || 'Unknown error';
         this.rpcLogger.warn({ 
           endpoint,
-          error: lastError.message,
+          error: errorMessage,
           attempt: i + 1,
-          total: orderedEndpoints.length
+          total: orderedEndpoints.length,
+          errorType: typeof error
         }, `Failed to connect to endpoint ${i + 1}/${orderedEndpoints.length} for execution session, trying next`);
         this.markEndpointFailed(endpoint);
         // Continue to next endpoint
@@ -575,8 +705,9 @@ export class RpcManager {
     }
 
     // All endpoints failed
+    const lastErrorMessage = lastError?.message || 'Unknown error';
     throw new Error(
-      `Failed to create execution session. All endpoints failed. Last error: ${lastError?.message || 'Unknown'}`
+      `Failed to create execution session. All endpoints failed. Last error: ${lastErrorMessage}`
     );
   }
 
@@ -742,73 +873,6 @@ export class RpcManager {
     
   }
 }
-
-/**
- * Network type for multi-network support
- */
-export type Network = 'polkadot' | 'kusama' | 'westend';
-
-/**
- * Predefined RPC endpoints organized by network
- */
-export const RpcEndpoints = {
-  // Polkadot Mainnet
-  POLKADOT_RELAY_CHAIN: [
-    'wss://polkadot.api.onfinality.io/public-ws',        // OnFinality (public)
-    'wss://polkadot-rpc.dwellir.com',                    // Dwellir public WS
-    'wss://polkadot-rpc-tn.dwellir.com',                 // Dwellir (Tunisia)
-    'wss://rpc.ibp.network/polkadot',                    // IBP network
-    'wss://polkadot.dotters.network',                    // Dotters network
-    'wss://rpc-polkadot.luckyfriday.io',                 // LuckyFriday
-    'wss://dot-rpc.stakeworld.io',                       // Stakeworld
-    'wss://polkadot.public.curie.radiumblock.co/ws',     // RadiumBlock
-    'wss://rockx-dot.w3node.com/polka-public-dot/ws',    // RockX public WS
-    'wss://polkadot.rpc.subquery.network/public/ws',     // SubQuery network
-  ],
-  POLKADOT_ASSET_HUB: [
-    'wss://statemint.api.onfinality.io/public-ws',       // OnFinality Asset Hub public WS
-    'wss://statemint-rpc.dwellir.com',                   // Dwellir Asset Hub WS
-    'wss://dot-rpc.stakeworld.io/assethub',              // Stakeworld Asset Hub
-    'wss://sys.ibp.network/statemint',                   // IBP network Asset Hub
-    'wss://statemint-rpc-tn.dwellir.com',                // Dwellir Asset Hub (Tunisia)
-  ],
-
-  // Kusama Canary Network
-  KUSAMA_RELAY_CHAIN: [
-    'wss://kusama.api.onfinality.io/public-ws',          // OnFinality Kusama
-    'wss://kusama-rpc.dwellir.com',                      // Dwellir Kusama
-    'wss://kusama-rpc-tn.dwellir.com',                   // Dwellir Kusama (Tunisia)
-    'wss://rpc.ibp.network/kusama',                      // IBP network Kusama
-    'wss://kusama.dotters.network',                      // Dotters Kusama
-    'wss://ksm-rpc.stakeworld.io',                       // Stakeworld Kusama
-    'wss://kusama.public.curie.radiumblock.co/ws',       // RadiumBlock Kusama
-  ],
-  KUSAMA_ASSET_HUB: [
-    'wss://statemine.api.onfinality.io/public-ws',       // OnFinality Kusama Asset Hub
-    'wss://statemine-rpc.dwellir.com',                   // Dwellir Kusama Asset Hub
-    'wss://ksm-rpc.stakeworld.io/assethub',              // Stakeworld Kusama Asset Hub
-    'wss://sys.ibp.network/statemine',                   // IBP network Kusama Asset Hub
-  ],
-
-  // Westend Testnet
-  // Ordered by reliability: best endpoints first based on real-world testing
-  WESTEND_RELAY_CHAIN: [
-    'wss://rpc.ibp.network/westend',                     // IBP network Westend (fast & reliable)
-    'wss://westend.api.onfinality.io/public-ws',         // OnFinality Westend (reliable)
-    'wss://westend-rpc-tn.dwellir.com',                  // Dwellir Westend Tunisia (backup)
-    'wss://westend-rpc.polkadot.io',                     // Parity Westend (official but can be slow)
-    'wss://westend-rpc.dwellir.com',                     // Dwellir Westend (often has issues)
-  ],
-  WESTEND_ASSET_HUB: [
-    'wss://westend-asset-hub-rpc.polkadot.io',           // Parity Westend Asset Hub (official)
-    'wss://westmint.api.onfinality.io/public-ws',        // OnFinality Westend Asset Hub
-    'wss://sys.ibp.network/westmint',                    // IBP network Westend Asset Hub
-  ],
-
-  // Legacy aliases (backward compatibility)
-  RELAY_CHAIN: [] as string[],  // Will be set below
-  ASSET_HUB: [] as string[],    // Will be set below
-};
 
 // Set legacy aliases to Polkadot for backward compatibility
 RpcEndpoints.RELAY_CHAIN = RpcEndpoints.POLKADOT_RELAY_CHAIN;

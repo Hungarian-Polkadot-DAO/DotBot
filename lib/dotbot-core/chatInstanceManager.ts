@@ -41,6 +41,8 @@ export interface ChatInstanceManagerConfig {
 
 export class ChatInstanceManager {
   private storage: IChatStorage;
+  // Queue to prevent race conditions when adding messages concurrently
+  private messageAddQueues: Map<string, Promise<void>> = new Map();
   private autoGenerateTitles: boolean;
   private idGenerator: () => string;
 
@@ -144,14 +146,56 @@ export class ChatInstanceManager {
 
   /**
    * Add a message to a chat instance
+   * 
+   * IMPORTANT: This method handles concurrent message additions by queuing them
+   * per instance to prevent race conditions. Messages are added sequentially
+   * per chat instance to ensure all messages are preserved.
    */
   async addMessage(instanceId: string, message: ConversationItem): Promise<void> {
+    // Get or create queue for this instance
+    const existingQueue = this.messageAddQueues.get(instanceId);
+    
+    // Chain this operation after the existing queue (if any)
+    const queuePromise = existingQueue
+      ? existingQueue.then(() => this._addMessageInternal(instanceId, message))
+      : this._addMessageInternal(instanceId, message);
+    
+    // Update the queue
+    this.messageAddQueues.set(instanceId, queuePromise);
+    
+    // Clean up queue when done
+    queuePromise.finally(() => {
+      // Only remove if this is still the current queue (in case a new one started)
+      if (this.messageAddQueues.get(instanceId) === queuePromise) {
+        this.messageAddQueues.delete(instanceId);
+      }
+    });
+    
+    return queuePromise;
+  }
+  
+  /**
+   * Internal method to add a message (called sequentially via queue)
+   */
+  private async _addMessageInternal(instanceId: string, message: ConversationItem): Promise<void> {
     const instance = await this.loadInstance(instanceId);
     if (!instance) {
       throw new Error(`Chat instance ${instanceId} not found`);
     }
 
+    // Check if message already exists (idempotency - prevents duplicates)
+    const messageExists = instance.messages.some(m => m.id === message.id);
+    if (messageExists) {
+      console.log('[ChatInstanceManager] Message already exists, skipping:', message.id);
+      return;
+    }
+
+    // Add message to instance
     instance.messages.push(message);
+    
+    // Sort by timestamp to maintain temporal order
+    instance.messages.sort((a, b) => a.timestamp - b.timestamp);
+    
     await this.storage.save(instance);
   }
 

@@ -165,17 +165,27 @@ export class ASIOneService {
       }, 'WARNING: No systemPrompt provided - using default (DotBot capabilities may be limited)');
     }
     
-    // Add system message
+    // Add system message FIRST (ASI-One API requires system message to be first)
     messages.push({
       role: 'system',
       content: systemPrompt
     });
 
     // Add conversation history (from context/frontend)
+    // IMPORTANT: Filter out any system messages from history to ensure our system prompt is first
     if (conversationHistory.length > 0) {
       // Limit to last 20 messages to avoid token limits
       const recentHistory = conversationHistory.slice(-20);
-      messages.push(...recentHistory);
+      
+      // Filter out system messages - they're informational context, not part of the conversation flow
+      // This ensures the system prompt above is always the first (and only) system message
+      // Execution plan context is still useful but shouldn't be in the message flow to avoid confusing the LLM
+      const filteredHistory = recentHistory.filter((msg: ASIOneMessage) => {
+        // Skip system messages - they're context, not conversation
+        return msg.role !== 'system';
+      });
+      
+      messages.push(...filteredHistory);
     }
 
     // ALWAYS add the current user message

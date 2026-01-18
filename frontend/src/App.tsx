@@ -280,7 +280,13 @@ const AppContent: React.FC = () => {
     // Add user message first (persistence in background)
     persistencePromises.push(
       currentChat.addUserMessage(message, true)
-        .then(() => console.log('[App] User message persisted'))
+        .then(() => {
+          console.log('[App] User message persisted');
+          // Emit event so Chat component can react
+          if (dotbot) {
+            dotbot.emit({ type: 'user-message-added', message, timestamp: Date.now() });
+          }
+        })
         .catch((err: unknown) => console.error('[App] Failed to persist user message:', err))
     );
 
@@ -288,7 +294,13 @@ const AppContent: React.FC = () => {
     if (chatResult.response) {
       persistencePromises.push(
         currentChat.addBotMessage(chatResult.response, true)
-          .then(() => console.log('[App] Bot message persisted'))
+          .then(() => {
+            console.log('[App] Bot message persisted');
+            // Emit event so Chat component can react
+            if (dotbot) {
+              dotbot.emit({ type: 'bot-message-added', message: chatResult.response, timestamp: Date.now() });
+            }
+          })
           .catch((err: unknown) => console.error('[App] Failed to persist bot message:', err))
       );
     }
@@ -316,12 +328,13 @@ const AppContent: React.FC = () => {
         });
         
         // Add execution message first (stores plan)
-        // Don't skip reload - we want UI to update when execution message is added
+        // Use skipReload: true to avoid reloading before user/bot messages are persisted
+        // We'll manually trigger UI update after all messages are added
         const addMessagePromise = currentChat.addExecutionMessage(
           executionId,
           chatResult.plan,
           undefined, // Don't use backend's executionArrayState - frontend will rebuild and simulate
-          false // Don't skip reload - trigger UI update
+          true // Skip reload to avoid race condition with user/bot message persistence
         )
           .then(async (executionMessage: ExecutionMessage) => {
             console.log('[App] Execution message persisted');
@@ -387,6 +400,7 @@ const AppContent: React.FC = () => {
     setConversationRefresh(prev => prev + 1);
     
     // Let persistence complete in background (don't await)
+    // The merge logic in reload() will preserve in-memory messages even if they're not persisted yet
     Promise.all(persistencePromises).catch(err => 
       console.error('[App] Some persistence operations failed:', err)
     );

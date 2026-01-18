@@ -485,12 +485,60 @@ export abstract class BaseAgent {
     let api: ApiPromise;
     
     if (chain === 'assetHub') {
+      // Check if we have an existing API and validate it's actually Asset Hub
+      if (this.assetHubApi) {
+        try {
+          await this.assetHubApi.isReady;
+          const runtimeChain = this.assetHubApi.runtimeChain?.toString() || 'Unknown';
+          const specName = this.assetHubApi.runtimeVersion?.specName?.toString() || 'unknown';
+          
+          const isAssetHub =
+            runtimeChain.toLowerCase().includes('asset') ||
+            runtimeChain.toLowerCase().includes('statemint') ||
+            specName.toLowerCase().includes('asset') ||
+            specName.toLowerCase().includes('statemint');
+          
+          // If the existing API is not Asset Hub, clear it and reconnect
+          if (!isAssetHub) {
+            this.assetHubApi = null;
+          }
+        } catch (error) {
+          // API might be disconnected, clear it and reconnect
+          this.assetHubApi = null;
+        }
+      }
+      
+      // If we don't have a valid Asset Hub API, try to get one
       if (!this.assetHubApi) {
         // Try to reconnect if we have the manager
         if (this.assetHubManager) {
           try {
             this.assetHubApi = await this.assetHubManager.getReadApi();
+            // Validate the newly connected API is actually Asset Hub
+            await this.assetHubApi.isReady;
+            const runtimeChain = this.assetHubApi.runtimeChain?.toString() || 'Unknown';
+            const specName = this.assetHubApi.runtimeVersion?.specName?.toString() || 'unknown';
+            
+            const isAssetHub =
+              runtimeChain.toLowerCase().includes('asset') ||
+              runtimeChain.toLowerCase().includes('statemint') ||
+              specName.toLowerCase().includes('asset') ||
+              specName.toLowerCase().includes('statemint');
+            
+            if (!isAssetHub) {
+              // Manager returned wrong chain, clear it and throw error
+              this.assetHubApi = null;
+              throw new AgentError(
+                `Asset Hub manager returned wrong chain: "${runtimeChain}" (${specName}). ` +
+                `Expected Asset Hub but got relay chain.`,
+                'ASSET_HUB_WRONG_CHAIN',
+                { runtimeChain, specName }
+              );
+            }
           } catch (error) {
+            if (error instanceof AgentError) {
+              throw error;
+            }
             throw new AgentError(
               `Asset Hub API not available. Failed to connect to any Asset Hub endpoint: ${error instanceof Error ? error.message : 'Unknown error'}`,
               'ASSET_HUB_NOT_AVAILABLE'
@@ -513,6 +561,7 @@ export abstract class BaseAgent {
       await api.isReady;
     }
 
+    // Final validation
     const runtimeChain = api.runtimeChain?.toString() || 'Unknown';
     const specName = api.runtimeVersion?.specName?.toString() || 'unknown';
 
