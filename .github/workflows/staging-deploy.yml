@@ -33,7 +33,7 @@ jobs:
       
     - name: Run dotbot-core tests
       working-directory: ./lib/dotbot-core
-      run: npm test -- --coverage
+      run: npm run test:run -- --coverage
       
     # Build dotbot-express library (required by backend)
     - name: Build dotbot-express library

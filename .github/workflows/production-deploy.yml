@@ -36,7 +36,7 @@ jobs:
       
     - name: Run dotbot-core unit tests
       working-directory: ./lib/dotbot-core
-      run: npm test -- --coverage
+      run: npm run test:run -- --coverage
       # Jest config ensures only unit tests run (tests/unit/** and __tests__/**)
       
     # Build dotbot-express library (required by backend)
