@@ -33,7 +33,7 @@ jobs:
       
     - name: Run dotbot-core tests
       working-directory: ./lib/dotbot-core
-      run: npm run test:run -- --coverage
+      run: npm test -- --coverage
       
     # Build dotbot-express library (required by backend)
     - name: Build dotbot-express library
@@ -47,7 +47,7 @@ jobs:
       
     - name: Run frontend tests
       working-directory: ./frontend
-      run: npm test -- --coverage --watchAll=false
+      run: npm test -- --coverage
       
     - name: Run frontend type check
       working-directory: ./frontend
@@ -59,7 +59,7 @@ jobs:
         
     - name: Run backend tests
       working-directory: ./backend
-      run: npm test -- --coverage --watchAll=false || echo "No tests configured yet"
+      run: npm test -- --coverage || echo "No tests configured yet"
       
   build:
     name: Build and Push Images

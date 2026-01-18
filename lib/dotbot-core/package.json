@@ -16,10 +16,10 @@
   },
   "dependencies": {
     "@polkadot/api": "^14.3.1",
-    "@polkadot/keyring": "^13.5.9",
+    "@polkadot/keyring": "^14.0.1",
     "@polkadot/types": "^14.3.1",
-    "@polkadot/util": "^13.5.9",
-    "@polkadot/util-crypto": "^13.5.9",
+    "@polkadot/util": "^14.0.1",
+    "@polkadot/util-crypto": "^14.0.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "idb": "^8.0.3",
@@ -32,6 +32,9 @@
   },
   "optionalDependencies": {
     "pino-pretty": "^13.1.3"
+  },
+  "overrides": {
+    "@polkadot/rpc-provider": "^14.3.1"
   },
   "devDependencies": {
     "@polkadot/extension-dapp": "^0.53.1",
@@ -76,22 +79,5 @@
   },
   "files": [
     "dist"
-  ],
-  "jest": {
-    "transformIgnorePatterns": [
-      "node_modules/(?!(@polkadot|@acala-network)/)"
-    ],
-    "moduleNameMapper": {
-      "^@polkadot/rpc-core/types/(.*)$": "<rootDir>/../../node_modules/@polkadot/rpc-core/cjs/types/$1",
-      "^@polkadot/([^/]+)/(?!cjs/)(.+)$": "<rootDir>/../../node_modules/@polkadot/$1/cjs/$2",
-      "^@polkadot/x-bigint$": "<rootDir>/../../node_modules/@polkadot/x-bigint/cjs/index.js",
-      "^@polkadot/x-bigint/shim$": "<rootDir>/../../node_modules/@polkadot/x-bigint/cjs/shim.js",
-      "^@polkadot/x-textdecoder$": "<rootDir>/../../node_modules/@polkadot/x-textdecoder/cjs/node.js",
-      "^@polkadot/x-textencoder$": "<rootDir>/../../node_modules/@polkadot/x-textencoder/cjs/node.js",
-      "^@polkadot/x-fetch$": "<rootDir>/../../node_modules/@polkadot/x-fetch/cjs/node.js",
-      "^@polkadot/x-global$": "<rootDir>/../../node_modules/@polkadot/x-global/cjs/index.js",
-      "^@polkadot/x-randomvalues$": "<rootDir>/../../node_modules/@polkadot/x-randomvalues/cjs/node.js",
-      "^@polkadot/x-ws$": "<rootDir>/../../node_modules/@polkadot/x-ws/cjs/node.js"
-    }
-  }
+  ]
 }

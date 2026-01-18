@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch --passWithNoTests",
     "test:integration": "ts-node test/integration/openapi-test-runner.ts",
     "test:websocket": "ts-node test/integration/websocket-test.ts",
     "test:endpoint": "ts-node test/integration/openapi-test-runner.ts",
