@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { DotBot, ConversationItem, DotBotEvent } from '@dotbot/core';
+import { DotBot, ConversationItem, DotBotEvent, DotBotEventType } from '@dotbot/core';
 import MessageList from './MessageList';
 import ConversationItems from './ConversationItems';
 import ChatInput from './ChatInput';
@@ -168,11 +168,11 @@ const Chat: React.FC<ChatProps> = ({
     // Subscribe to DotBot events to detect when messages are added or updated
     const handleDotBotEvent = (event: DotBotEvent) => {
       // When any message is added or updated, update the items
-      if (event.type === 'user-message-added' ||
-          event.type === 'bot-message-added' ||
-          event.type === 'execution-message-added' || 
-          event.type === 'execution-message-updated' ||
-          event.type === 'chat-loaded') {
+      if (event.type === DotBotEventType.USER_MESSAGE_ADDED ||
+          event.type === DotBotEventType.BOT_MESSAGE_ADDED ||
+          event.type === DotBotEventType.EXECUTION_MESSAGE_ADDED || 
+          event.type === DotBotEventType.EXECUTION_MESSAGE_UPDATED ||
+          event.type === DotBotEventType.CHAT_LOADED) {
         // Small delay to ensure message is in the array
         setTimeout(updateItems, 0);
       }

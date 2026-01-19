@@ -619,6 +619,7 @@ export type ScenarioEngineEvent =
   | { type: 'phase-update'; phase: 'beginning' | 'cycle' | 'final-report'; message: string; progress?: { current: number; total?: number } }
   | { type: 'dotbot-activity'; activity: string; details?: string }  // Track what DotBot is doing
   | { type: 'step-start'; step: ScenarioStep; index: number }
+  | { type: 'step-input-updated'; stepId: string; originalInput: string; modifiedInput: string }  // Step input was modified (e.g., entity names replaced with addresses)
   | { type: 'step-complete'; step: ScenarioStep; result: StepResult }
   | { type: 'scenario-complete'; result: ScenarioResult }
   | { type: 'error'; error: string; step?: ScenarioStep }
@@ -630,3 +631,20 @@ export type ScenarioEngineEvent =
 /** Listener for engine events */
 export type ScenarioEngineEventListener = (event: ScenarioEngineEvent) => void;
 
+// =============================================================================
+// SCENARIO END REASON
+// =============================================================================
+
+/**
+ * Reason why a scenario ended
+ */
+export enum ScenarioEndReason {
+  /** Scenario completed normally (all steps executed) */
+  COMPLETED = 'completed',
+  /** Scenario failed with an error */
+  ERROR = 'error',
+  /** Scenario ended early by user */
+  EARLY_END = 'early-end',
+  /** Scenario execution was stopped by user */
+  STOPPED = 'stopped',
+}

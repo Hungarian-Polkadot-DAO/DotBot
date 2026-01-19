@@ -53,12 +53,34 @@ export const ReportTab: React.FC<ReportTabProps> = ({
     }
   }, [displayedText, isTyping]);
 
+  // When scenario stops running, immediately show all content (skip animation)
+  useEffect(() => {
+    if (!isRunning && report.length > displayedText.length) {
+      // Scenario ended - immediately show all remaining content
+      setDisplayedText(report);
+      setIsTyping(false);
+      lastProcessedLengthRef.current = report.length;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    }
+  }, [isRunning, report, displayedText.length]);
+
   // Typing animation effect - only animate NEW text
   useEffect(() => {
     if (report === '') {
       setDisplayedText('');
       setIsTyping(false);
       lastProcessedLengthRef.current = 0;
+      return;
+    }
+
+    // Skip animation if scenario is not running (already handled above)
+    if (!isRunning) {
+      setDisplayedText(report);
+      setIsTyping(false);
+      lastProcessedLengthRef.current = report.length;
       return;
     }
 
@@ -97,6 +119,14 @@ export const ReportTab: React.FC<ReportTabProps> = ({
       setIsTyping(true);
 
       const typeNextChar = () => {
+        // If scenario stopped running, immediately show all content
+        if (!isRunning) {
+          setIsTyping(false);
+          lastProcessedLengthRef.current = report.length;
+          setDisplayedText(report);
+          return;
+        }
+
         // Check if report has changed (might have been cleared or updated)
         const currentReportLength = report.length;
         if (currentReportLength < lastProcessedLengthRef.current) {
@@ -167,7 +197,7 @@ export const ReportTab: React.FC<ReportTabProps> = ({
         clearTimeout(timeoutRef.current);
       }
     };
-  }, [report]);
+  }, [report, isRunning]);
 
   const handleClear = () => {
     if (timeoutRef.current) {

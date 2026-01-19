@@ -89,6 +89,9 @@ export interface ExecutionContext {
   /** Current prompt being processed (for context-aware API selection) */
   currentPrompt?: string;
   
+  /** Current step start time (for accurate partial result timing) */
+  currentStepStartTime?: number;
+  
   /** Whether execution is paused */
   isPaused: boolean;
   
@@ -151,6 +154,7 @@ export class ScenarioExecutor {
   // Promise resolvers for UI callbacks
   private promptProcessedResolver: (() => void) | null = null;
   private responseReceivedResolver: ((result: any) => void) | null = null;
+  private responseReceivedRejector: ((error: Error) => void) | null = null;
 
   constructor(config: ExecutorConfig = {}) {
     this.config = {
@@ -218,14 +222,33 @@ export class ScenarioExecutor {
    * @param result The ChatResult from DotBot
    */
   notifyResponseReceived(result: any): void {
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `[Executor] notifyResponseReceived called with result: ${result ? (result.response ? result.response.substring(0, 50) + '...' : 'no response') : 'null'}` 
+    });
+    
     // Store the result in context for assertions
     if (this.context) {
       this.context.variables.set('lastChatResult', result);
     }
     
     if (this.responseReceivedResolver) {
+      this.emit({ 
+        type: 'log', 
+        level: 'info', 
+        message: `[Executor] Resolving waitForResponseReceived promise` 
+      });
       this.responseReceivedResolver(result);
+      // Clear both resolver and rejector to prevent issues if stop() is called after
       this.responseReceivedResolver = null;
+      this.responseReceivedRejector = null;
+    } else {
+      this.emit({ 
+        type: 'log', 
+        level: 'warn', 
+        message: `[Executor] notifyResponseReceived called but no resolver waiting (response may have arrived before wait started or scenario was stopped)` 
+      });
     }
   }
 
@@ -260,9 +283,19 @@ export class ScenarioExecutor {
 
       const step = scenario.steps[i];
       this.emit({ type: 'step-start', step, index: i });
+      
+      // Track step start time for accurate partial results
+      if (this.context) {
+        this.context.currentStepStartTime = Date.now();
+      }
 
       try {
         const result = await this.executeStep(step, i);
+        
+        // Clear step tracking after completion
+        if (this.context) {
+          this.context.currentStepStartTime = undefined;
+        }
         this.context.results.push(result);
         this.emit({ type: 'step-complete', step, result });
 
@@ -274,9 +307,29 @@ export class ScenarioExecutor {
           }
         }
       } catch (error) {
+        // Clear step tracking on error
+        if (this.context) {
+          this.context.currentStepStartTime = undefined;
+        }
+        
         const errorResult = this.createErrorResult(step, error);
         this.context.results.push(errorResult);
-        this.emit({ type: 'error', error: String(error), step });
+        
+        // Emit error event with full details
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.emit({ 
+          type: 'error', 
+          error: errorMessage,
+          step,
+        });
+        
+        // Also emit as log for visibility
+        this.emit({
+          type: 'log',
+          level: 'error',
+          message: `Step ${i + 1} failed: ${errorMessage}`,
+        });
 
         // Don't stop on error - continue to next step
         // User can manually end scenario if needed via "End Scenario" button
@@ -354,6 +407,22 @@ export class ScenarioExecutor {
       this.context.shouldStop = true;
       this.context.isPaused = false; // Unpause to allow stop
       this.emit({ type: 'log', level: 'info', message: 'Execution stop requested' });
+      
+      // Cancel pending promises to allow steps to complete with partial results
+      if (this.responseReceivedResolver) {
+        const stopError = new Error('Scenario stopped by user');
+        if (this.responseReceivedRejector) {
+          this.responseReceivedRejector(stopError);
+        }
+        this.responseReceivedResolver = null;
+        this.responseReceivedRejector = null;
+      }
+      if (this.promptProcessedResolver) {
+        // Prompt processing can't really be "rejected", but we can resolve it
+        // to allow the step to continue and then check shouldStop
+        this.promptProcessedResolver();
+        this.promptProcessedResolver = null;
+      }
     }
   }
 
@@ -418,6 +487,12 @@ export class ScenarioExecutor {
       type: 'inject-prompt',
       prompt: input,
     });
+    
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `Sending prompt to DotBot: "${input.substring(0, 100)}${input.length > 100 ? '...' : ''}"` 
+    });
 
     // Wait for UI to process (fill ChatInput)
     await this.waitForPromptProcessed();
@@ -425,11 +500,79 @@ export class ScenarioExecutor {
     // Wait for user to submit and get response from DotBot (via UI)
     this.emit({ 
       type: 'dotbot-activity', 
-      activity: 'Processing user prompt...',
+      activity: 'Waiting for response...',
       details: `Prompt: "${input.substring(0, 80)}${input.length > 80 ? '...' : ''}"`
     });
     
-    const chatResult = await this.waitForResponseReceived();
+    this.emit({ 
+      type: 'log', 
+      level: 'info', 
+      message: `Waiting for DotBot response...` 
+    });
+    
+    let chatResult: any;
+    try {
+      chatResult = await this.waitForResponseReceived();
+    } catch (error) {
+      // Step was stopped/cancelled - check if response arrived anyway
+      if (error instanceof Error && error.message === 'Scenario stopped by user') {
+        // Check if response was stored in context (might have arrived after stop() was called)
+        const storedResult = this.context?.variables.get('lastChatResult') as any;
+        if (storedResult) {
+          // Response arrived! Use it to create a proper result
+          this.emit({ 
+            type: 'log', 
+            level: 'info', 
+            message: `DotBot response received after stop: ${storedResult.response ? storedResult.response.substring(0, 150) + (storedResult.response.length > 150 ? '...' : '') : 'empty'}` 
+          });
+          chatResult = storedResult;
+          // Continue with normal processing below
+        } else {
+          // No response available - create partial result
+          const endTime = Date.now();
+          // Use actual step start time from context if available, otherwise use function parameter
+          const actualStartTime = this.context?.currentStepStartTime || startTime;
+          return {
+            stepId: step.id,
+            success: false,
+            startTime: actualStartTime,
+            endTime,
+            duration: endTime - actualStartTime,
+            response: {
+              type: 'text' as const,
+              content: 'Step interrupted - waiting for DotBot response',
+              parsed: undefined,
+            },
+          };
+        }
+      } else {
+        // Re-throw other errors
+        throw error;
+      }
+    }
+    
+    // Log that we received the response
+    if (chatResult) {
+      this.emit({ 
+        type: 'log', 
+        level: 'info', 
+        message: `DotBot response received: ${chatResult.response ? chatResult.response.substring(0, 150) + (chatResult.response.length > 150 ? '...' : '') : 'empty'}` 
+      });
+      
+      if (chatResult.plan) {
+        this.emit({ 
+          type: 'log', 
+          level: 'info', 
+          message: `📋 Execution plan detected: ${chatResult.plan.steps.length} step(s)` 
+        });
+      }
+    } else {
+      this.emit({ 
+        type: 'log', 
+        level: 'warn', 
+        message: `⚠️ DotBot response is null or undefined` 
+      });
+    }
     const response = chatResult?.response || '';
     
     // Capture execution plan if available (check this FIRST for accurate response type)
@@ -1486,16 +1629,24 @@ export class ScenarioExecutor {
    * 
    * NO TIMEOUT - scenarios wait indefinitely for DotBot responses
    * User can manually end scenario early if needed
+   * 
+   * Can be cancelled via stop() which will reject the promise
    */
   private waitForResponseReceived(): Promise<any> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.responseReceivedResolver = resolve;
+      this.responseReceivedRejector = reject;
       // No timeout - wait indefinitely for DotBot response
+      // But can be cancelled via stop() which calls reject
     });
   }
 
   private createErrorResult(step: ScenarioStep, error: unknown): StepResult {
     const now = Date.now();
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const errorCode = error instanceof Error && 'code' in error ? String(error.code) : undefined;
+    
     return {
       stepId: step.id,
       success: false,
@@ -1503,8 +1654,9 @@ export class ScenarioExecutor {
       endTime: now,
       duration: 0,
       error: {
-        message: String(error),
-        stack: error instanceof Error ? error.stack : undefined,
+        message: errorMessage,
+        code: errorCode,
+        stack: errorStack,
       },
     };
   }

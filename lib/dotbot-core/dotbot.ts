@@ -149,17 +149,31 @@ export interface ChatResult {
 }
 
 /**
+ * DotBot event type enum for type safety and DRY principles
+ */
+export enum DotBotEventType {
+  CHAT_STARTED = 'chat-started',
+  USER_MESSAGE_ADDED = 'user-message-added',
+  BOT_MESSAGE_ADDED = 'bot-message-added',
+  EXECUTION_MESSAGE_ADDED = 'execution-message-added',
+  EXECUTION_MESSAGE_UPDATED = 'execution-message-updated',
+  CHAT_COMPLETE = 'chat-complete',
+  CHAT_ERROR = 'chat-error',
+  CHAT_LOADED = 'chat-loaded',
+}
+
+/**
  * DotBot event types for external observers (e.g., ScenarioEngine)
  */
 export type DotBotEvent = 
-  | { type: 'chat-started'; message: string }
-  | { type: 'user-message-added'; message: string; timestamp: number }
-  | { type: 'bot-message-added'; message: string; timestamp: number }
-  | { type: 'execution-message-added'; executionId: string; plan?: ExecutionPlan; timestamp: number }
-  | { type: 'execution-message-updated'; executionId: string; timestamp: number }
-  | { type: 'chat-complete'; result: ChatResult }
-  | { type: 'chat-error'; error: Error }
-  | { type: 'chat-loaded'; chatId: string; messageCount: number };
+  | { type: DotBotEventType.CHAT_STARTED; message: string }
+  | { type: DotBotEventType.USER_MESSAGE_ADDED; message: string; timestamp: number }
+  | { type: DotBotEventType.BOT_MESSAGE_ADDED; message: string; timestamp: number }
+  | { type: DotBotEventType.EXECUTION_MESSAGE_ADDED; executionId: string; plan?: ExecutionPlan; timestamp: number }
+  | { type: DotBotEventType.EXECUTION_MESSAGE_UPDATED; executionId: string; timestamp: number }
+  | { type: DotBotEventType.CHAT_COMPLETE; result: ChatResult }
+  | { type: DotBotEventType.CHAT_ERROR; error: Error }
+  | { type: DotBotEventType.CHAT_LOADED; chatId: string; messageCount: number };
 
 export type DotBotEventListener = (event: DotBotEvent) => void;
 
@@ -764,7 +778,7 @@ export class DotBot {
     
     // Emit event to notify UI that chat was loaded (triggers refresh)
     this.emit({
-      type: 'chat-loaded',
+      type: DotBotEventType.CHAT_LOADED,
       chatId: this.currentChat.id,
       messageCount: this.currentChat.getDisplayMessages().length
     });
@@ -1032,65 +1046,106 @@ export class DotBot {
     }, 'chat: Starting chat request');
     
     // Emit chat started event
-    this.emit({ type: 'chat-started', message });
+    this.emit({ type: DotBotEventType.CHAT_STARTED, message });
     
-    // Save user message
-    if (this.currentChat) {
-      await this.currentChat.addUserMessage(message);
-      this.emit({ type: 'user-message-added', message, timestamp: Date.now() });
-    }
-    
-    // Get LLM response
-    this.dotbotLogger.debug({ 
-      messagePreview: message.substring(0, 100)
-    }, 'chat: Getting LLM response');
-    const llmResponse = await this.getLLMResponse(message, options);
-    
-    this.dotbotLogger.debug({ 
-      responseLength: llmResponse.length,
-      responsePreview: llmResponse.substring(0, 200)
-    }, 'chat: LLM response received');
-    
-    // Extract execution plan
-    const plan = this.extractExecutionPlan(llmResponse);
-    
-    this.dotbotLogger.info({ 
-      hasPlan: !!plan,
-      planId: plan?.id || null,
-      stepsCount: plan?.steps.length || 0,
-      originalRequest: plan?.originalRequest || null
-    }, 'chat: Execution plan extraction result');
-    
-    let result: ChatResult;
-    
-    // No execution needed - just a conversation
-    if (!plan || plan.steps.length === 0) {
+    try {
+      // Save user message
+      if (this.currentChat) {
+        await this.currentChat.addUserMessage(message);
+        this.emit({ type: DotBotEventType.USER_MESSAGE_ADDED, message, timestamp: Date.now() });
+      }
+      
+      // Get LLM response
+      this.dotbotLogger.debug({ 
+        messagePreview: message.substring(0, 100)
+      }, 'chat: Getting LLM response');
+      const llmResponse = await this.getLLMResponse(message, options);
+      
+      this.dotbotLogger.debug({ 
+        responseLength: llmResponse.length,
+        responsePreview: llmResponse.substring(0, 200)
+      }, 'chat: LLM response received');
+      
+      // Extract execution plan
+      const plan = this.extractExecutionPlan(llmResponse);
+      
       this.dotbotLogger.info({ 
-        responseLength: llmResponse.length
-      }, 'chat: Handling as conversation (no execution plan)');
-      result = await this.handleConversationResponse(llmResponse);
-    } else {
-      // Execute blockchain operations
+        hasPlan: !!plan,
+        planId: plan?.id || null,
+        stepsCount: plan?.steps.length || 0,
+        originalRequest: plan?.originalRequest || null
+      }, 'chat: Execution plan extraction result');
+      
+      let result: ChatResult;
+      
+      // No execution needed - just a conversation
+      if (!plan || plan.steps.length === 0) {
+        this.dotbotLogger.info({ 
+          responseLength: llmResponse.length
+        }, 'chat: Handling as conversation (no execution plan)');
+        result = await this.handleConversationResponse(llmResponse);
+      } else {
+        // Execute blockchain operations
+        this.dotbotLogger.info({ 
+          planId: plan.id,
+          stepsCount: plan.steps.length
+        }, 'chat: Handling as execution (plan found)');
+        result = await this.handleExecutionResponse(llmResponse, plan, options);
+      }
+      
       this.dotbotLogger.info({ 
-        planId: plan.id,
-        stepsCount: plan.steps.length
-      }, 'chat: Handling as execution (plan found)');
-      result = await this.handleExecutionResponse(llmResponse, plan, options);
+        executed: result.executed,
+        success: result.success,
+        completed: result.completed,
+        failed: result.failed,
+        hasPlan: !!result.plan,
+        responseLength: result.response.length
+      }, 'chat: Chat request completed');
+      
+      // Emit chat complete event
+      this.emit({ type: DotBotEventType.CHAT_COMPLETE, result });
+      
+      return result;
+    } catch (error) {
+      // Always emit chat-error or chat-complete, even on failures
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorObj = error instanceof Error ? error : new Error(errorMsg);
+      
+      this.dotbotLogger.error({ 
+        error: errorMsg,
+        stack: error instanceof Error ? error.stack : undefined
+      }, 'chat: Error during chat request');
+      
+      // Create error result
+      const errorResult: ChatResult = {
+        response: `I encountered an error while processing your request: ${errorMsg}`,
+        executed: false,
+        success: false,
+        completed: 0,
+        failed: 1,
+      };
+      
+      // Save error message to chat if possible
+      if (this.currentChat) {
+        try {
+          await this.currentChat.addBotMessage(errorResult.response);
+        } catch (saveError) {
+          // If saving fails, log but continue
+          this.dotbotLogger.warn({ 
+            error: saveError instanceof Error ? saveError.message : String(saveError)
+          }, 'chat: Failed to save error message to chat');
+        }
+      }
+      
+      // Emit error event
+      this.emit({ type: DotBotEventType.CHAT_ERROR, error: errorObj });
+      
+      // Also emit chat-complete with error result to ensure ScenarioExecutor doesn't hang
+      // This is a fallback - chat-error should be sufficient, but this ensures compatibility
+      this.emit({ type: DotBotEventType.CHAT_COMPLETE, result: errorResult });
+      
+      return errorResult;
     }
-    
-    this.dotbotLogger.info({ 
-      executed: result.executed,
-      success: result.success,
-      completed: result.completed,
-      failed: result.failed,
-      hasPlan: !!result.plan,
-      responseLength: result.response.length
-    }, 'chat: Chat request completed');
-    
-    // Emit chat complete event
-    this.emit({ type: 'chat-complete', result });
-    
-    return result;
   }
   
   /**
@@ -1164,7 +1219,7 @@ export class DotBot {
     // Save bot response
     if (this.currentChat) {
       await this.currentChat.addBotMessage(cleanedResponse);
-      this.emit({ type: 'bot-message-added', message: cleanedResponse, timestamp: Date.now() });
+      this.emit({ type: DotBotEventType.BOT_MESSAGE_ADDED, message: cleanedResponse, timestamp: Date.now() });
       
       // Auto-generate title if needed
       if (!this.currentChat.title || this.currentChat.title.startsWith('Chat -')) {
@@ -1270,7 +1325,7 @@ export class DotBot {
       const errorResponse = await this.getLLMResponse(errorContextMessage, options);
       
       // Emit error event
-      this.emit({ type: 'chat-error', error: error instanceof Error ? error : new Error(errorMsg) });
+      this.emit({ type: DotBotEventType.CHAT_ERROR, error: error instanceof Error ? error : new Error(errorMsg) });
       
       // Save error message to chat
       if (this.currentChat) {
@@ -1714,7 +1769,7 @@ export class DotBot {
       // Create new message with just the plan (no executionArray yet)
       await this.currentChat.addExecutionMessage(executionId, plan);
       this.emit({ 
-        type: 'execution-message-added', 
+        type: DotBotEventType.EXECUTION_MESSAGE_ADDED, 
         executionId, 
         plan, 
         timestamp: Date.now() 
@@ -1752,7 +1807,7 @@ export class DotBot {
     
     // Emit event to notify UI that execution was updated (triggers refresh)
     this.emit({
-      type: 'execution-message-updated',
+      type: DotBotEventType.EXECUTION_MESSAGE_UPDATED,
       executionId: state.id,
       timestamp: Date.now()
     });
@@ -1788,7 +1843,7 @@ export class DotBot {
       // Create new message only if it doesn't exist
       execMessage = await this.currentChat.addExecutionMessage(state, plan);
       this.emit({ 
-        type: 'execution-message-added', 
+        type: DotBotEventType.EXECUTION_MESSAGE_ADDED, 
         executionId: state.id, 
         plan, 
         timestamp: Date.now() 
@@ -1804,7 +1859,7 @@ export class DotBot {
         }).then(() => {
           // Emit event to notify UI of execution message update
           this.emit({
-            type: 'execution-message-updated',
+            type: DotBotEventType.EXECUTION_MESSAGE_UPDATED,
             executionId: state.id,
             timestamp: Date.now()
           });
@@ -1836,7 +1891,7 @@ export class DotBot {
     
     // Emit event to notify UI
     this.emit({
-      type: 'execution-message-updated',
+      type: DotBotEventType.EXECUTION_MESSAGE_UPDATED,
       executionId,
       timestamp: Date.now()
     });

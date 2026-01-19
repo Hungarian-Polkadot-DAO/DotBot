@@ -8,7 +8,7 @@
 // ============================================================================
 // OUT OF THE BOX INTERFACE - Start here!
 // ============================================================================
-export { DotBot } from './dotbot';
+export { DotBot, DotBotEventType } from './dotbot';
 export type { 
   DotBotConfig, 
   ChatResult, 

@@ -96,6 +96,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
     dotbot: isReady ? dotbot : null,
     onSendMessage,
     onAppendReport: appendToReport,
+    onClearReport: clearReport,
     onStatusChange: setStatusMessage,
     onPhaseChange: setExecutionPhase,
   });

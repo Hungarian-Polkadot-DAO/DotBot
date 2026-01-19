@@ -176,6 +176,9 @@ export type {
   ScenarioEngineEventListener,
 } from './types';
 
+// Enums
+export { ScenarioEndReason } from './types';
+
 // =============================================================================
 // COMPONENT EXPORTS
 // =============================================================================

@@ -4,7 +4,7 @@
  * Manages scenario engine event handling and state
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ScenarioEngine, DotBot, TestEntity } from '@dotbot/core';
 
 interface ExecutionPhase {
@@ -19,6 +19,7 @@ interface UseScenarioEngineProps {
   dotbot: DotBot | null;
   onSendMessage: (message: string) => Promise<void>;
   onAppendReport: (text: string) => void;
+  onClearReport?: () => void;
   onStatusChange?: (message: string) => void;
   onPhaseChange?: (phase: ExecutionPhase) => void;
 }
@@ -28,6 +29,7 @@ export const useScenarioEngine = ({
   dotbot,
   onSendMessage,
   onAppendReport,
+  onClearReport,
   onStatusChange,
   onPhaseChange,
 }: UseScenarioEngineProps) => {
@@ -114,21 +116,40 @@ export const useScenarioEngine = ({
     }
   };
 
+  // Use refs for callbacks to prevent re-subscription on every render
+  const onAppendReportRef = useRef(onAppendReport);
+  const onClearReportRef = useRef(onClearReport);
+  const onStatusChangeRef = useRef(onStatusChange);
+  const onPhaseChangeRef = useRef(onPhaseChange);
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onAppendReportRef.current = onAppendReport;
+    onClearReportRef.current = onClearReport;
+    onStatusChangeRef.current = onStatusChange;
+    onPhaseChangeRef.current = onPhaseChange;
+  }, [onAppendReport, onClearReport, onStatusChange, onPhaseChange]);
+  
   useEffect(() => {
     if (!engine || !dotbot) {
       return;
     }
     
+    // Subscribe to DotBot events for automatic response capture
+    // This should only happen once when engine/dotbot change, not on every callback change
+    engine.subscribeToDotBot(dotbot);
+    
     const handleEvent = (event: any) => {
       // Report is now built inside ScenarioEngine - just pass through updates
       if (event.type === 'report-update') {
-        onAppendReport(event.content);
+        onAppendReportRef.current(event.content);
         return;
       }
       
       if (event.type === 'report-clear') {
         // Report cleared - UI should clear its display
-        // (ScenarioEngine handles the actual clearing)
+        // Clear the report state in the frontend
+        onClearReportRef.current?.();
         return;
       }
       
@@ -139,7 +160,7 @@ export const useScenarioEngine = ({
           stepCount: 0,
         };
         setExecutionPhase(newPhase);
-        onPhaseChange?.(newPhase);
+        onPhaseChangeRef.current?.(newPhase);
         // Report content is handled by ScenarioEngine - no need to append here
       } else if (event.type === 'phase-update') {
         setExecutionPhase(prev => {
@@ -147,7 +168,7 @@ export const useScenarioEngine = ({
             ...prev,
             messages: [...prev.messages, event.message],
           };
-          onPhaseChange?.(updated);
+          onPhaseChangeRef.current?.(updated);
           return updated;
         });
         // Report content is handled by ScenarioEngine - no need to append here
@@ -157,25 +178,25 @@ export const useScenarioEngine = ({
             ...prev,
             dotbotActivity: event.activity,
           };
-          onPhaseChange?.(updated);
+          onPhaseChangeRef.current?.(updated);
           return updated;
         });
         // Update status when execution completes
         if (event.activity.includes('Execution completed') || event.activity.includes('completed')) {
-          onStatusChange?.('');
+          onStatusChangeRef.current?.('');
         }
         // Report content is handled by ScenarioEngine - no need to append here
       } else if (event.type === 'inject-prompt') {
         // Note: inject-prompt events are now handled by App.tsx via useScenarioPrompt hook
         // This hook no longer needs to handle prompt injection
-        onStatusChange?.('Waiting for user to submit prompt...');
+        onStatusChangeRef.current?.('Waiting for user to submit prompt...');
         // Track DotBot activity (just for UI status, not report)
         setExecutionPhase(prev => {
           const updated = {
             ...prev,
             dotbotActivity: `Waiting for user to submit prompt...`,
           };
-          onPhaseChange?.(updated);
+          onPhaseChangeRef.current?.(updated);
           return updated;
         });
         // Report content is handled by ScenarioEngine - no need to append here
@@ -185,15 +206,15 @@ export const useScenarioEngine = ({
         // Update status based on log messages
         const message = event.message.toLowerCase();
         if (message.includes('setting up entities')) {
-          onStatusChange?.('Setting up entities...');
+          onStatusChangeRef.current?.('Setting up entities...');
         } else if (message.includes('setting up state') || message.includes('state setup')) {
-          onStatusChange?.('Setting up state...');
+          onStatusChangeRef.current?.('Setting up state...');
         } else if (message.includes('executing prompt')) {
-          onStatusChange?.('Executing prompt...');
+          onStatusChangeRef.current?.('Executing prompt...');
         } else if (message.includes('starting evaluation') || message.includes('evaluating')) {
-          onStatusChange?.('Evaluating results...');
+          onStatusChangeRef.current?.('Evaluating results...');
         } else if (message.includes('scenario completed')) {
-          onStatusChange?.('');
+          onStatusChangeRef.current?.('');
         }
       } else if (event.type === 'state-change' && event.state.entities) {
         const engineEntities = Array.from(event.state.entities.values()) as TestEntity[];
@@ -213,7 +234,7 @@ export const useScenarioEngine = ({
         ).then(setEntities);
       } else if (event.type === 'scenario-complete') {
         setRunningScenario(null);
-        onStatusChange?.('');
+        onStatusChangeRef.current?.('');
         // Report content is handled by ScenarioEngine - no need to append here
       } else if (event.type === 'step-start') {
         const stepNum = (event.index || 0) + 1;
@@ -223,18 +244,18 @@ export const useScenarioEngine = ({
             stepCount: stepNum,
             messages: [...prev.messages, `Step ${stepNum} started`],
           };
-          onPhaseChange?.(updated);
+          onPhaseChangeRef.current?.(updated);
           return updated;
         });
         // Report content is handled by ScenarioEngine - no need to append here
-        onStatusChange?.(`Executing step ${stepNum}...`);
+        onStatusChangeRef.current?.(`Executing step ${stepNum}...`);
       } else if (event.type === 'step-complete') {
         setExecutionPhase(prev => {
           const updated = {
             ...prev,
             messages: [...prev.messages, `Step completed`],
           };
-          onPhaseChange?.(updated);
+          onPhaseChangeRef.current?.(updated);
           return updated;
         });
         
@@ -249,19 +270,24 @@ export const useScenarioEngine = ({
               ...prev,
               dotbotActivity: `Responded with ${responseType}: ${responsePreview}${responseContent.length > 150 ? '...' : ''}`,
             };
-            onPhaseChange?.(updated);
+            onPhaseChangeRef.current?.(updated);
             return updated;
           });
         }
         
         // Report content is handled by ScenarioEngine - no need to append here
-        onStatusChange?.('Processing step result...');
+        onStatusChangeRef.current?.('Processing step result...');
       }
     };
     
     engine.addEventListener(handleEvent);
-    return () => engine.removeEventListener(handleEvent);
-  }, [engine, dotbot, onAppendReport, onStatusChange, onPhaseChange]);
+    
+    return () => {
+      engine.removeEventListener(handleEvent);
+      // Unsubscribe from DotBot when component unmounts
+      engine.unsubscribeFromDotBot();
+    };
+  }, [engine, dotbot]); // Only depend on engine and dotbot, not callbacks
 
   return {
     entities,
