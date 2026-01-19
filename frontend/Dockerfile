@@ -41,10 +41,10 @@ RUN echo "Building with REACT_APP_API_URL=$REACT_APP_API_URL" && \
     npm run build
 
 # Production stage
-FROM nginx:alpine
+FROM nginx:bullseye
 
 # Install curl for health checks
-RUN apk add --no-cache curl
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Copy built app to nginx
 COPY --from=builder /app/frontend/build /usr/share/nginx/html
