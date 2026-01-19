@@ -1,5 +1,5 @@
 # Frontend Dockerfile
-FROM node:22-alpine as builder
+FROM node:20-bullseye as builder
 
 # Build arguments for environment variables
 ARG REACT_APP_API_URL=http://localhost:8000
