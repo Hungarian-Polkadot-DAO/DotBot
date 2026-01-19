@@ -56,7 +56,7 @@ export class ClaudeProvider implements AIProvider {
       baseUrl: config.baseUrl || getEnv('CLAUDE_BASE_URL') || 'https://api.anthropic.com/v1',
       model: config.model || getEnv('CLAUDE_MODEL') || 'claude-sonnet-4-20250514',
       maxTokens: config.maxTokens || parseInt(getEnv('CLAUDE_MAX_TOKENS') || '4096'),
-      temperature: config.temperature || 0.7,
+      temperature: config.temperature || 0.3, // Lower temperature for accuracy in blockchain operations (0.0-1.0, lower = more deterministic)
     };
   }
 

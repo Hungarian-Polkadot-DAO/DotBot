@@ -62,7 +62,7 @@ export class ASIOneService {
       apiKey: apiKey || '',
       baseUrl: 'https://api.asi1.ai/v1', // Default
       model: 'asi1-mini', // Default
-      temperature: 0.7, // Default
+      temperature: 0.3, // Lower temperature for accuracy in blockchain operations (0.0-1.0, lower = more deterministic)
       maxTokens: parseInt(getEnv('ASI_ONE_MAX_TOKENS') || '2048'), // Default
       // Override with env vars if set
       ...(getEnv('ASI_ONE_BASE_URL') && { baseUrl: getEnv('ASI_ONE_BASE_URL') }),
