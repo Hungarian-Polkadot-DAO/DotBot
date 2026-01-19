@@ -290,29 +290,56 @@ const getLogLevel = (): string => {
   return getConfiguredLogLevel();
 };
 
+// Determine if pretty printing should be enabled
+// Default to true (human-readable) for all environments unless explicitly disabled
+const shouldUsePretty = process.env.LOG_FORMAT !== 'json';
+
+// Determine if metadata fields should be shown
+// Default to false (completely excluded) - set LOG_SHOW_METADATA=true to include them
+const showMetadata = process.env.LOG_SHOW_METADATA === 'true' || process.env.LOG_SHOW_METADATA === '1';
+
+// Build ignore list for pino-pretty (only pid and hostname, since metadata is excluded from base)
+const ignoreFields = 'pid,hostname';
+
 // Create backend logger configuration
 const loggerConfig: pino.LoggerOptions = {
   level: getLogLevel(),
-  base: {
+  base: showMetadata ? {
     service: 'DotBot-Backend',
     version: EXPRESS_VERSION,
     environment: NODE_ENV,
-  },
+  } : {},
   timestamp: pino.stdTimeFunctions.isoTime,
   formatters: {
     level: (label) => {
       return { level: label };
     },
+    // Filter out metadata fields when LOG_SHOW_METADATA is disabled
+    log(object: any) {
+      if (!showMetadata) {
+        // Remove metadata fields when LOG_SHOW_METADATA is disabled
+        delete object.service;
+        delete object.version;
+        delete object.environment;
+        delete object.userAgent;
+        delete object.subsystem;
+        delete object.endpoint;
+        delete object.chain;
+      }
+      return object;
+    },
   },
-  // In development, use pretty printing with improved formatting
+  // Use pretty printing for human-readable output in all environments
+  // Set LOG_FORMAT=json to disable pretty printing
+  // Set LOG_SHOW_METADATA=true to show metadata fields (environment, service, version, etc.)
   // Pino will gracefully fall back to JSON if pino-pretty is not available
-  ...(NODE_ENV === 'development' && {
+  ...(shouldUsePretty && {
     transport: {
       target: 'pino-pretty',
       options: {
         colorize: true,
         translateTime: 'HH:MM:ss.l',
-        ignore: 'pid,hostname',
+        ignore: ignoreFields,
         singleLine: false,
         messageFormat: '{msg}',
         hideObject: false,

@@ -53,7 +53,8 @@ export class ASIOneService {
     const apiKey = config?.apiKey || getEnv('ASI_ONE_API_KEY');
     
     if (!apiKey) {
-      logger.warn({}, 'ASI-One API key not provided. Please set ASI_ONE_API_KEY environment variable. API calls will fail without a valid key.');
+      // Use error level to ensure visibility - this is a critical configuration issue
+      logger.error({}, 'ASI-One API key not provided. Please set ASI_ONE_API_KEY environment variable. API calls will fail without a valid key.');
     }
     
     // Merge config carefully - don't let undefined values override defaults
@@ -238,15 +239,43 @@ Keep responses concise but informative. Use bullet points for multiple options a
       model: request.model 
     }, 'Fetching from ASI-One');
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
-        'User-Agent': 'DotBot/1.0.0'
-      },
-      body: JSON.stringify(request)
-    });
+    // Add timeout to prevent hanging (60 seconds for LLM API calls)
+    const ASI_ONE_TIMEOUT_MS = parseInt(getEnv('ASI_ONE_TIMEOUT_MS') || '60000');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), ASI_ONE_TIMEOUT_MS);
+    
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.config.apiKey}`,
+          'User-Agent': 'DotBot/1.0.0'
+        },
+        body: JSON.stringify(request),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        logger.error({ 
+          url: url.replace(/\/\/[^\/]+@/, '//***@'),
+          timeout: ASI_ONE_TIMEOUT_MS 
+        }, 'ASI-One API request timed out');
+        throw new Error(`ASI-One API request timed out after ${ASI_ONE_TIMEOUT_MS}ms. The API may be slow or unavailable.`);
+      }
+      
+      // Network errors (DNS, connection refused, etc.)
+      logger.error({ 
+        url: url.replace(/\/\/[^\/]+@/, '//***@'),
+        error: fetchError.message,
+        errorName: fetchError.name
+      }, 'ASI-One API network error');
+      throw new Error(`ASI-One API network error: ${fetchError.message}. Please check your network connection and API endpoint.`);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
