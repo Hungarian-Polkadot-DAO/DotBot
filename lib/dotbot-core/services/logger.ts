@@ -28,46 +28,70 @@ function getBackendContext(): boolean {
   return backendFlag === 'true' || backendFlag === '1' || backendFlag === 'yes';
 }
 
+// Determine if pretty printing should be enabled
+// Default to true (human-readable) for all environments unless explicitly disabled
+// Only applies to Node.js (not browser)
+const shouldUsePretty = isNode() && !isBrowser() && process.env.LOG_FORMAT !== 'json';
+
+// Determine if metadata fields should be shown
+// Default to false (completely excluded) - set LOG_SHOW_METADATA=true to include them
+const showMetadata = process.env.LOG_SHOW_METADATA === 'true' || process.env.LOG_SHOW_METADATA === '1';
+
+// Build ignore list for pino-pretty (only pid and hostname, since metadata is excluded from base)
+const ignoreFields = 'pid,hostname';
+
 // Logger configuration - matches backend format but works in browser too
-// In Node.js development, use pino-pretty for readable output (like dotbot-express)
-// In browser or production, output JSON
+// In Node.js, use pino-pretty for readable output by default
+// In browser, output JSON (pino-pretty doesn't work in browser)
 // Service name and version are set dynamically via mixin to check DOTBOT_BACKEND at log time
 const loggerConfig: pino.LoggerOptions = {
   level: getLogLevel(),
-  base: {
-    // Don't set service or version here - mixin will set them dynamically
+  base: showMetadata ? {
+    // Only include metadata fields when LOG_SHOW_METADATA is enabled
     environment: process.env.NODE_ENV || 'development',
     // Browser-specific context (only if in browser)
     ...(isBrowser() && typeof navigator !== 'undefined' && { userAgent: navigator.userAgent }),
     ...(isBrowser() && typeof window !== 'undefined' && { url: window.location.href }),
     // Node.js-specific context (only if in Node.js)
     ...(isNode() && { userAgent: `Node.js/${process.version}` }),
-  },
+  } : {},
   timestamp: pino.stdTimeFunctions.isoTime,
   formatters: {
     level: (label) => {
       return { level: label };
     },
     // Use formatters.log to dynamically set service and version on every log
-    // This is more reliable than mixin for dynamic values
+    // Also filter out metadata fields when LOG_SHOW_METADATA is disabled
     log(object: any) {
-      const isBackend = getBackendContext();
-      // Override service and version dynamically based on current env var
-      object.service = isBackend ? 'DotBot-Backend' : 'DotBot-Services';
-      object.version = isBackend ? (process.env.DOTBOT_EXPRESS_VERSION || LIB_VERSION) : LIB_VERSION;
+      if (showMetadata) {
+        const isBackend = getBackendContext();
+        // Override service and version dynamically based on current env var
+        object.service = isBackend ? 'DotBot-Backend' : 'DotBot-Services';
+        object.version = isBackend ? (process.env.DOTBOT_EXPRESS_VERSION || LIB_VERSION) : LIB_VERSION;
+      } else {
+        // Remove metadata fields when LOG_SHOW_METADATA is disabled
+        delete object.service;
+        delete object.version;
+        delete object.environment;
+        delete object.userAgent;
+        delete object.subsystem;
+        delete object.endpoint;
+        delete object.chain;
+      }
       return object;
     },
   },
-  // In Node.js development, use pino-pretty for pretty printing (like dotbot-express)
-  // In browser or production, output JSON
+  // Use pino-pretty for pretty printing in Node.js (all environments by default)
+  // Set LOG_FORMAT=json to disable pretty printing
+  // Set LOG_SHOW_METADATA=true to show metadata fields (environment, service, version, etc.)
   // Pino will gracefully fall back to JSON if pino-pretty is not available
-  ...(isNode() && !isBrowser() && isDevelopment && {
+  ...(shouldUsePretty && {
     transport: {
       target: 'pino-pretty',
       options: {
         colorize: true,
         translateTime: 'HH:MM:ss.l',
-        ignore: 'pid,hostname',
+        ignore: ignoreFields,
         singleLine: false,
         messageFormat: '{msg}',
         hideObject: false,
