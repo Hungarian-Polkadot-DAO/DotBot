@@ -53,7 +53,8 @@ export class ASIOneService {
     const apiKey = config?.apiKey || getEnv('ASI_ONE_API_KEY');
     
     if (!apiKey) {
-      logger.warn({}, 'ASI-One API key not provided. Please set ASI_ONE_API_KEY environment variable. API calls will fail without a valid key.');
+      // Use error level to ensure visibility - this is a critical configuration issue
+      logger.error({}, 'ASI-One API key not provided. Please set ASI_ONE_API_KEY environment variable. API calls will fail without a valid key.');
     }
     
     // Merge config carefully - don't let undefined values override defaults
