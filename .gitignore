@@ -166,6 +166,12 @@ coverage.xml
 .coverage
 junit.xml
 
+# Temporary root-level markdown files (keep docs/ and README.md)
+/*.md
+!README.md
+!CHANGELOG.md
+!LICENSE.md
+
 # Root package files (frontend has its own)
 /package-lock.json
 /package.json
