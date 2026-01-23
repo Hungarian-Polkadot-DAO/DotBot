@@ -27,6 +27,11 @@ function formatAgentDefinitions(): string {
   
   let prompt = '\n## Available Agents\n\n';
   
+  // Note about current limitations (temporary)
+  if (registry.agents.length === 1 && registry.agents[0].className === 'AssetTransferAgent') {
+    prompt += `> **Current Capabilities** (Temporary): At this time, only the **AssetTransferAgent** is available for blockchain operations. This agent handles asset transfers on **Asset Hub** (the primary location for DOT after Polkadot 2.0 migration). Additional agents for staking, governance, and other operations will be available in future updates.\n\n`;
+  }
+  
   registry.agents.forEach(agent => {
     prompt += `### ${agent.displayName} (${agent.className})\n\n`;
     prompt += `**Purpose**: ${agent.purpose}\n\n`;
