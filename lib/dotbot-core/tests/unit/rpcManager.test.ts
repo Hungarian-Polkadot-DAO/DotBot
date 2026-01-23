@@ -119,9 +119,17 @@ describe('RpcManager', () => {
           if (event === 'connected') {
             // Use setImmediate or setTimeout(0) to ensure async behavior
             if (typeof setImmediate !== 'undefined') {
-              setImmediate(() => handler());
+              setImmediate(() => {
+                // Set isConnected to true before calling handler to match real behavior
+                provider.isConnected = true;
+                handler();
+              });
             } else {
-              setTimeout(() => handler(), 0);
+              setTimeout(() => {
+                // Set isConnected to true before calling handler to match real behavior
+                provider.isConnected = true;
+                handler();
+              }, 0);
             }
           }
         }),

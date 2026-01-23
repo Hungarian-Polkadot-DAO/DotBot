@@ -845,8 +845,13 @@ describe('DotBot', () => {
       expect(result.failed).toBe(1);
     });
 
-    it('should throw error if no LLM is provided', async () => {
-      await expect(dotbot.chat('Test message')).rejects.toThrow('No LLM configured');
+    it('should return error result if no LLM is provided', async () => {
+      const result = await dotbot.chat('Test message');
+      expect(result.success).toBe(false);
+      expect(result.executed).toBe(false);
+      expect(result.response).toContain('No LLM configured');
+      expect(result.completed).toBe(0);
+      expect(result.failed).toBe(1);
     });
   });
 
