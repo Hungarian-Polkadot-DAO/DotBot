@@ -5,7 +5,7 @@
  * Appears as an overlay on the right side of the screen.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, startTransition } from 'react';
 import { ScenarioEngine, DotBot, Scenario } from '@dotbot/core';
 import { X } from 'lucide-react';
 import { EntitiesTab } from './components/EntitiesTab';
@@ -119,6 +119,131 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
     // But we can add a direct message if needed for immediate feedback
   };
 
+  // Manual refresh function for entity balances
+  // Uses startTransition and processes in chunks to prevent UI freeze
+  const refreshEntityBalances = async () => {
+    if (!engine || !dotbot || entities.length === 0) {
+      return;
+    }
+    
+    try {
+      const engineEntities = Array.from(engine.getEntities().values());
+      if (engineEntities.length === 0) {
+        return;
+      }
+      
+      const network = dotbot.getNetwork();
+      const decimals = network === 'polkadot' ? 10 : 12;
+      const token = network === 'polkadot' ? 'DOT' : network === 'kusama' ? 'KSM' : 'WND';
+      
+      // Process entities in chunks to prevent blocking UI
+      const CHUNK_SIZE = 5; // Process 5 entities at a time
+      const chunks: any[][] = [];
+      for (let i = 0; i < engineEntities.length; i += CHUNK_SIZE) {
+        chunks.push(engineEntities.slice(i, i + CHUNK_SIZE));
+      }
+      
+      const updatedEntities: any[] = [];
+      
+      // Process chunks sequentially with small delays to let UI breathe
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const chunk = chunks[chunkIndex];
+        
+        // Query balances for chunk
+        const chunkResults = await Promise.all(
+          chunk.map(async (e: any) => {
+          let balance = '0 ' + token;
+          
+          try {
+            // Try Asset Hub first
+            const assetHubApi = dotbot.getAssetHubApi();
+            if (assetHubApi) {
+              try {
+                await assetHubApi.isReady;
+                const accountInfo = await assetHubApi.query.system.account(e.address);
+                const accountData = (accountInfo as any).data;
+                const free = accountData?.free?.toString() || '0';
+                
+                const freeBN = BigInt(free);
+                const divisor = BigInt(10 ** decimals);
+                const whole = freeBN / divisor;
+                const fractional = freeBN % divisor;
+                
+                if (whole > BigInt(0) || fractional > BigInt(0)) {
+                  const fractionalStr = fractional.toString().padStart(decimals, '0');
+                  const trimmed = fractionalStr.replace(/0+$/, '').slice(0, 4);
+                  const formatted = trimmed ? `${whole}.${trimmed}` : whole.toString();
+                  balance = `${formatted} ${token}`;
+                } else {
+                  // Fall through to Relay Chain
+                  throw new Error('No balance on Asset Hub');
+                }
+              } catch {
+                // Fall through to Relay Chain
+              }
+            }
+            
+            // Fallback to Relay Chain
+            const api = await dotbot.getApi();
+            await api.isReady;
+            const accountInfo = await api.query.system.account(e.address);
+            const accountData = (accountInfo as any).data;
+            const free = accountData?.free?.toString() || '0';
+            
+            const freeBN = BigInt(free);
+            const divisor = BigInt(10 ** decimals);
+            const whole = freeBN / divisor;
+            const fractional = freeBN % divisor;
+            
+            if (whole === BigInt(0) && fractional === BigInt(0)) {
+              balance = `0 ${token}`;
+            } else {
+              const fractionalStr = fractional.toString().padStart(decimals, '0');
+              const trimmed = fractionalStr.replace(/0+$/, '').slice(0, 4);
+              const formatted = trimmed ? `${whole}.${trimmed}` : whole.toString();
+              balance = `${formatted} ${token}`;
+            }
+          } catch (error) {
+            console.warn(`Failed to query balance for ${e.address}:`, error);
+            balance = '—';
+          }
+          
+            return {
+              name: e.name,
+              address: e.address,
+              type: e.type,
+              uri: e.uri,
+              balance,
+            };
+          })
+        );
+        
+        updatedEntities.push(...chunkResults);
+        
+        // Update state incrementally for each chunk (non-blocking)
+        if (chunkIndex === 0) {
+          // First chunk: update immediately
+          startTransition(() => {
+            setEntities([...updatedEntities]);
+          });
+        } else {
+          // Subsequent chunks: update with small delay to prevent blocking
+          await new Promise(resolve => setTimeout(resolve, 50));
+          startTransition(() => {
+            setEntities([...updatedEntities]);
+          });
+        }
+      }
+      
+      // Final update with all entities
+      startTransition(() => {
+        setEntities(updatedEntities);
+      });
+    } catch (error) {
+      console.warn('Failed to refresh entity balances:', error);
+    }
+  };
+
   // Only initialize hook when engine is ready
   // Hook now uses context methods instead of local state
   useScenarioEngine({
@@ -132,6 +257,8 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
     onUpdatePhase: updateExecutionPhase, // Context method with built-in batching
     onSetEntities: setEntities,
     onSetRunningScenario: setRunningScenario,
+    entitiesTabActive: activeTab === 'entities', // Pass active tab state
+    entities, // Pass current entities for refresh logic
   });
   
   const handleEndScenario = async () => {
@@ -308,6 +435,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
                 }}
                 onCreateEntities={createEntities}
                 onClearEntities={clearEntities}
+                onRefreshBalances={refreshEntityBalances}
               />
             )}
 

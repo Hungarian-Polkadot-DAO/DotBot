@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, RefreshCw } from 'lucide-react';
 import { ScenarioEngine, DotBot } from '@dotbot/core';
 import { ModeSelector, ExecutionMode } from './ModeSelector';
 import { EntityList } from './EntityList';
@@ -28,6 +28,7 @@ interface EntitiesTabProps {
   onAppendReport: (text: string) => void;
   onCreateEntities: () => Promise<void>;
   onClearEntities?: () => void;
+  onRefreshBalances?: () => Promise<void>;
 }
 
 export const EntitiesTab: React.FC<EntitiesTabProps> = ({
@@ -37,7 +38,19 @@ export const EntitiesTab: React.FC<EntitiesTabProps> = ({
   isCreating,
   onCreateEntities,
   onClearEntities,
+  onRefreshBalances,
 }) => {
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+  
+  const handleRefresh = async () => {
+    if (!onRefreshBalances || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshBalances();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
   return (
     <div className="scenario-panel">
       <div className="scenario-panel-header">
@@ -68,6 +81,17 @@ export const EntitiesTab: React.FC<EntitiesTabProps> = ({
               ? `RECREATE ENTITIES (${mode.toUpperCase()})` 
               : 'CREATE ENTITIES'}
         </button>
+        {entities.length > 0 && onRefreshBalances && (
+          <button
+            className="scenario-btn scenario-btn-secondary"
+            onClick={handleRefresh}
+            disabled={isRefreshing || isCreating}
+            title="Refresh entity balances (auto-refreshes every 30s when tab is active)"
+          >
+            <RefreshCw size={14} style={{ marginRight: '8px', animation: isRefreshing ? 'spin 1s linear infinite' : 'none' }} />
+            {isRefreshing ? 'REFRESHING...' : 'REFRESH BALANCES'}
+          </button>
+        )}
         {entities.length > 0 && onClearEntities && (
           <button
             className="scenario-btn scenario-btn-danger"

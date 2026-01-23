@@ -26,6 +26,8 @@ interface UseScenarioEngineProps {
   onUpdatePhase?: (updater: (prev: ExecutionPhase) => ExecutionPhase) => void; // For batched updates
   onSetEntities?: (entities: any[]) => void;
   onSetRunningScenario?: (scenario: string | null) => void;
+  entitiesTabActive?: boolean; // Whether entities tab is currently active
+  entities?: any[]; // Current entities list (to check if we should refresh)
 }
 
 export const useScenarioEngine = ({
@@ -39,6 +41,8 @@ export const useScenarioEngine = ({
   onUpdatePhase,
   onSetEntities,
   onSetRunningScenario,
+  entitiesTabActive = false,
+  entities = [],
 }: UseScenarioEngineProps) => {
   // NOTE: State is now managed by ScenarioEngineContext
   // This hook only handles event subscriptions and calls context methods via callbacks
@@ -116,6 +120,67 @@ export const useScenarioEngine = ({
       return '—';
     }
   }, [dotbot, engine]);
+
+  // Helper function to refresh all entity balances
+  // Processes in chunks to prevent UI freeze
+  const refreshEntityBalances = useCallback(async () => {
+    if (!engine || !dotbot || !onSetEntitiesRef.current) {
+      return;
+    }
+    
+    try {
+      const engineEntities = Array.from(engine.getEntities().values()) as TestEntity[];
+      if (engineEntities.length === 0) {
+        return; // No entities to refresh
+      }
+      
+      // Process entities in chunks to prevent blocking UI
+      const CHUNK_SIZE = 5; // Process 5 entities at a time
+      const chunks: TestEntity[][] = [];
+      for (let i = 0; i < engineEntities.length; i += CHUNK_SIZE) {
+        chunks.push(engineEntities.slice(i, i + CHUNK_SIZE));
+      }
+      
+      const updatedEntities: any[] = [];
+      
+      // Process chunks sequentially with small delays
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const chunk = chunks[chunkIndex];
+        
+        // Query balances for chunk
+        const chunkResults = await Promise.all(
+          chunk.map(async (e: TestEntity) => {
+            const balance = await queryEntityBalance(e.address);
+            return {
+              name: e.name,
+              address: e.address,
+              type: e.type,
+              uri: e.uri,
+              balance,
+            };
+          })
+        );
+        
+        updatedEntities.push(...chunkResults);
+        
+        // Update state incrementally for each chunk (non-blocking)
+        // Use setTimeout to defer state update to next tick
+        if (chunkIndex === 0) {
+          // First chunk: update immediately
+          onSetEntitiesRef.current(updatedEntities);
+        } else {
+          // Subsequent chunks: update with small delay
+          await new Promise(resolve => setTimeout(resolve, 50));
+          onSetEntitiesRef.current([...updatedEntities]);
+        }
+      }
+      
+      // Final update with all entities
+      onSetEntitiesRef.current(updatedEntities);
+    } catch (error) {
+      console.warn('[useScenarioEngine] Failed to refresh entity balances:', error);
+    }
+  }, [engine, dotbot, queryEntityBalance]);
 
   // Use refs for callbacks to prevent re-subscription on every render
   const onAddMessageRef = useRef(onAddMessage);
@@ -268,20 +333,58 @@ export const useScenarioEngine = ({
       } else if (event.type === 'state-change' && event.state.entities) {
         const engineEntities = Array.from(event.state.entities.values()) as TestEntity[];
         
-        // Query balances for all entities
-        Promise.all(
-          engineEntities.map(async (e: TestEntity) => {
-            const balance = await queryEntityBalance(e.address);
-            return {
-              name: e.name,
-              address: e.address,
-              type: e.type,
-              uri: e.uri,
-              balance,
-            };
-          })
-        ).then((entities) => {
-          onSetEntitiesRef.current?.(entities);
+        // Query balances for all entities in chunks to prevent UI freeze
+        // Use the same chunked approach as refreshEntityBalances
+        (async () => {
+          if (engineEntities.length === 0) {
+            return;
+          }
+          
+          // Process entities in chunks to prevent blocking UI
+          const CHUNK_SIZE = 5; // Process 5 entities at a time
+          const chunks: TestEntity[][] = [];
+          for (let i = 0; i < engineEntities.length; i += CHUNK_SIZE) {
+            chunks.push(engineEntities.slice(i, i + CHUNK_SIZE));
+          }
+          
+          const updatedEntities: any[] = [];
+          
+          // Process chunks sequentially with small delays
+          for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+            const chunk = chunks[chunkIndex];
+            
+            // Query balances for chunk
+            const chunkResults = await Promise.all(
+              chunk.map(async (e: TestEntity) => {
+                const balance = await queryEntityBalance(e.address);
+                return {
+                  name: e.name,
+                  address: e.address,
+                  type: e.type,
+                  uri: e.uri,
+                  balance,
+                };
+              })
+            );
+            
+            updatedEntities.push(...chunkResults);
+            
+            // Update state incrementally for each chunk (non-blocking)
+            // Use setTimeout to defer state update to next tick
+            if (chunkIndex === 0) {
+              // First chunk: update immediately
+              onSetEntitiesRef.current?.(updatedEntities);
+            } else {
+              // Subsequent chunks: update with small delay
+              await new Promise(resolve => setTimeout(resolve, 50));
+              onSetEntitiesRef.current?.(updatedEntities);
+            }
+          }
+          
+          // Final update with all entities
+          onSetEntitiesRef.current?.(updatedEntities);
+        })().catch((error) => {
+          console.warn('[useScenarioEngine] Failed to query entity balances on state-change:', error);
         });
       } else if (event.type === 'scenario-complete') {
         onSetRunningScenarioRef.current?.(null);
@@ -324,6 +427,8 @@ export const useScenarioEngine = ({
     
     // Sync existing report content if scenario is already running
     // This handles the case where we subscribe after the scenario started
+    // No timeout needed - context's isReady state gates processing
+    // If not ready, message will be queued and processed when ready
     try {
       const currentReport = engine.getReport();
       if (currentReport && currentReport.trim()) {
@@ -363,6 +468,31 @@ export const useScenarioEngine = ({
     // queryEntityBalance is included because it's used inside handleEvent (line 274)
     // It's wrapped in useCallback with [dotbot, engine] deps, so it's stable when those don't change
   }, [engine, dotbot, queryEntityBalance]);
+
+  // Periodic balance refresh - only when entities tab is active and entities exist
+  // Uses a reasonable interval (30 seconds) to avoid excessive network traffic
+  useEffect(() => {
+    if (!engine || !dotbot || !entitiesTabActive || entities.length === 0) {
+      return; // Don't refresh if tab is not active or no entities
+    }
+
+    const BALANCE_REFRESH_INTERVAL = 30000; // 30 seconds
+    
+    // Initial refresh after a short delay (to avoid immediate refresh on tab switch)
+    const initialTimeout = setTimeout(() => {
+      refreshEntityBalances();
+    }, 1000);
+
+    // Set up periodic refresh
+    const intervalId = setInterval(() => {
+      refreshEntityBalances();
+    }, BALANCE_REFRESH_INTERVAL);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(intervalId);
+    };
+  }, [engine, dotbot, entitiesTabActive, entities.length, refreshEntityBalances]);
 
   // Hook no longer returns state - all state is managed by context
   // This is a side-effect only hook (event subscriptions)
