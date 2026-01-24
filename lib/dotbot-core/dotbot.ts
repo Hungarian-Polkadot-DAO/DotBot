@@ -1774,6 +1774,8 @@ export class DotBot {
       this.executionArrays.delete(executionId);
       this.dotbotLogger.debug({ executionId }, 'Cleaned up execution sessions, plan, state, and ExecutionArray');
     }
+    
+    return cleaned;
   }
   
   /**
