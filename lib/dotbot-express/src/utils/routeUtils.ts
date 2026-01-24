@@ -3,7 +3,7 @@
  */
 
 import { Response } from 'express';
-import { sessionLogger, errorLogger } from './logger';
+import { sessionLogger as _sessionLogger, errorLogger } from './logger';
 
 /**
  * Send 404 not found response

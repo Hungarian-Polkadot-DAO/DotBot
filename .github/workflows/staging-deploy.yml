@@ -53,13 +53,32 @@ jobs:
       working-directory: ./frontend
       run: npm run type-check
       
+    - name: Run frontend lint
+      working-directory: ./frontend
+      run: npm run lint
+      
     - name: Run backend type check
       working-directory: ./backend
       run: npm run type-check
+      
+    - name: Run backend lint
+      working-directory: ./backend
+      run: npm run lint
+      
+    - name: Run dotbot-core lint
+      working-directory: ./lib/dotbot-core
+      run: npm run lint
+      
+    - name: Run dotbot-express lint
+      working-directory: ./lib/dotbot-express
+      run: npm run lint
         
     - name: Run backend tests
       working-directory: ./backend
       run: npm test -- --coverage || echo "No tests configured yet"
+      
+    - name: Run root lint (all workspaces)
+      run: npm run lint
       
   build:
     name: Build and Push Images

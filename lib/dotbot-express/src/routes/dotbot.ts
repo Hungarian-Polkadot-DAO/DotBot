@@ -9,7 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { ChatOptions, ChatResult, Environment, Network, AIProviderType, ExecutionArrayState, ChatInstance } from '@dotbot/core';
 import { createSessionManager } from '../sessionManager';
-import { apiLogger, dotbotLogger, sessionLogger, errorLogger } from '../utils/logger';
+import { apiLogger as _apiLogger, dotbotLogger, sessionLogger, errorLogger } from '../utils/logger';
 
 const router = Router();
 

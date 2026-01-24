@@ -7,7 +7,7 @@
 
 import type {
   Scenario,
-  ScenarioStep,
+  ScenarioStep as _ScenarioStep,
   ScenarioExpectation,
   ScenarioCategory,
   EntityConfig,
@@ -257,7 +257,7 @@ export function insufficientBalanceScenario(config: {
 export function calculateInsufficientBalanceAmount(
   initialBalance: string,
   firstTransferAmount: string,
-  estimatedFeePerTx: string = '0.01'
+  estimatedFeePerTx = '0.01'
 ): string {
   // Parse amounts (assumes format like "1.0 WND" or "0.1 WND")
   const parseAmount = (amountStr: string): number => {

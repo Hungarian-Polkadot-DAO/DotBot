@@ -4,7 +4,7 @@
  * Manages scenario engine event handling and state
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState as _useState, useEffect, useRef, useCallback } from 'react';
 import { ScenarioEngine, DotBot, TestEntity } from '@dotbot/core';
 import type { ReportMessageData } from '../components/ReportMessage';
 
@@ -33,7 +33,7 @@ interface UseScenarioEngineProps {
 export const useScenarioEngine = ({
   engine,
   dotbot,
-  onSendMessage,
+  onSendMessage: _onSendMessage,
   onAddMessage,
   onClearReport,
   onStatusChange,

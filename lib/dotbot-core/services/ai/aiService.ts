@@ -2,7 +2,7 @@
 
 import { AIProvider } from './types';
 import { ASIOneProvider } from './providers/asiOneProvider';
-import { ClaudeProvider, ClaudeConfig } from './providers/claudeProvider';
+import { ClaudeProvider } from './providers/claudeProvider';
 import { getEnv } from '../../env';
 
 export enum AIProviderType {
@@ -55,7 +55,7 @@ export class AIService {
           // Env vars are handled by ASIOneService constructor as fallbacks
         });
 
-      case AIProviderType.CLAUDE:
+      case AIProviderType.CLAUDE: {
         const claudeApiKey = config?.claudeConfig?.apiKey || getEnv('CLAUDE_API_KEY');
         if (!claudeApiKey) {
           // Note: Logger not available here, but this is a warning that should be visible
@@ -68,6 +68,8 @@ export class AIService {
           maxTokens: config?.claudeConfig?.maxTokens,
           temperature: config?.claudeConfig?.temperature
         });
+        break;
+      }
 
       case AIProviderType.OPENAI:
         // Reserved for future implementation

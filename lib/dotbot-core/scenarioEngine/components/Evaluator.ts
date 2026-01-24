@@ -269,7 +269,7 @@ export class Evaluator {
     allResponses: string[],
     stepResults: StepResult[],
     allExecutionPlans: NonNullable<StepResult['executionPlan']>[],
-    stepResultWithExecution: StepResult | null
+    _stepResultWithExecution: StepResult | null
   ): ExpectationResult {
     // Emit evaluation start log
     this.emit({

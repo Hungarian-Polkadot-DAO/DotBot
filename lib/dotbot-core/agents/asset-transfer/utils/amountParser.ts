@@ -40,7 +40,7 @@ export function parseAndValidateAmountWithCapabilities(
 /**
  * Parse amount from human-readable format to Planck
  */
-export function parseAmount(amount: string | number, decimals: number = 10): BN {
+export function parseAmount(amount: string | number, decimals = 10): BN {
   const amountStr = typeof amount === 'number' ? amount.toString() : amount;
   const [whole, fraction = ''] = amountStr.split('.');
   const fractionPadded = fraction.padEnd(decimals, '0').slice(0, decimals);

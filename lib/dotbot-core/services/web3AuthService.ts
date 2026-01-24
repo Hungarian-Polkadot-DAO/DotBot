@@ -32,7 +32,7 @@ class Web3AuthService {
   private currentAccount: WalletAccount | null = null;
   private authToken: string | null = null;
   private user: any = null;
-  private extensionsEnabled: boolean = false;
+  private extensionsEnabled = false;
   private enabledExtensionsCache: any[] | null = null;
   private enablePromise: Promise<any[]> | null = null;
 

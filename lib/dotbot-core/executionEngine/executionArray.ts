@@ -26,9 +26,9 @@ import { getInitialExecutionStatus } from './utils';
 export class ExecutionArray {
   private id: string;
   private items: ExecutionItem[] = [];
-  private currentIndex: number = -1;
-  private isExecuting: boolean = false;
-  private isPaused: boolean = false;
+  private currentIndex = -1;
+  private isExecuting = false;
+  private isPaused = false;
   
   // Callbacks
   private statusCallbacks: Set<StatusCallback> = new Set();
@@ -397,7 +397,7 @@ export class ExecutionArray {
    */
   // Batch notifications to prevent UI blocking
   private pendingStatusNotifications: Set<ExecutionItem> = new Set();
-  private pendingProgressNotification: boolean = false;
+  private pendingProgressNotification = false;
   private notificationTimeout: NodeJS.Timeout | null = null;
 
   private notifyStatusDeferred(item: ExecutionItem): void {

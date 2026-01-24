@@ -5,7 +5,7 @@
  * Appears as an overlay on the right side of the screen.
  */
 
-import React, { useState, useEffect, useCallback, startTransition } from 'react';
+import React, { useState, useEffect, useCallback as _useCallback, startTransition } from 'react';
 import { ScenarioEngine, DotBot, Scenario } from '@dotbot/core';
 import { X } from 'lucide-react';
 import { EntitiesTab } from './components/EntitiesTab';
@@ -27,7 +27,7 @@ import {
   createModifiedScenario 
 } from './utils/scenarioRunner';
 import { TEST_CATEGORIES, TabType } from './constants';
-import { ExecutionMode } from './components/ModeSelector';
+import { ExecutionMode as _ExecutionMode } from './components/ModeSelector';
 import '../../styles/scenario-engine-overlay.css';
 
 interface ScenarioEngineOverlayProps {
@@ -271,7 +271,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
       setRunningScenario(null);
       setStatusMessage('');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const _errorMessage = error instanceof Error ? error.message : String(error);
           // Error will be handled by report-update events
       console.error('Failed to end scenario:', error);
     }
@@ -311,7 +311,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
       }));
       
       // Entity creation messages will be handled by report-update events
-      verifyEntities(entityData, state.executionMode, (text: string) => {
+      verifyEntities(entityData, state.executionMode, (_text: string) => {
         // This callback is for legacy verifyEntities, but messages will come via events
       });
       
@@ -336,7 +336,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
         try {
           // All report messages will be handled by report-update events from ScenarioEngine
           const chain = getScenarioChain(scenario, dotbot);
-          const chainType = getChainTypeDescription(chain);
+          const _chainType = getChainTypeDescription(chain);
           const modifiedScenario = createModifiedScenario(scenario, chain, state.executionMode);
           
           // Run scenario - this does synchronous work at start, but we've deferred it
@@ -430,7 +430,7 @@ const ScenarioEngineOverlay: React.FC<ScenarioEngineOverlayProps> = ({
                 onModeChange={(mode) => setExecutionModeContext(mode)}
                 entities={entities}
                 isCreating={isCreatingEntities}
-                onAppendReport={(text: string) => {
+                onAppendReport={(_text: string) => {
                   // Legacy callback for EntitiesTab - messages will come via events
                 }}
                 onCreateEntities={createEntities}

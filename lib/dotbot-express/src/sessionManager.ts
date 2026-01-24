@@ -110,7 +110,7 @@ export class RedisSessionStore implements SessionStore {
     redisClient: any,
     recreateSession: (data: SerializableSessionData, aiServiceConfig?: AIServiceConfig) => Promise<DotBotSession>,
     defaultAIServiceConfig?: AIServiceConfig,
-    keyPrefix: string = 'dotbot:session:'
+    keyPrefix = 'dotbot:session:'
   ) {
     this.redisClient = redisClient;
     this.recreateSession = (data) => recreateSession(data, defaultAIServiceConfig);
@@ -538,10 +538,10 @@ export function createSessionManager(config?: AIServiceConfig): DotBotSessionMan
 export function createRedisSessionManager(
   redisClient: any,
   config?: AIServiceConfig,
-  keyPrefix: string = 'dotbot:session:'
+  keyPrefix = 'dotbot:session:'
 ): DotBotSessionManager {
   // Create a temporary manager to access recreateSession method
-  const tempManager = new DotBotSessionManager(undefined, config);
+  const _tempManager = new DotBotSessionManager(undefined, config);
   const recreateSession = (data: SerializableSessionData, aiServiceConfig?: AIServiceConfig) => {
     // Create a new manager instance for recreation
     const recreateManager = new DotBotSessionManager(undefined, aiServiceConfig || config);

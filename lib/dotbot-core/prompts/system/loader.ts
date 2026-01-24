@@ -137,7 +137,7 @@ function formatAgentDefinitions(): string {
  * @param tokenSymbol Optional token symbol for display
  * @returns Balance as a formatted string
  */
-function formatPlanckToDot(planck: string | number, decimals: number = 10, tokenSymbol?: string): string {
+function formatPlanckToDot(planck: string | number, decimals = 10, _tokenSymbol?: string): string {
   // Convert planck to BigInt (works for both string and number)
   const planckBigInt = BigInt(planck);
   

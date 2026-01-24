@@ -48,7 +48,7 @@ export class ChatInstance {
   // These are created once per chat and reused for all executions
   private relayChainSession: ExecutionSession | null = null;
   private assetHubSession: ExecutionSession | null = null;
-  private sessionsInitialized: boolean = false;
+  private sessionsInitialized = false;
   
   // Legacy: most recent execution (for backward compatibility)
   public get currentExecution(): ExecutionArray | null {
@@ -63,7 +63,7 @@ export class ChatInstance {
   constructor(
     data: ChatInstanceData,
     manager: ChatInstanceManager,
-    persistenceEnabled: boolean = true
+    persistenceEnabled = true
   ) {
     this.data = data;
     this.manager = manager;
@@ -295,7 +295,7 @@ export class ChatInstance {
    * Add a message to this conversation
    * @param skipReload Skip reloading from disk (useful when adding multiple messages in batch)
    */
-  async addMessage(message: ConversationItem, skipReload: boolean = false): Promise<void> {
+  async addMessage(message: ConversationItem, skipReload = false): Promise<void> {
     // Add to in-memory array IMMEDIATELY (synchronous)
     this.data.messages.push(message);
     console.log('[ChatInstance] Message pushed to array:', { type: message.type, id: message.id, count: this.data.messages.length });
@@ -313,7 +313,7 @@ export class ChatInstance {
    * Add a user message (convenience method)
    * @param skipReload Skip reloading from disk (useful when adding multiple messages in batch)
    */
-  async addUserMessage(content: string, skipReload: boolean = false): Promise<ConversationItem> {
+  async addUserMessage(content: string, skipReload = false): Promise<ConversationItem> {
     const message: ConversationItem = {
       id: this.generateMessageId(),
       type: 'user',
@@ -329,7 +329,7 @@ export class ChatInstance {
    * Add a bot message (convenience method)
    * @param skipReload Skip reloading from disk (useful when adding multiple messages in batch)
    */
-  async addBotMessage(content: string, skipReload: boolean = false): Promise<ConversationItem> {
+  async addBotMessage(content: string, skipReload = false): Promise<ConversationItem> {
     const message: ConversationItem = {
       id: this.generateMessageId(),
       type: 'bot',
@@ -372,7 +372,7 @@ export class ChatInstance {
     executionIdOrState: string | ExecutionArrayState,
     executionPlan?: ExecutionPlan,
     executionArrayState?: ExecutionArrayState,
-    skipReload: boolean = false
+    skipReload = false
   ): Promise<ExecutionMessage> {
     // Determine executionId and state based on arguments
     let executionId: string;
@@ -660,7 +660,6 @@ export class ChatInstance {
     if (this.persistenceEnabled) {
       // Save current in-memory messages before reloading
       const inMemoryMessages = [...this.data.messages];
-      const inMemoryMessageIds = new Set(inMemoryMessages.map(m => m.id));
       
       const updated = await this.manager.loadInstance(this.data.id);
       if (updated) {
@@ -717,7 +716,7 @@ export class ChatInstance {
   static async create(
     params: CreateChatInstanceParams,
     manager: ChatInstanceManager,
-    persistenceEnabled: boolean = true
+    persistenceEnabled = true
   ): Promise<ChatInstance> {
     const data = await manager.createInstance(params);
     return new ChatInstance(data, manager, persistenceEnabled);
@@ -729,7 +728,7 @@ export class ChatInstance {
   static async load(
     id: string,
     manager: ChatInstanceManager,
-    persistenceEnabled: boolean = true
+    persistenceEnabled = true
   ): Promise<ChatInstance | null> {
     const data = await manager.loadInstance(id);
     if (!data) return null;

@@ -5,7 +5,7 @@
 
 import { Response } from 'express';
 import { DotBotSession } from '../sessionManager';
-import { sendSuccess, sendNotFound, handleRouteError } from './routeUtils';
+import { sendSuccess, sendNotFound as _sendNotFound, handleRouteError } from './routeUtils';
 
 /**
  * Get session data for response

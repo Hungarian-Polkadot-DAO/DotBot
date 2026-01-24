@@ -359,7 +359,7 @@ export function toConversationMessage(message: ConversationItem): ConversationMe
         timestamp: message.timestamp,
       };
     
-    case 'execution':
+    case 'execution': {
       // Convert execution messages to descriptive text so LLM knows about existing execution plans
       // This prevents the LLM from creating duplicate execution plans
       const execMessage = message as ExecutionMessage;
@@ -386,6 +386,7 @@ export function toConversationMessage(message: ConversationItem): ConversationMe
         content: `[Execution Flow] Execution ID: ${execMessage.executionId}, Status: ${execMessage.status}`,
         timestamp: message.timestamp,
       };
+      }
     
     // Don't include knowledge-request, search messages in LLM context
     // (They're for UI display only)

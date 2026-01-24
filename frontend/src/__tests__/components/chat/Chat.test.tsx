@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen as _screen, waitFor, act } from '@testing-library/react';
 import Chat from '../../../components/chat/Chat';
 import { createMockDotBot, createMockChatInstance, createMockExecutionMessage } from '../../../test-utils/mocks';
 

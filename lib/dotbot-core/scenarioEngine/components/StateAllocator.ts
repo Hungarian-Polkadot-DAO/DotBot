@@ -177,7 +177,7 @@ export interface AllocationResult {
 
 export class StateAllocator {
   private config: StateAllocatorConfig;
-  private initialized: boolean = false;
+  private initialized = false;
   // NOTE: Chopsticks properties removed - emulated mode is disabled
   // private chopsticksChain: any = null;
   // private chopsticksApi: ApiPromise | null = null;
@@ -632,7 +632,7 @@ export class StateAllocator {
         // Throw error immediately - don't catch and return in result
         throw new Error('Emulated mode is not implemented yet. Use live mode.');
         
-      case 'live':
+      case 'live': {
         // LIVE MODE: Create REAL balances on REAL chain
         // DotBot will query the real chain and see these balances
         // ✅ No duplicate state - everything is on the real chain
@@ -650,6 +650,7 @@ export class StateAllocator {
         }
         result.balances.set(address, { free: parsedBalance.planck });
         break;
+      }
     }
   }
 
@@ -670,7 +671,7 @@ export class StateAllocator {
           'Please use "live" or "synthetic" mode instead.'
         );
         
-      case 'live':
+      case 'live': {
         // Query balance from live API
         if (!this.api) {
           throw new Error('API not initialized for live mode');
@@ -679,6 +680,7 @@ export class StateAllocator {
         const accountInfo = await this.api.query.system.account(address);
         const accountData = (accountInfo as any).data;
         return new BN(accountData.free.toString());
+      }
         
       default:
         return new BN(0);
@@ -691,9 +693,9 @@ export class StateAllocator {
    * NOTE: Emulated mode is currently disabled. This would need server-side implementation.
    */
   private async setChopsticksBalance(
-    address: string,
-    planck: string,
-    result: AllocationResult
+    _address: string,
+    _planck: string,
+    _result: AllocationResult
   ): Promise<void> {
     throw new Error(
       'Emulated mode is not currently supported. Chopsticks setup has been moved to the server. ' +
@@ -817,8 +819,8 @@ export class StateAllocator {
    * NOTE: Emulated mode is currently disabled. This would need server-side implementation.
    */
   private async setChopsticksAsset(
-    address: string,
-    asset: AssetState
+    _address: string,
+    _asset: AssetState
   ): Promise<void> {
     throw new Error(
       'Emulated mode is not currently supported. Chopsticks setup has been moved to the server. ' +

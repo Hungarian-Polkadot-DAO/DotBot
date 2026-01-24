@@ -187,7 +187,7 @@ export abstract class BaseAgent {
   protected async hasSufficientBalance(
     address: string,
     requiredAmount: string | BN,
-    includeFees: boolean = true
+    includeFees = true
   ): Promise<{ sufficient: boolean; available: string; required: string; shortfall?: string }> {
     const balance = await this.getBalance(address);
     const requiredBN = typeof requiredAmount === 'string' ? new BN(requiredAmount) : requiredAmount;
@@ -675,7 +675,7 @@ export abstract class BaseAgent {
   /**
    * Parse amount from human-readable format to Planck
    */
-  protected parseAmount(amount: string | number, decimals: number = 10): BN {
+  protected parseAmount(amount: string | number, decimals = 10): BN {
     const amountStr = typeof amount === 'number' ? amount.toString() : amount;
     const [whole, fraction = ''] = amountStr.split('.');
     const fractionPadded = fraction.padEnd(decimals, '0').slice(0, decimals);

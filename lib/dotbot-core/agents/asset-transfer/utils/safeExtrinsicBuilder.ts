@@ -245,7 +245,7 @@ export function buildSafeBatchExtrinsic(
   api: ApiPromise,
   transfers: Array<{ recipient: string; amount: string | number | BN }>,
   capabilities: TransferCapabilities,
-  useAtomicBatch: boolean = true
+  useAtomicBatch = true
 ): SafeExtrinsicResult {
   validateBatchCapabilities(capabilities, useAtomicBatch);
   validateBatchTransfers(transfers);

@@ -6,11 +6,11 @@ import { getConfiguredLogLevel } from '../utils/logLevel';
 // Read version from package.json with fallback
 // Note: After compilation to dist/, relative paths to package.json don't work
 // Use environment variable or hardcode version (matches package.json version)
-let LIB_VERSION = process.env.DOTBOT_CORE_VERSION || "0.5.0";
+const LIB_VERSION = process.env.DOTBOT_CORE_VERSION || "0.5.0";
 
-// Detect environment
-const isDevelopment = process.env.NODE_ENV === 'development';
-const isProduction = process.env.NODE_ENV === 'production';
+// Environment detection - kept for potential future use
+// const isDevelopment = process.env.NODE_ENV === 'development';
+// const isProduction = process.env.NODE_ENV === 'production';
 
 // Determine log level using shared utility
 const getLogLevel = (): string => {

@@ -235,7 +235,7 @@ Keep responses concise but informative. Use bullet points for multiple options a
     }
     
     logger.info({ 
-      url: url.replace(/\/\/[^\/]+@/, '//***@'), // Mask credentials in URL
+      url: url.replace(/\/\/[^/]+@/, '//***@'), // Mask credentials in URL
       model: request.model 
     }, 'Fetching from ASI-One');
     
@@ -262,7 +262,7 @@ Keep responses concise but informative. Use bullet points for multiple options a
       
       if (fetchError.name === 'AbortError') {
         logger.error({ 
-          url: url.replace(/\/\/[^\/]+@/, '//***@'),
+          url: url.replace(/\/\/[^/]+@/, '//***@'),
           timeout: ASI_ONE_TIMEOUT_MS 
         }, 'ASI-One API request timed out');
         throw new Error(`ASI-One API request timed out after ${ASI_ONE_TIMEOUT_MS}ms. The API may be slow or unavailable.`);
@@ -270,7 +270,7 @@ Keep responses concise but informative. Use bullet points for multiple options a
       
       // Network errors (DNS, connection refused, etc.)
       logger.error({ 
-        url: url.replace(/\/\/[^\/]+@/, '//***@'),
+        url: url.replace(/\/\/[^/]+@/, '//***@'),
         error: fetchError.message,
         errorName: fetchError.name
       }, 'ASI-One API network error');
@@ -299,7 +299,7 @@ Keep responses concise but informative. Use bullet points for multiple options a
   /**
    * Get fallback response when API fails
    */
-  private getFallbackResponse(userMessage: string, error: any): string {
+  private getFallbackResponse(userMessage: string, _error: any): string {
     const message = userMessage.toLowerCase();
     
     if (message.includes('balance')) {

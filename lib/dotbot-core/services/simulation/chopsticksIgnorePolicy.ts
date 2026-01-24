@@ -200,7 +200,7 @@ function isFatalError(message: string): boolean {
 function matchesErrorPattern(
   message: string,
   rule: ChopsticksIgnoreRule,
-  phase: 'paymentInfo' | 'dryRun'
+  _phase: 'paymentInfo' | 'dryRun'
 ): boolean {
   const messageLower = message.toLowerCase();
   // Use 'some' for matching - at least one pattern fragment must be present

@@ -119,7 +119,7 @@ export class ExecutionSession {
   public readonly api: ApiPromise;
   public readonly endpoint: string;
   public readonly registry: Registry;
-  private _isActive: boolean = true;
+  private _isActive = true;
 
   constructor(api: ApiPromise, endpoint: string) {
     this.api = api;
@@ -215,7 +215,7 @@ export class RpcManager {
   private healthDataMaxAge: number;
   private healthCheckInterval: number;
   private healthCheckTimer: NodeJS.Timeout | null = null;
-  private isMonitoring: boolean = false;
+  private isMonitoring = false;
   private activeSessions: Set<ExecutionSession> = new Set();
   private rpcLogger = createSubsystemLogger(Subsystem.RPC);
 
@@ -493,7 +493,6 @@ export class RpcManager {
   private markEndpointHealthy(endpoint: string, responseTime?: number): void {
     const health = this.healthMap.get(endpoint);
     if (health) {
-      const wasUnhealthy = !health.healthy;
       health.healthy = true;
       health.lastChecked = Date.now();
       health.lastFailure = undefined;
@@ -698,13 +697,7 @@ export class RpcManager {
           });
           
           // Race between API creation and timeout - ensure all errors are caught
-          let api: ApiPromise;
-          try {
-            api = await Promise.race([apiPromise, timeoutPromise]);
-          } catch (raceError) {
-            // If Promise.race rejects, it should be caught by outer catch, but be explicit
-            throw raceError;
-          }
+          const api = await Promise.race([apiPromise, timeoutPromise]);
           
           // Check if a disconnect happened while we were waiting
           if (isResolved) {
