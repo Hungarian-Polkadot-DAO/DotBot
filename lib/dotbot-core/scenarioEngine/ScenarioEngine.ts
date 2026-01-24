@@ -129,14 +129,14 @@ export class ScenarioEngine {
   private dotbotEventListener: DotBotEventListener | null = null;
   
   // Report builder - accumulates all execution data for display
-  private reportContent: string = '';
-  private currentStepIndex: number = -1;
+  private reportContent = '';
+  private currentStepIndex = -1;
   private currentStepPrompt: string | null = null;
   private lastDotBotResponse: ChatResult | null = null; // Track last response to avoid duplicates
   
   // Track running scenario for early ending
   private runningScenario: Scenario | null = null;
-  private scenarioStartTime: number = 0;
+  private scenarioStartTime = 0;
   
   // Track execution subscriptions for report updates
   private executionSubscriptions: Map<string, () => void> = new Map();
@@ -267,7 +267,7 @@ export class ScenarioEngine {
           }
           break;
           
-        case DotBotEventType.CHAT_COMPLETE:
+        case DotBotEventType.CHAT_COMPLETE: {
           // PRIMARY event - contains full ChatResult with response, plan, execution status
           // This fires AFTER bot-message-added and execution-message-added
           // It's the authoritative source - use this and ignore the others
@@ -300,6 +300,7 @@ export class ScenarioEngine {
           
           this.appendDotBotResponseToReport(chatResult);
           break;
+        }
           
         case DotBotEventType.BOT_MESSAGE_ADDED:
           // IGNORE - chat-complete will fire after this with the same data
@@ -344,7 +345,7 @@ export class ScenarioEngine {
           }
           break;
           
-        case DotBotEventType.CHAT_ERROR:
+        case DotBotEventType.CHAT_ERROR: {
           // Capture the error
           this.captureError({
             message: event.error.message,
@@ -369,6 +370,7 @@ export class ScenarioEngine {
           
           this.appendDotBotResponseToReport(errorResult);
           break;
+        }
           
         case DotBotEventType.USER_MESSAGE_ADDED:
           // Log user message to report (for visibility)
@@ -597,7 +599,7 @@ export class ScenarioEngine {
    * @param silent - If true, clears internal state without emitting report-clear event
    *                 Use this when immediately replacing content to avoid unnecessary renders
    */
-  private clearReport(silent: boolean = false): void {
+  private clearReport(silent = false): void {
     this.reportContent = '';
     this.capturedEvents = [];
     this.capturedErrors = [];
@@ -752,7 +754,7 @@ export class ScenarioEngine {
    */
   private handleExecutorEventForReport(event: any): void {
     switch (event.type) {
-      case 'step-start':
+      case 'step-start': {
         this.currentStepIndex = event.index || -1;
         this.currentStepPrompt = event.step?.input || null;
         this.lastDotBotResponse = null; // Reset for new step
@@ -785,6 +787,7 @@ export class ScenarioEngine {
           this.appendToReport(`  Assertion Type: ${event.step.assertion.type}\n`);
         }
         break;
+      }
         
       case 'step-complete':
         if (event.result) {

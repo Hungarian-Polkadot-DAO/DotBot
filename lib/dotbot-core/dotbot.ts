@@ -2019,11 +2019,11 @@ export class DotBot {
           free: assetHubData.data?.free || '0',
           reserved: assetHubData.data?.reserved || '0',
           frozen: assetHubData.data?.frozen || assetHubData.data?.miscFrozen || '0'
-    };
+        };
     
       } catch (error) {
         // Asset Hub balance fetch failed - continue without it
-        this.dotbotLogger.debug('Failed to fetch Asset Hub balance', { error });
+        this.dotbotLogger.debug('Failed to fetch Asset Hub balance', undefined, error);
       }
     }
     
