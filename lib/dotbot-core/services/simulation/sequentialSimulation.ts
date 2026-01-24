@@ -12,7 +12,7 @@
 import type { ApiPromise } from '@polkadot/api';
 import type { SubmittableExtrinsic } from '@polkadot/api/types';
 import { BN } from '@polkadot/util';
-import { encodeAddress, decodeAddress } from '@polkadot/util-crypto';
+import { encodeAddress as _encodeAddress, decodeAddress as _decodeAddress } from '@polkadot/util-crypto';
 import { SimulationResult, SimulationStatusCallback } from './chopsticks';
 import { createSubsystemLogger, Subsystem } from '../logger';
 

@@ -5,7 +5,7 @@
  * Component hierarchy ready for @dotbot/react package extraction.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef as _useRef } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ThemeProvider } from './contexts/ThemeContext';
 // WebSocket removed - frontend does all simulation locally
@@ -332,7 +332,7 @@ const AppContent: React.FC = () => {
           undefined, // Don't use backend's executionArrayState - frontend will rebuild and simulate
           true // Skip reload to avoid race condition with user/bot message persistence
         )
-          .then(async (executionMessage: ExecutionMessage) => {
+          .then(async (_executionMessage: ExecutionMessage) => {
             console.log('[App] Execution message persisted');
             
             // Trigger UI refresh to show execution message

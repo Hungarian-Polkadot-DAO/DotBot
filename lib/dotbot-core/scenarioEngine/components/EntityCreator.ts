@@ -63,7 +63,7 @@ export interface EntityCreatorConfig {
 export class EntityCreator {
   private config: EntityCreatorConfig;
   private entities: Map<string, TestEntity> = new Map();
-  private initialized: boolean = false;
+  private initialized = false;
 
   constructor(config: EntityCreatorConfig) {
     this.config = {

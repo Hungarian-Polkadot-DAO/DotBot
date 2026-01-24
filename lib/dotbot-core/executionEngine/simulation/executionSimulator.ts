@@ -7,7 +7,7 @@
 import { ApiPromise } from '@polkadot/api';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { encodeAddress, decodeAddress } from '@polkadot/util-crypto';
-import { ExecutionItem, ExecutionResult } from '../types';
+import { ExecutionItem } from '../types';
 import { ExecutionArray } from '../executionArray';
 import { RpcManager, RpcEndpoints } from '../../rpcManager';
 import { markItemAsFailed } from '../errorHandlers';

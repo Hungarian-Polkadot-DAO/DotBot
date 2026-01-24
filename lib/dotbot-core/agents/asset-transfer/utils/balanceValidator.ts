@@ -30,7 +30,7 @@ export async function validateBalance(
   amount: BN,
   fee: BN,
   capabilities: TransferCapabilities,
-  validateBalance: boolean = true
+  validateBalance = true
 ): Promise<BalanceValidationResult> {
   const balance = await api.query.system.account(address);
   const balanceData = balance as any;

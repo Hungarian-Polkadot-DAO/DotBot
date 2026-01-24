@@ -225,7 +225,7 @@ export interface ChatOptions {
  */
 export class DotBot {
   private api: ApiPromise | null = null;
-  private executionSystemInitialized: boolean = false;
+  private executionSystemInitialized = false;
   private assetHubApi: ApiPromise | null = null;
   private executionSystem: ExecutionSystem;
   private wallet: WalletAccount;
@@ -1356,7 +1356,7 @@ export class DotBot {
         const executionMessages = messages.filter(
           m => m.type === 'execution' && (m as any).executionPlan?.id === plan.id
         );
-        for (const execMsg of executionMessages) {
+        for (const _execMsg of executionMessages) {
           // Note: We can't easily remove messages, but we can mark them as failed
           // The UI should handle this gracefully
         }
@@ -1440,7 +1440,7 @@ export class DotBot {
    * @param skipSimulation If true, skip simulation (used when rebuilding to prevent double simulation)
    * @returns ExecutionArrayState in SESSION_SERVER_MODE, void in stateful mode
    */
-  private async prepareExecution(plan: ExecutionPlan, executionId?: string, skipSimulation: boolean = false): Promise<ExecutionArrayState | void> {
+  private async prepareExecution(plan: ExecutionPlan, executionId?: string, skipSimulation = false): Promise<ExecutionArrayState | void> {
     // Step 0: Ensure RPC connections are ready (including Asset Hub) before preparing execution
     // LAZY LOADING: Only connect when execution is actually being prepared (not when loading history)
     await this.ensureRpcConnectionsReady();
@@ -2022,8 +2022,9 @@ export class DotBot {
     };
     
       } catch (error) {
+        // Asset Hub balance fetch failed - continue without it
+        this.dotbotLogger.debug('Failed to fetch Asset Hub balance', { error });
       }
-    } else {
     }
     
     // Calculate total free balance
@@ -2109,7 +2110,7 @@ export class DotBot {
    * have been prepared, without being overly chatty or asking for confirmation
    * (since the ExecutionPlan UI serves as the confirmation mechanism).
    */
-  private generateFriendlyMessage(plan: ExecutionPlan, completed: number, failed: number): string {
+  private generateFriendlyMessage(plan: ExecutionPlan, _completed: number, _failed: number): string {
     const totalSteps = plan.steps.length;
     
     if (totalSteps === 0) {
@@ -2146,7 +2147,7 @@ export class DotBot {
     
     try {
       const balance = await this.getBalance();
-      const chainInfo = await this.getChainInfo();
+      await this.getChainInfo(); // Keep for potential future use
       
       // Get network-specific token symbol
       const tokenSymbol = this.network === 'westend' ? 'WND' 

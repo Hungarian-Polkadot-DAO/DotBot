@@ -1,6 +1,6 @@
 // Claude Provider - Anthropic Claude API integration
 
-import { AIProvider, AIMessage } from '../types';
+import { AIProvider, AIMessage as _AIMessage } from '../types';
 import { getEnv } from '../../../env';
 
 export interface ClaudeConfig {
@@ -180,7 +180,7 @@ Keep responses concise but informative. Use bullet points for multiple options a
     return data as ClaudeResponse;
   }
 
-  private getFallbackResponse(userMessage: string, error: any): string {
+  private getFallbackResponse(userMessage: string, _error: any): string {
     const message = userMessage.toLowerCase();
 
     if (message.includes('balance')) {

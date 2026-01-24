@@ -277,7 +277,7 @@ async function simulateSequentialTransactionsInternal(
     startBlockHash = toHexString(chainHead);
 
     const results: Array<{ index: number; description: string; result: SimulationResponse }> = [];
-    let currentBlockHash = startBlockHash;
+    const currentBlockHash = startBlockHash;
     let totalFee = new BN(0);
 
     for (let i = 0; i < request.items.length; i++) {
@@ -381,7 +381,7 @@ async function simulateSequentialTransactionsInternal(
         };
       }
 
-      currentBlockHash = newBlockHash;
+      const _currentBlockHash = newBlockHash;
       totalFee = totalFee.add(new BN(fee));
       
       // Calculate balance changes (simplified - would need full implementation)

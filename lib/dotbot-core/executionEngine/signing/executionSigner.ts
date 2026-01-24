@@ -4,11 +4,9 @@
  * Handles transaction signing and approval requests.
  */
 
-import { ApiPromise } from '@polkadot/api';
 import { SubmittableExtrinsic } from '@polkadot/api/types';
 import { ExecutionItem, SigningRequest, BatchSigningRequest } from '../types';
 import { Signer } from '../signers/types';
-import { BrowserWalletSigner } from '../signers/browserSigner';
 import { isBrowser } from '../../env';
 
 // Lazy import for browser-only extension-dapp
@@ -45,7 +43,9 @@ export async function createSigningRequest(
       warnings: item.warnings,
       metadata: item.metadata,
       accountAddress: context.accountAddress,
-      resolve: () => {},
+      resolve: () => {
+        // Empty resolve for signing requests
+      },
     };
     return await context.signer.requestApproval(request);
   }

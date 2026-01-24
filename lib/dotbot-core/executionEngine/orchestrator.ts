@@ -243,7 +243,7 @@ export class ExecutionOrchestrator {
     errors: Array<{ stepId: string; error: string; step: ExecutionStep }>,
     totalSteps: number,
     startTime: number,
-    successfulSteps: number = 0
+    successfulSteps = 0
   ): OrchestrationResult {
     return {
       executionArray,

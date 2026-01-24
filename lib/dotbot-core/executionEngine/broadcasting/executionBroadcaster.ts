@@ -99,8 +99,8 @@ function handleTransactionResult(
  * Monitor transaction status
  */
 export async function monitorTransaction(
-  txHash: string,
-  api: ApiPromise
+  _txHash: string,
+  _api: ApiPromise
 ): Promise<void> {
   // Monitoring is handled by broadcastTransaction callback
   // This function is kept for API compatibility

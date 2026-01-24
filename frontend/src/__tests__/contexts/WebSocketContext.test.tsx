@@ -27,7 +27,7 @@ const createMockSocket = () => ({
 });
 
 // Mock socket.io-client
-const mockIo = jest.fn();
+const _mockIo = jest.fn();
 jest.mock('socket.io-client', () => {
   const mockFn = jest.fn();
   return {

@@ -126,7 +126,7 @@ async function handlePortInUse(
 /**
  * Try to start server on a port, with fallback to next available port
  */
-async function startServer(port: number, maxRetries: number = 10): Promise<void> {
+async function startServer(port: number, maxRetries = 10): Promise<void> {
   if (maxRetries <= 0) {
     throw new Error('Failed to start server: maximum retries exceeded');
   }

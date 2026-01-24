@@ -237,7 +237,7 @@ export function getRetryStrategy(
   analysis: ErrorAnalysis,
   attemptNumber: number,
   currentChain: 'assetHub' | 'relay',
-  currentKeepAlive: boolean
+  _currentKeepAlive: boolean
 ): RetryStrategy | null {
   if (analysis.category === 'USER_ERROR') {
     return null;
@@ -319,7 +319,7 @@ export function getRetryStrategy(
 export function formatErrorForUser(
   analysis: ErrorAnalysis,
   attemptNumber: number,
-  maxAttempts: number = 3
+  maxAttempts = 3
 ): string {
   let message = analysis.userMessage;
 

@@ -12,10 +12,10 @@ import {
   adversarialScenario,
   clarificationScenario,
   knowledgeScenario,
-  expectExecution,
-  expectTextContaining,
-  expectRejection,
-  expectClarificationFor,
+  expectExecution as _expectExecution,
+  expectTextContaining as _expectTextContaining,
+  expectRejection as _expectRejection,
+  expectClarificationFor as _expectClarificationFor,
   keypairEntity,
 } from './scenarioHelpers';
 

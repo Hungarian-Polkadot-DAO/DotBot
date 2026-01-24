@@ -70,7 +70,7 @@ export class InMemoryChopsticksDatabase implements Database {
   private blocksByNumber: Map<number, `0x${string}`> = new Map();
   private keyValue: Map<string, string | null> = new Map();
 
-  constructor(name: string) {
+  constructor(_name: string) {
     // Name is stored for reference but not used in in-memory implementation
     // In a real scenario, you might want to namespace by name if multiple instances exist
   }

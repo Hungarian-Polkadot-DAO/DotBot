@@ -317,7 +317,6 @@ export class ScenarioExecutor {
         
         // Emit error event with full details
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : undefined;
         this.emit({ 
           type: 'error', 
           error: errorMessage,
@@ -743,7 +742,7 @@ export class ScenarioExecutor {
     switch (action.type) {
       // === USER ACTIONS (Visible, through UI) ===
       
-      case 'input-message':
+      case 'input-message': {
         // Emit event for UI to handle
         const message = action.params?.message as string;
         if (!message) {
@@ -764,6 +763,7 @@ export class ScenarioExecutor {
         // Wait for UI to process (it will call notifyPromptProcessed)
         await this.waitForPromptProcessed();
         break;
+      }
 
       case 'wait-for-response':
         // Wait for the UI's chat flow to complete
@@ -798,7 +798,7 @@ export class ScenarioExecutor {
         await this.fundAccount(action);
         break;
 
-      case 'submit-extrinsic':
+      case 'submit-extrinsic': {
         // Submit any extrinsic as a specific entity
         // Log multisig address if creating a multisig
         const extrinsicParams = action.params?.extrinsic as any;
@@ -814,6 +814,7 @@ export class ScenarioExecutor {
         }
         await this.submitExtrinsic(action);
         break;
+      }
 
       case 'wait-blocks':
         // Wait for N blocks (for finalization)
@@ -854,7 +855,7 @@ export class ScenarioExecutor {
     const response = lastResult?.response?.content ?? '';
 
     switch (assertion.type) {
-      case 'check-llm-response':
+      case 'check-llm-response': {
         // Check the LLM's text response content
         const containsPattern = assertion.expected;
         if (typeof containsPattern === 'string') {
@@ -876,8 +877,9 @@ export class ScenarioExecutor {
           };
         }
         return { passed: false, message: 'Invalid expected value for check-llm-response' };
+      }
 
-      case 'check-agent-call':
+      case 'check-agent-call': {
         // Check which agent was called (from ExecutionPlan in ChatResult)
         if (!lastChatResult) {
           return { passed: false, message: 'No chat result available' };
@@ -929,8 +931,9 @@ export class ScenarioExecutor {
             ? 'Extrinsic was created (ExecutionPlan or ExecutionArray found)' 
             : 'No extrinsic was created (no ExecutionPlan or ExecutionArray)',
         };
+      }
 
-      case 'check-balance-change':
+      case 'check-balance-change': {
         // Verify a balance changed (requires before/after balance tracking)
         if (!this.deps?.queryBalance && !this.deps?.api) {
           return { 
@@ -1008,8 +1011,9 @@ export class ScenarioExecutor {
           passed: hasError,
           message: hasError ? 'Error was detected as expected' : 'No error detected',
         };
+      }
 
-      case 'custom':
+      case 'custom': {
         // Custom validator for extensibility
         if (assertion.customValidator) {
           try {
@@ -1025,6 +1029,7 @@ export class ScenarioExecutor {
           }
         }
         return { passed: false, message: 'No custom validator provided' };
+      }
 
       default:
         return { passed: false, message: `Unknown assertion type: ${assertion.type}` };
@@ -1312,19 +1317,21 @@ export class ScenarioExecutor {
     const targetBlock = currentBlock.number.toNumber() + blockCount;
 
     // Subscribe to new blocks
-    return new Promise<void>(async (resolve) => {
-      const unsubscribe = await this.deps!.api.rpc.chain.subscribeNewHeads((header) => {
-        const blockNumber = header.number.toNumber();
-        if (blockNumber >= targetBlock) {
-          unsubscribe();
-          this.emit({ 
-            type: 'log', 
-            level: 'info', 
-            message: `Reached block ${blockNumber}` 
-          });
-          resolve();
-        }
-      });
+    return new Promise<void>((resolve) => {
+      (async () => {
+        const unsubscribe = await this.deps!.api.rpc.chain.subscribeNewHeads((header) => {
+          const blockNumber = header.number.toNumber();
+          if (blockNumber >= targetBlock) {
+            unsubscribe();
+            this.emit({ 
+              type: 'log', 
+              level: 'info', 
+              message: `Reached block ${blockNumber}` 
+            });
+            resolve();
+          }
+        });
+      })();
     });
   }
 

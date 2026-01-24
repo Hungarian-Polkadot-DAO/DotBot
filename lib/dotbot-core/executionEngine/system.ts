@@ -20,6 +20,7 @@ import { ExecutionArray } from './executionArray';
 import { WalletAccount } from '../types/wallet';
 import { Signer } from './signers/types';
 import type { RpcManager, ExecutionSession } from '../rpcManager';
+import { RpcEndpoints } from '../rpcManager';
 import { SimulationStatusCallback } from '../agents/types';
 import { isSimulationEnabled } from './simulation/simulationConfig';
 import { createSimulationContext, findMatchingApi } from './simulation/simulationHelpers';
@@ -684,7 +685,6 @@ export class ExecutionSystem {
     }
 
     // Fallback to Polkadot mainnet endpoints if no manager available
-    const { RpcEndpoints } = require('../rpcManager');
     return isAssetHub
       ? RpcEndpoints.POLKADOT_ASSET_HUB.slice(0, 2)
       : RpcEndpoints.POLKADOT_RELAY_CHAIN.slice(0, 2);

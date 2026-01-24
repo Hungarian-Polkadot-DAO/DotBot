@@ -117,7 +117,9 @@ export class BrowserWalletSigner implements Signer {
         warnings: request.warnings,
         metadata: {},
         accountAddress: request.accountAddress,
-        resolve: () => {},
+        resolve: () => {
+          // Empty resolve for batch signing requests
+        },
       });
     }
     

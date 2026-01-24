@@ -132,7 +132,7 @@ export function validateMinimumCapabilities(capabilities: TransferCapabilities):
  */
 export function getBestTransferMethod(
   capabilities: TransferCapabilities,
-  keepAlive: boolean = false
+  keepAlive = false
 ): 'transferAllowDeath' | 'transfer' | 'transferKeepAlive' {
   if (shouldUseKeepAlive(capabilities, keepAlive)) {
     return 'transferKeepAlive';

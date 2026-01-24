@@ -113,7 +113,7 @@ export class AssetTransferAgent extends BaseAgent {
       const senderAddress = params.address;
       
       const estimatedFeeBN = new BN('500000000');
-      const balanceResult = await validateBalance(
+      await validateBalance(
         context.targetApi,
         senderAddress,
         totalAmount,

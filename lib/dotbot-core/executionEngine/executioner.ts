@@ -13,7 +13,7 @@ import { ExecutionArray } from './executionArray';
 import {
   ExecutionItem,
   ExecutionOptions,
-  ExecutionResult,
+  ExecutionResult as _ExecutionResult,
   ExecutionStatus,
   SigningRequest,
   BatchSigningRequest,

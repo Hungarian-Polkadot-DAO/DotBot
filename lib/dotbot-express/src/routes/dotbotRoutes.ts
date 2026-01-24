@@ -7,7 +7,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { Environment, Network, ExecutionArrayState } from '@dotbot/core';
+import { Environment as _Environment, Network as _Network, ExecutionArrayState } from '@dotbot/core';
 import { createSessionManager } from '../sessionManager';
 import { sessionLogger } from '../utils/logger';
 import {
@@ -44,7 +44,7 @@ router.post('/chat', async (req: Request, res: Response) => {
   }
 
   const {
-    message,
+    message: _message,
     sessionId,
     wallet,
     environment = 'mainnet',
@@ -299,7 +299,7 @@ router.post('/session/:sessionId/chats/:chatId/load', async (req: Request, res: 
  */
 router.post('/session/:sessionId/execution/:executionId/start', async (req: Request, res: Response) => {
   const { sessionId, executionId } = req.params;
-  const { autoApprove } = req.body || {};
+  const { autoApprove: _autoApprove } = req.body || {} as { autoApprove?: boolean };
   
   try {
     const session = await sessionManager.getSession(sessionId);

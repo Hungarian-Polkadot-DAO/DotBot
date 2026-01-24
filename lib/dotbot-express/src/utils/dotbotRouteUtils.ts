@@ -7,7 +7,7 @@
 import { Request, Response } from 'express';
 import { ChatOptions, ChatResult, Environment, Network, AIProviderType, ChatInstance, ExecutionItem, ExecutionArrayState } from '@dotbot/core';
 import { DotBotSession } from '../sessionManager';
-import { broadcastExecutionUpdates } from '../websocket/executionBroadcaster';
+import { broadcastExecutionUpdates as _broadcastExecutionUpdates } from '../websocket/executionBroadcaster';
 import { WebSocketManager } from '../websocket/WebSocketManager';
 import { dotbotLogger, errorLogger } from './logger';
 
@@ -94,7 +94,7 @@ export function setupWebSocketBroadcasting(
     const executionArray = dotbot.getExecutionArray(executionId);
     if (executionArray) {
       // Subscribe directly to ExecutionArray.onProgress() for WebSocket broadcasting
-      const unsubscribe = executionArray.onProgress((state: ExecutionArrayState) => {
+      const _unsubscribe = executionArray.onProgress((state: ExecutionArrayState) => {
         wsManager.broadcastExecutionUpdate(executionId, state, effectiveSessionId);
         
         // Check if execution is complete
@@ -135,7 +135,7 @@ async function prepareChatRequest(
   dotbot: any,
   wsManager: WebSocketManager | undefined,
   effectiveSessionId: string,
-  walletAddress: string
+  _walletAddress: string
 ): Promise<void> {
   setupWebSocketBroadcasting(dotbot, wsManager, effectiveSessionId);
   // No need to create ChatInstance - WebSocket subscribes directly to ExecutionArray
@@ -191,7 +191,7 @@ export async function handleChatRequest(
   const {
     message,
     options = {},
-    provider
+    provider: _provider
   }: DotBotChatRequest = req.body;
 
   const effectiveSessionId = generateSessionId(
