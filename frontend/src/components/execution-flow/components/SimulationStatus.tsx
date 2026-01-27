@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import './SimulationStatus.css';
-import { BN } from '@polkadot/util';
+import { formatAmount, formatFee } from '../utils/formatAmount';
 
 interface SimulationStatusProps {
   phase: 'initializing' | 'forking' | 'executing' | 'analyzing' | 'complete' | 'error' | 'validating' | 'simulating' | 'retrying';
@@ -21,18 +21,6 @@ interface SimulationStatusProps {
   /** Compact/inline mode - displays as a single line instead of a box */
   compact?: boolean;
 }
-
-const formatAmount = (planck: string): string => {
-  try {
-    const bn = new BN(planck);
-    const dot = bn.div(new BN(10).pow(new BN(10)));
-    const remainder = bn.mod(new BN(10).pow(new BN(10)));
-    const decimals = remainder.div(new BN(10).pow(new BN(8))).toNumber();
-    return `${dot.toString()}.${decimals.toString().padStart(2, '0')} DOT`;
-  } catch {
-    return `${planck} Planck`;
-  }
-};
 
 const SimulationStatus: React.FC<SimulationStatusProps> = ({
   phase,
@@ -175,7 +163,7 @@ const SimulationStatus: React.FC<SimulationStatusProps> = ({
             {result.estimatedFee && (
               <div className="result-row">
                 <span className="result-label">Estimated Fee:</span>
-                <span className="result-value fee">{formatAmount(result.estimatedFee)}</span>
+                <span className="result-value fee">{formatFee(result.estimatedFee, chain)}</span>
               </div>
             )}
 
@@ -185,7 +173,7 @@ const SimulationStatus: React.FC<SimulationStatusProps> = ({
                 <div className="result-value balance-changes">
                   {result.balanceChanges.map((change, idx) => (
                     <div key={idx} className={`balance-change ${change.change}`}>
-                      {change.change === 'send' ? '➖' : '➕'} {formatAmount(change.value)}
+                      {change.change === 'send' ? '➖' : '➕'} {formatAmount(change.value, chain)}
                     </div>
                   ))}
                 </div>

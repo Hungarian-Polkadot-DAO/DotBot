@@ -23,12 +23,14 @@ const ExecutionFlowItem: React.FC<ExecutionFlowItemProps> = ({
 }) => {
   const hasSimulationStatus = !!item.simulationStatus;
   
-  // Determine simulation status for data attribute
-  const simulationStatusAttr = 
-    item.status === 'pending' && hasSimulationStatus ? 'simulating' :
+  const simulationStatusAttr = item.status === 'pending' && hasSimulationStatus ? 'simulating' :
     item.status === 'pending' && !hasSimulationStatus ? 'waiting' :
     item.status === 'ready' ? 'success' :
     item.status === 'failed' ? 'failed' : 'none';
+
+  const handleToggle = () => {
+    onToggleExpand(item.id);
+  };
 
   return (
     <div
@@ -39,7 +41,7 @@ const ExecutionFlowItem: React.FC<ExecutionFlowItemProps> = ({
         item={item}
         index={index}
         isExpanded={isExpanded}
-        onToggleExpand={() => onToggleExpand(item.id)}
+        onToggleExpand={handleToggle}
       />
       {isExpanded && <ItemDetails item={item} />}
     </div>
