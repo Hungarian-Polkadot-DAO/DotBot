@@ -1336,18 +1336,28 @@ export class DotBot {
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error('[DotBot] ExecutionPlan was not created - preparation failed:', {
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
+      // Check if this is the specific "ExecutionMessage not added" error
+      const isExecutionMessageError = errorMsg.includes('Failed to add ExecutionMessage to chat') || 
+                                      errorMsg.includes('Cannot prepare execution: Failed to add ExecutionMessage');
+      
+      // Detailed error logging
+      const errorDetails = {
         error: errorMsg,
-        planId: plan.id,
-        originalRequest: plan.originalRequest
-      });
-      this.dotbotLogger.error({ 
-        error: errorMsg,
-        stack: error instanceof Error ? error.stack : undefined,
+        stack: errorStack,
         planId: plan.id,
         originalRequest: plan.originalRequest,
-        stepsCount: plan.steps.length
-      }, 'ExecutionPlan was not created - preparation failed');
+        stepsCount: plan.steps.length,
+        isExecutionMessageError,
+        hasCurrentChat: !!this.currentChat,
+        currentChatId: this.currentChat?.id,
+        stateful: this._stateful,
+        backendSimulation: this._backendSimulation
+      };
+      
+      console.error('[DotBot] ExecutionPlan preparation failed:', errorDetails);
+      this.dotbotLogger.error(errorDetails, 'ExecutionPlan was not created - preparation failed');
       
       // Clean up any partial execution message that might have been added
       if (this.currentChat) {
@@ -1362,9 +1372,14 @@ export class DotBot {
         }
       }
       
-      // Let the LLM generate a helpful error response
-      // This ensures context-aware, user-friendly error messages
-      const errorContextMessage = `I tried to prepare the transaction you requested ("${plan.originalRequest || 'your request'}"), but it failed with this error:\n\n${errorMsg}\n\nPlease provide a helpful, user-friendly explanation of what went wrong and what the user can do to fix it. Be specific about the issue (e.g., if it's insufficient balance, mention their current balance from context and what's needed). Respond with helpful TEXT only - do NOT generate another ExecutionPlan. IMPORTANT: Do NOT say you prepared anything - the preparation failed.`;
+      // For ExecutionMessage errors, provide a more specific user message
+      let errorContextMessage: string;
+      if (isExecutionMessageError) {
+        errorContextMessage = `I encountered a technical issue while trying to prepare the transaction you requested ("${plan.originalRequest || 'your request'}"). The system failed to create the execution flow interface.\n\nError details: ${errorMsg}\n\nPlease provide a friendly, apologetic message to the user explaining that you encountered a technical issue and couldn't prepare the transaction. Suggest they try again, and if the problem persists, they may need to refresh the page or start a new chat. Be empathetic and helpful. Respond with helpful TEXT only - do NOT generate another ExecutionPlan. IMPORTANT: Do NOT say you prepared anything - the preparation failed due to a technical issue.`;
+      } else {
+        // For other errors, use the existing error explanation flow
+        errorContextMessage = `I tried to prepare the transaction you requested ("${plan.originalRequest || 'your request'}"), but it failed with this error:\n\n${errorMsg}\n\nPlease provide a helpful, user-friendly explanation of what went wrong and what the user can do to fix it. Be specific about the issue (e.g., if it's insufficient balance, mention their current balance from context and what's needed). Respond with helpful TEXT only - do NOT generate another ExecutionPlan. IMPORTANT: Do NOT say you prepared anything - the preparation failed.`;
+      }
       
       // Get LLM response for the error
       const errorResponse = await this.getLLMResponse(errorContextMessage, options);
@@ -1375,6 +1390,10 @@ export class DotBot {
       // Save error message to chat
       if (this.currentChat) {
         await this.currentChat.addBotMessage(errorResponse);
+      } else {
+        // If we don't even have a chat instance, log this as a critical failure
+        console.error('[DotBot] CRITICAL: Cannot save error message - currentChat is null', errorDetails);
+        this.dotbotLogger.error(errorDetails, 'CRITICAL: Cannot save error message - currentChat is null');
       }
       
       // Return error response - do NOT include the plan to avoid confusion
@@ -1504,7 +1523,28 @@ export class DotBot {
       this.dotbotLogger.debug({ 
         executionId: finalExecutionId 
       }, 'prepareExecution: Adding execution message to chat');
-      await this.addExecutionMessageEarly(finalExecutionId, plan);
+      const messageAdded = await this.addExecutionMessageEarly(finalExecutionId, plan);
+      
+      // If message wasn't added (e.g., currentChat is null), fail early
+      // This prevents showing "I've prepared..." message when ExecutionFlow won't render
+      if (!messageAdded) {
+        const errorDetails = {
+          executionId: finalExecutionId,
+          planId: plan.id,
+          planOriginalRequest: plan.originalRequest,
+          stepsCount: plan.steps.length,
+          hasCurrentChat: !!this.currentChat,
+          currentChatId: this.currentChat?.id,
+          stateful: this._stateful,
+          backendSimulation: this._backendSimulation
+        };
+        
+        this.dotbotLogger.error(errorDetails, 'prepareExecution CRITICAL FAILURE: Could not add ExecutionMessage to chat');
+        console.error('[DotBot] CRITICAL: prepareExecution failed - ExecutionMessage not added to chat', errorDetails);
+        
+        // Throw error with detailed message for error handling
+        throw new Error(`Cannot prepare execution: Failed to add ExecutionMessage to chat. ExecutionId: ${finalExecutionId}, PlanId: ${plan.id}, HasCurrentChat: ${!!this.currentChat}`);
+      }
       
       // Step 3: Orchestrate plan (creates ExecutionArray with items)
       this.dotbotLogger.info({ 
@@ -1803,8 +1843,23 @@ export class DotBot {
    * Add execution message to chat early (before orchestration)
    * This shows the "Preparing..." state in the UI immediately
    */
-  private async addExecutionMessageEarly(executionId: string, plan: ExecutionPlan): Promise<void> {
-    if (!this.currentChat) return;
+  private async addExecutionMessageEarly(executionId: string, plan: ExecutionPlan): Promise<boolean> {
+    if (!this.currentChat) {
+      const errorDetails = {
+        executionId,
+        planId: plan.id,
+        planOriginalRequest: plan.originalRequest,
+        stepsCount: plan.steps.length,
+        stateful: this._stateful,
+        backendSimulation: this._backendSimulation,
+        hasChatManager: !!this.chatManager,
+        chatManagerInstanceCount: this.chatManager ? 'exists' : 'null'
+      };
+      
+      console.error('[DotBot] CRITICAL: addExecutionMessageEarly failed - currentChat is null', errorDetails);
+      this.dotbotLogger.error(errorDetails, 'addExecutionMessageEarly CRITICAL FAILURE: currentChat is null, cannot add ExecutionMessage');
+      return false;
+    }
     
     // Check if execution message already exists for this executionId
     const existingMessage = this.currentChat.getDisplayMessages()
@@ -1829,6 +1884,11 @@ export class DotBot {
         plan, 
         timestamp: Date.now() 
       });
+      return true;
+    } else {
+      // Message already exists - this is OK (idempotent)
+      this.dotbotLogger.debug({ executionId, planId: plan.id }, 'addExecutionMessageEarly: ExecutionMessage already exists');
+      return true;
     }
   }
   
@@ -2241,9 +2301,25 @@ export class DotBot {
       // Strategy 1: JSON in ```json code block (most common LLM format)
       const jsonMatch = normalized.match(/```json\s*([\s\S]*?)\s*```/i);
       if (jsonMatch) {
-        const plan = JSON.parse(jsonMatch[1].trim());
-        if (this.isValidExecutionPlan(plan)) {
-          return plan;
+        try {
+          const plan = JSON.parse(jsonMatch[1].trim());
+          if (this.isValidExecutionPlan(plan)) {
+            return plan;
+          }
+        } catch (parseError) {
+          // Try to fix common JSON issues (trailing commas, etc.)
+          const fixed = this.tryFixJson(jsonMatch[1].trim());
+          if (fixed) {
+            try {
+              const plan = JSON.parse(fixed);
+              if (this.isValidExecutionPlan(plan)) {
+                this.dotbotLogger.warn({ original: jsonMatch[1].substring(0, 100) }, 'Fixed JSON parsing issue in code block');
+                return plan;
+              }
+            } catch {
+              // Still failed after fix attempt
+            }
+          }
         }
       }
 
@@ -2256,7 +2332,19 @@ export class DotBot {
             return plan;
           }
         } catch {
-          // Not JSON in code block
+          // Try to fix common JSON issues
+          const fixed = this.tryFixJson(codeBlockMatch[1].trim());
+          if (fixed) {
+            try {
+              const plan = JSON.parse(fixed);
+              if (this.isValidExecutionPlan(plan)) {
+                this.dotbotLogger.warn({ original: codeBlockMatch[1].substring(0, 100) }, 'Fixed JSON parsing issue in generic code block');
+                return plan;
+              }
+            } catch {
+              // Still failed after fix attempt
+            }
+          }
         }
       }
 
@@ -2267,7 +2355,67 @@ export class DotBot {
           return plan;
         }
       } catch {
-        // Not plain JSON
+        // Try to fix common JSON issues
+        const fixed = this.tryFixJson(normalized);
+        if (fixed) {
+          try {
+            const plan = JSON.parse(fixed);
+            if (this.isValidExecutionPlan(plan)) {
+              this.dotbotLogger.warn({ original: normalized.substring(0, 100) }, 'Fixed JSON parsing issue in plain JSON');
+              return plan;
+            }
+          } catch {
+            // Still failed after fix attempt
+          }
+        }
+      }
+
+      // Strategy 4: Find JSON object anywhere in the response (even with text before/after)
+      // Look for patterns like { "id": "exec_", "steps": [...] }
+      const jsonObjectMatch = normalized.match(/\{\s*"id"\s*:\s*"exec_[^"]*"[\s\S]*?"steps"\s*:\s*\[[\s\S]*?\]/);
+      if (jsonObjectMatch) {
+        // Try to extract the complete JSON object
+        const jsonStart = normalized.indexOf('{');
+        if (jsonStart !== -1) {
+          // Find matching closing brace
+          let braceCount = 0;
+          let jsonEnd = -1;
+          for (let i = jsonStart; i < normalized.length; i++) {
+            if (normalized[i] === '{') braceCount++;
+            if (normalized[i] === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                jsonEnd = i + 1;
+                break;
+              }
+            }
+          }
+          
+          if (jsonEnd > jsonStart) {
+            const jsonCandidate = normalized.substring(jsonStart, jsonEnd);
+            try {
+              const plan = JSON.parse(jsonCandidate);
+              if (this.isValidExecutionPlan(plan)) {
+                this.dotbotLogger.info({ extracted: jsonCandidate.substring(0, 100) }, 'Extracted JSON from response with surrounding text');
+                return plan;
+              }
+            } catch {
+              // Try to fix common JSON issues
+              const fixed = this.tryFixJson(jsonCandidate);
+              if (fixed) {
+                try {
+                  const plan = JSON.parse(fixed);
+                  if (this.isValidExecutionPlan(plan)) {
+                    this.dotbotLogger.warn({ original: jsonCandidate.substring(0, 100) }, 'Fixed and extracted JSON from response with surrounding text');
+                    return plan;
+                  }
+                } catch {
+                  // Still failed after fix attempt
+                }
+              }
+            }
+          }
+        }
       }
 
       // No plan found in response
@@ -2278,6 +2426,22 @@ export class DotBot {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       }, 'ExecutionPlan was not created - extraction error');
+      return null;
+    }
+  }
+
+  /**
+   * Try to fix common JSON parsing issues (trailing commas, etc.)
+   */
+  private tryFixJson(jsonString: string): string | null {
+    try {
+      // Remove trailing commas before closing braces/brackets
+      let fixed = jsonString.replace(/,(\s*[}\]])/g, '$1');
+      
+      // Try parsing to see if it's valid now
+      JSON.parse(fixed);
+      return fixed;
+    } catch {
       return null;
     }
   }
