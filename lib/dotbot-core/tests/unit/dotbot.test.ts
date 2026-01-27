@@ -1694,6 +1694,71 @@ describe('DotBot', () => {
       expect((dotbot as any).extractExecutionPlan(null as any)).toBeNull();
       expect((dotbot as any).extractExecutionPlan(undefined as any)).toBeNull();
     });
+
+    it('should extract ExecutionPlan from JSON with surrounding text', () => {
+      const plan = {
+        id: 'exec_1234567890',
+        originalRequest: 'Send 2 DOT to Alice',
+        steps: [
+          {
+            id: 'step_1',
+            stepNumber: 1,
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: { recipient: 'Alice', amount: '2' },
+            executionType: 'extrinsic',
+            status: 'pending',
+            description: 'Transfer 2 DOT to Alice',
+            requiresConfirmation: true,
+            createdAt: 1234567890,
+          },
+        ],
+        status: 'pending',
+        requiresApproval: true,
+        createdAt: 1234567890,
+      };
+
+      const llmResponse = `Some text before the JSON\n${JSON.stringify(plan)}\nSome text after`;
+      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('exec_1234567890');
+      expect(result?.steps).toHaveLength(1);
+    });
+
+    it('should fix trailing commas in JSON', () => {
+      const plan = {
+        id: 'exec_1234567890',
+        originalRequest: 'Test',
+        steps: [
+          {
+            id: 'step_1',
+            stepNumber: 1,
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: { amount: '2' },
+            executionType: 'extrinsic',
+            status: 'pending',
+            description: 'Test',
+            requiresConfirmation: true,
+            createdAt: 1234567890,
+          },
+        ],
+        status: 'pending',
+        requiresApproval: true,
+        createdAt: 1234567890,
+      };
+
+      // Create JSON with trailing comma
+      let jsonWithTrailingComma = JSON.stringify(plan, null, 2);
+      jsonWithTrailingComma = jsonWithTrailingComma.replace(/}$/, ',\n}');
+
+      const llmResponse = `\`\`\`json\n${jsonWithTrailingComma}\n\`\`\``;
+      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('exec_1234567890');
+    });
   });
 
   /**
