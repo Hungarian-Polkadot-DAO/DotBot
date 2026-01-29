@@ -34,6 +34,7 @@ jest.mock('@polkadot/util-crypto', () => ({
 }));
 
 import { DotBot, DotBotConfig, ConversationMessage } from '../../dotbot';
+import { extractExecutionPlan } from '../../prompts/system/utils';
 import { ApiPromise } from '@polkadot/api';
 import { WalletAccount } from '../../types/wallet';
 import { RpcManager } from '../../rpcManager';
@@ -1595,16 +1596,6 @@ describe('DotBot', () => {
   });
 
   describe('extractExecutionPlan()', () => {
-    let dotbot: DotBot;
-
-    beforeEach(async () => {
-      const config: DotBotConfig = {
-        wallet: mockWallet,
-      };
-
-      dotbot = await DotBot.create(config);
-    });
-
     it('should extract ExecutionPlan from JSON code block', () => {
       const plan = {
         id: 'test-plan',
@@ -1629,7 +1620,7 @@ describe('DotBot', () => {
       };
 
       const llmResponse = `\`\`\`json\n${JSON.stringify(plan)}\n\`\`\``;
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('test-plan');
@@ -1647,7 +1638,7 @@ describe('DotBot', () => {
       };
 
       const llmResponse = `\`\`\`\n${JSON.stringify(plan)}\n\`\`\``;
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('test-plan');
@@ -1664,7 +1655,7 @@ describe('DotBot', () => {
       };
 
       const llmResponse = JSON.stringify(plan);
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('test-plan');
@@ -1672,7 +1663,7 @@ describe('DotBot', () => {
 
     it('should return null for invalid JSON', () => {
       const llmResponse = 'This is not JSON at all';
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).toBeNull();
     });
@@ -1684,15 +1675,15 @@ describe('DotBot', () => {
       };
 
       const llmResponse = JSON.stringify(invalidPlan);
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).toBeNull();
     });
 
     it('should return null for empty or null input', () => {
-      expect((dotbot as any).extractExecutionPlan('')).toBeNull();
-      expect((dotbot as any).extractExecutionPlan(null as any)).toBeNull();
-      expect((dotbot as any).extractExecutionPlan(undefined as any)).toBeNull();
+      expect(extractExecutionPlan('')).toBeNull();
+      expect(extractExecutionPlan(null as any)).toBeNull();
+      expect(extractExecutionPlan(undefined as any)).toBeNull();
     });
 
     it('should extract ExecutionPlan from JSON with surrounding text', () => {
@@ -1719,7 +1710,7 @@ describe('DotBot', () => {
       };
 
       const llmResponse = `Some text before the JSON\n${JSON.stringify(plan)}\nSome text after`;
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('exec_1234567890');
@@ -1754,7 +1745,7 @@ describe('DotBot', () => {
       jsonWithTrailingComma = jsonWithTrailingComma.replace(/}$/, ',\n}');
 
       const llmResponse = `\`\`\`json\n${jsonWithTrailingComma}\n\`\`\``;
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('exec_1234567890');
