@@ -21,8 +21,7 @@ import ScenarioEngineOverlay from './components/scenarioEngine/ScenarioEngineOve
 import { ScenarioEngineProvider } from './components/scenarioEngine/context/ScenarioEngineContext';
 import LoadingOverlay from './components/common/LoadingOverlay';
 import { DotBot, Environment, ScenarioEngine, SigningRequest, BatchSigningRequest, DotBotEventType } from '@dotbot/core';
-import type { ChatInstanceData } from '@dotbot/core/types/chatInstance';
-import type { ExecutionMessage } from '@dotbot/core/types/chatInstance';
+import type { ChatInstanceData, ExecutionMessage } from '@dotbot/core';
 import { useWalletStore } from './stores/walletStore';
 import { Settings } from 'lucide-react';
 import {

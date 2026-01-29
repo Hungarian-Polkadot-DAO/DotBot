@@ -15,7 +15,7 @@
 import { DotBot, DotBotConfig, Environment, Network, InMemoryChatStorage, ChatInstanceManager } from '@dotbot/core';
 import type { WalletAccount } from '@dotbot/core/types/wallet';
 import { AIService, AIServiceConfig, AIProviderType } from '@dotbot/core/services/ai';
-import { ENVIRONMENT_NETWORKS } from '@dotbot/core/types/chatInstance';
+import { ENVIRONMENT_NETWORKS } from '@dotbot/core';
 import { sessionLogger } from './utils/logger';
 
 /**
