@@ -1370,7 +1370,7 @@ export class DotBot {
    * Prepare execution (orchestrate + add to chat)
    * Does NOT auto-execute - waits for user approval
    * 
-   * CRITICAL: Creates execution sessions to lock API instances for the transaction lifecycle.
+   * Creates execution sessions to lock API instances for the transaction lifecycle.
    * This prevents metadata mismatches if RPC endpoints fail during execution.
    * 
    * IMPORTANT: 
@@ -1385,160 +1385,83 @@ export class DotBot {
    * @returns ExecutionArrayState in SESSION_SERVER_MODE, void in stateful mode
    */
   private async prepareExecution(plan: ExecutionPlan, executionId?: string, skipSimulation = false): Promise<ExecutionArrayState | void> {
-    // Step 0: Ensure RPC connections are ready (including Asset Hub) before preparing execution
-    // LAZY LOADING: Only connect when execution is actually being prepared (not when loading history)
     await this.ensureRpcConnectionsReady();
-    
-    // Step 1: Generate executionId if not provided
+
     const finalExecutionId = executionId || `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    this.dotbotLogger.info({ 
+
+    this.dotbotLogger.info({
       executionId: finalExecutionId,
       planId: plan.id,
       stepsCount: plan.steps.length,
-      originalRequest: plan.originalRequest,
       stateful: this._stateful
     }, 'prepareExecution: Starting execution preparation');
-    
-    // Handle SESSION_SERVER_MODE
+
     if (!this._stateful) {
       return this.prepareExecutionStateless(plan, finalExecutionId, skipSimulation);
     }
-    
-    // Stateful mode - requires currentChat
+
     if (!this.currentChat) {
-      this.dotbotLogger.error({ 
-        planId: plan.id 
-      }, 'prepareExecution failed: No active chat');
+      this.dotbotLogger.error({ planId: plan.id }, 'prepareExecution failed: No active chat');
       throw new Error('No active chat. Cannot prepare execution.');
     }
-    
+
     try {
-      // GUARD: Ensure RPC connections are ready before preparing execution (lazy loading)
-      await this.ensureRpcConnectionsReady();
-      
-      // Step 1: Initialize execution sessions for this chat (if not already initialized)
-      this.dotbotLogger.debug({ 
-        executionId: finalExecutionId 
-      }, 'prepareExecution: Initializing execution sessions');
       await this.currentChat.initializeExecutionSessions(
         this.relayChainManager,
         this.assetHubManager
       );
-      
-      // Get sessions from chat
+
       const sessions = this.currentChat.getExecutionSessions();
       if (!sessions.relayChain) {
-        this.dotbotLogger.error({ 
+        this.dotbotLogger.error({
           executionId: finalExecutionId,
           hasRelayChain: !!sessions.relayChain,
           hasAssetHub: !!sessions.assetHub
         }, 'prepareExecution failed: Failed to create execution sessions');
         throw new Error('Failed to create execution sessions');
       }
-      
-      this.dotbotLogger.debug({ 
-        executionId: finalExecutionId,
-        relayChainEndpoint: sessions.relayChain?.endpoint,
-        assetHubEndpoint: sessions.assetHub?.endpoint
-      }, 'prepareExecution: Execution sessions initialized');
-      
-      // Step 2: Add ExecutionMessage to chat IMMEDIATELY (before orchestration)
-      // This allows the UI to show "Preparing transaction flow..." state
-      this.dotbotLogger.debug({ 
-        executionId: finalExecutionId 
-      }, 'prepareExecution: Adding execution message to chat');
+
       const messageAdded = await this.addExecutionMessageEarly(finalExecutionId, plan);
-      
-      // If message wasn't added (e.g., currentChat is null), fail early
-      // This prevents showing "I've prepared..." message when ExecutionFlow won't render
       if (!messageAdded) {
-        const errorDetails = {
+        this.dotbotLogger.error({
           executionId: finalExecutionId,
           planId: plan.id,
-          planOriginalRequest: plan.originalRequest,
-          stepsCount: plan.steps.length,
-          hasCurrentChat: !!this.currentChat,
-          currentChatId: this.currentChat?.id,
-          stateful: this._stateful,
-          backendSimulation: this._backendSimulation
-        };
-        
-        this.dotbotLogger.error(errorDetails, 'prepareExecution CRITICAL FAILURE: Could not add ExecutionMessage to chat');
-        console.error('[DotBot] CRITICAL: prepareExecution failed - ExecutionMessage not added to chat', errorDetails);
-        
-        // Throw error with detailed message for error handling
+          hasCurrentChat: !!this.currentChat
+        }, 'prepareExecution CRITICAL FAILURE: Could not add ExecutionMessage to chat');
         throw new Error(`Cannot prepare execution: Failed to add ExecutionMessage to chat. ExecutionId: ${finalExecutionId}, PlanId: ${plan.id}, HasCurrentChat: ${!!this.currentChat}`);
       }
-      
-      // Step 3: Orchestrate plan (creates ExecutionArray with items)
-      this.dotbotLogger.info({ 
-        executionId: finalExecutionId,
-        stepsCount: plan.steps.length
-      }, 'prepareExecution: Orchestrating execution plan');
-      const executionArray = await this.executionSystem.orchestrateExecutionArray(
+
+      // Delegate to ExecutionSystem: orchestrate, update chat (with UI delay), then simulate
+      await this.executionSystem.prepareExecutionArray(
         plan,
         sessions.relayChain,
         sessions.assetHub,
-        finalExecutionId
+        this.relayChainManager,
+        this.assetHubManager,
+        this.wallet.address,
+        this.config?.onSimulationStatus,
+        finalExecutionId,
+        {
+          afterOrchestrate: async (executionArray) => {
+            await this.updateExecutionInChat(executionArray, plan);
+            if (!skipSimulation) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+          },
+          skipSimulation
+        }
       );
-      
-      this.dotbotLogger.info({ 
-        executionId: finalExecutionId,
-        itemsCount: executionArray.getItems().length
-      }, 'prepareExecution: Orchestration completed');
-      
-      // Step 4: Update ExecutionMessage with the executionArray (items visible, no simulation yet)
-      // This allows UI to show items in "pending" state before simulation starts
-      this.dotbotLogger.debug({ 
-        executionId: finalExecutionId 
-      }, 'prepareExecution: Updating execution in chat');
-      await this.updateExecutionInChat(executionArray, plan);
-      
-      // Step 5: Run simulation if enabled and not skipped (updates will flow through subscription)
-      // Skip simulation when rebuilding (e.g., from startExecution) to prevent double simulation
-      if (!skipSimulation) {
-        // CRITICAL: Give UI a moment to render items before starting simulation
-        // This ensures users see: 1) Items appear, 2) Simulation starts, 3) Simulation completes
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        this.dotbotLogger.info({ 
-          executionId: finalExecutionId 
-        }, 'prepareExecution: Starting simulation');
-        await this.executionSystem.runSimulation(
-          executionArray,
-          this.wallet.address,
-          sessions.relayChain,
-          sessions.assetHub,
-          this.relayChainManager,
-          this.assetHubManager,
-          this.config?.onSimulationStatus
-        );
-        this.dotbotLogger.info({ 
-          executionId: finalExecutionId 
-        }, 'prepareExecution: Simulation completed');
-      } else {
-        this.dotbotLogger.debug({ 
-          executionId: finalExecutionId 
-        }, 'prepareExecution: Skipping simulation (rebuild mode)');
-      }
-      
-      this.dotbotLogger.info({ 
-        executionId: finalExecutionId,
-        planId: plan.id,
-        itemsCount: executionArray.getItems().length
-      }, 'prepareExecution: Execution preparation completed successfully');
+
+      this.dotbotLogger.info({ executionId: finalExecutionId, planId: plan.id }, 'prepareExecution: Execution preparation completed successfully');
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.dotbotLogger.error({ 
+      this.dotbotLogger.error({
         error: errorMsg,
         stack: error instanceof Error ? error.stack : undefined,
-        executionId: executionId || 'unknown',
-        planId: plan.id,
-        originalRequest: plan.originalRequest
+        executionId: finalExecutionId,
+        planId: plan.id
       }, 'prepareExecution: Error during preparation');
-      
-      // Clean up sessions on error
+
       if (this.currentChat) {
         this.currentChat.cleanupExecutionSessions();
       }
