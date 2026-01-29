@@ -183,6 +183,7 @@ export type {
   ChatInstanceFilter,
   ValidationResult,
   ParsedKnowledgeQuery,
+  ChatInstanceData,      // Chat instance data structure
 } from './chat/types';
 export {
   ENVIRONMENT_NETWORKS,
