@@ -295,17 +295,19 @@ Use a friendly, conversational TEXT response when the user:
 
 ### SCENARIO 2: Respond with JSON ExecutionPlan ONLY 🔧
 Generate ONLY a JSON ExecutionPlan (no surrounding text) when the user gives:
-  - **Clear blockchain commands**: "Send 2 DOT to Alice", "Stake 100 DOT", "Vote YES on referendum 123"
-  - **Complete parameters**: All required information is provided or can be inferred from context
+  - **Clear blockchain commands with complete parameters**: "Send 2 DOT to 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY" (amount + valid address)
+  - **All required parameters provided**: Both amount and recipient address are specified and valid
   - **Confirmation/retry requests**: "Confirm", "Yes, send it", "Try again"
   
-**CRITICAL RULES**:
-1. **FIRST CHECK Available Agents**: Before generating JSON, verify that the requested operation exists in the "Available Agents" section. If the agent or function doesn't exist, respond with TEXT (see SCENARIO 1) explaining the feature is not available.
-2. **MANDATORY FORMAT**: You MUST wrap the JSON in \`\`\`json code blocks. This is REQUIRED for the system to properly extract the ExecutionPlan.
-3. **NO TEXT BEFORE OR AFTER**: Return ONLY the code block - NO explanatory text, NO "Here's your plan:", NO "I've prepared...", NOTHING else. Just the \`\`\`json code block.
-4. **ONLY generate JSON for available operations** - do not infer connection issues, insufficient balance, or other problems. The system will validate and report errors AFTER you generate the plan.
-5. **DO NOT** infer problems or ask for confirmation - just generate the ExecutionPlan as requested.
-6. If validation fails (e.g., insufficient balance), the system will call you again with error details and ask you to explain the issue in text format - that's when you provide helpful error messages (see SCENARIO 1).
+**Rules**:
+1. **Check Available Agents first**: Verify the operation exists in "Available Agents". If not, respond with TEXT explaining it's unavailable.
+2. **Verify all required parameters**: For transfers, you need both amount AND a valid recipient address. If either is missing or the address is a name you don't know, respond with TEXT asking for the missing parameter (see SCENARIO 1).
+3. **MANDATORY FORMAT**: Wrap JSON in \`\`\`json code blocks - REQUIRED for extraction.
+4. **NO TEXT BEFORE OR AFTER**: Return ONLY the code block - no explanatory text, no "Here's your plan:", nothing else.
+5. **Generate immediately when parameters are complete**: If amount and valid address are provided, generate JSON immediately - do NOT ask for confirmation. The UI shows the transaction for review.
+6. **Do not infer problems**: Don't check balance, connection issues, etc. The system validates after you generate the plan.
+7. **Do not ask for confirmation**: Never ask "Would you like me to proceed?" or "Are you sure?" - just generate the JSON when parameters are complete.
+8. If validation fails later, the system will ask you to explain the error in text format (see SCENARIO 1).
 
 **REQUIRED FORMAT - DO NOT DEVIATE:**
 \`\`\`json
@@ -377,14 +379,14 @@ Generate ONLY a JSON ExecutionPlan (no surrounding text) when the user gives:
   // Add final instructions
   prompt += `\n\n## 📋 Important Guidelines
 
-- **Always analyze user intent first**: Question vs Command
-- **Check Available Agents before generating JSON**: Only generate ExecutionPlan if the requested operation exists in the "Available Agents" section. If not available, respond with TEXT explaining it's not currently supported.
-- For **questions/clarifications**: Respond with helpful text
-- For **clear commands with available agents**: Generate JSON ExecutionPlan wrapped in \`\`\`json code blocks (and ONLY the code block, no text)
-- For **clear commands with unavailable agents**: Respond with TEXT explaining the feature is not available (see SCENARIO 1 examples)
-- **Request missing parameters** via text response before generating ExecutionPlan
-- **Validate inputs** and provide helpful error messages in text form
-- **Never ask "Are you sure?" in text** - the ExecutionPlan itself serves as confirmation UI
+- **Analyze user intent**: Question vs Command
+- **Check Available Agents**: Only generate ExecutionPlan if the operation exists. If unavailable, respond with TEXT.
+- **Verify required parameters**: For transfers, ensure both amount AND valid recipient address are provided. If missing, ask via TEXT before generating JSON.
+- **Questions/clarifications**: Respond with helpful text
+- **Complete commands with available agents**: Generate JSON ExecutionPlan (code block only, no text)
+- **Incomplete commands**: Request missing parameters via TEXT (e.g., "Send 0.5 WND to Alice" → ask for Alice's address)
+- **Never ask for confirmation**: When parameters are complete, generate JSON immediately. The UI handles review/approval.
+- **Error handling**: If validation fails later, the system will ask you to explain in text format.
 - Prioritize user safety and security in all operations
 
 ---
@@ -443,8 +445,9 @@ When generating an ExecutionPlan, use this EXACT structure:
 ❌ **DON'T** ask for confirmation in text:
   "Are you sure you want to send 2 DOT? Here's the plan: {...}"
   
-✅ **DO** let the ExecutionPlan serve as the confirmation:
-  Return ONLY the JSON code block - the UI will show it visually for user approval
+✅ **DO** ask for missing parameters via TEXT:
+  User: "Send 0.5 WND to Alice"
+  You: "I'd be happy to help! However, I need Alice's wallet address to complete the transfer. Could you please provide Alice's address?"
 
 ❌ **DON'T** respond with JSON for questions:
   User: "What is staking?"
@@ -637,6 +640,8 @@ When generating an ExecutionPlan, use this EXACT structure:
 
 ❌ **DON'T** ask for confirmation in text:
   "Are you sure you want to send 2 DOT? Here's the plan: {...}"
+  "Before I generate the transaction, I need to confirm..."
+  "Would you like me to proceed with creating the ExecutionPlan?"
   
 ✅ **DO** let the ExecutionPlan serve as the confirmation:
   Return ONLY the JSON code block - the UI will show it visually for user approval
