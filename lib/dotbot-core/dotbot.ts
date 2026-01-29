@@ -42,6 +42,7 @@ import {
   isSimulationEnabled,
   type SimulationConfig,
 } from './executionEngine/simulation/simulationConfig';
+import { DotBotError, ExecutionPreparationError } from './errors';
 
 // Forward declaration to avoid circular dependency
 type AIServiceType = import('./services/ai/aiService').AIService;
@@ -1263,9 +1264,7 @@ export class DotBot {
       const errorMsg = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      // Check if this is the specific "ExecutionMessage not added" error
-      const isExecutionMessageError = errorMsg.includes('Failed to add ExecutionMessage to chat') || 
-                                      errorMsg.includes('Cannot prepare execution: Failed to add ExecutionMessage');
+      const isExecutionMessageError = error instanceof ExecutionPreparationError;
       
       // Detailed error logging
       const errorDetails = {
@@ -1402,7 +1401,7 @@ export class DotBot {
 
     if (!this.currentChat) {
       this.dotbotLogger.error({ planId: plan.id }, 'prepareExecution failed: No active chat');
-      throw new Error('No active chat. Cannot prepare execution.');
+      throw new DotBotError('No active chat. Cannot prepare execution.', 'NO_ACTIVE_CHAT', { planId: plan.id });
     }
 
     try {
@@ -1418,7 +1417,11 @@ export class DotBot {
           hasRelayChain: !!sessions.relayChain,
           hasAssetHub: !!sessions.assetHub
         }, 'prepareExecution failed: Failed to create execution sessions');
-        throw new Error('Failed to create execution sessions');
+        throw new ExecutionPreparationError('Failed to create execution sessions', {
+          executionId: finalExecutionId,
+          hasRelayChain: !!sessions.relayChain,
+          hasAssetHub: !!sessions.assetHub
+        });
       }
 
       const messageAdded = await this.addExecutionMessageEarly(finalExecutionId, plan);
@@ -1428,7 +1431,10 @@ export class DotBot {
           planId: plan.id,
           hasCurrentChat: !!this.currentChat
         }, 'prepareExecution CRITICAL FAILURE: Could not add ExecutionMessage to chat');
-        throw new Error(`Cannot prepare execution: Failed to add ExecutionMessage to chat. ExecutionId: ${finalExecutionId}, PlanId: ${plan.id}, HasCurrentChat: ${!!this.currentChat}`);
+        throw new ExecutionPreparationError(
+          'Failed to add ExecutionMessage to chat. The execution flow could not be created.',
+          { executionId: finalExecutionId, planId: plan.id, hasCurrentChat: !!this.currentChat }
+        );
       }
 
       // Delegate to ExecutionSystem: orchestrate, update chat (with UI delay), then simulate
