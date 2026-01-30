@@ -403,6 +403,18 @@ export class RpcManager {
   }
 
   /**
+   * Clear cached read API if it's the given instance (so next getReadApi() will try endpoints again / failover).
+   * Called when the read API disconnects or errors so we don't keep returning a dead connection.
+   */
+  private clearReadApiIf(api: ApiPromise): void {
+    if (this.currentReadApi === api) {
+      this.currentReadApi = null;
+      this.currentEndpoint = null;
+      this.rpcLogger.debug({}, 'Read API disconnected or errored - cleared cache for failover on next getReadApi()');
+    }
+  }
+
+  /**
    * Get API for READ operations (can failover)
    * 
    * This is for queries, balance checks, etc. that don't create transactions.
@@ -445,6 +457,8 @@ export class RpcManager {
           const api = await this.tryConnect(endpoint);
           this.currentEndpoint = endpoint;
           this.currentReadApi = api;
+          api.on('disconnected', () => this.clearReadApiIf(api));
+          api.on('error', () => this.clearReadApiIf(api));
           return api;
         } catch (error) {
           const { error: errorObj } = this.normalizeError(error);
@@ -471,6 +485,8 @@ export class RpcManager {
         const api = await this.tryConnect(endpoint);
         this.currentEndpoint = endpoint;
         this.currentReadApi = api;
+        api.on('disconnected', () => this.clearReadApiIf(api));
+        api.on('error', () => this.clearReadApiIf(api));
         this.rpcLogger.info({ endpoint }, `Successfully connected to endpoint: ${endpoint}`);
         return api;
       } catch (error) {
