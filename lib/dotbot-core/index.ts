@@ -5,6 +5,9 @@
  * This library provides agents, system prompts, and execution capabilities.
  */
 
+// Run before any code that loads @polkadot/api so API-WS disconnect logs are suppressed
+import './polkadotConsolePatch';
+
 // ============================================================================
 // OUT OF THE BOX INTERFACE - Start here!
 // ============================================================================

@@ -326,7 +326,7 @@ const result = buildSafeTransferExtrinsic(api, params, capabilities);
 - **dotbot/chatLifecycle.ts**: `initializeChatInstance`, `clearHistory`, `switchEnvironment`, `loadChatInstance`.
 - **dotbot/executionPreparation.ts**: `prepareExecution`, `prepareExecutionStateless` (orchestrate plan, add ExecutionMessage to chat).
 - **dotbot/executionRunner.ts**: `startExecution`, `startExecutionStateless`, `cleanupExecutionSessions`, `cleanupExpiredExecutions`.
-- **dotbot/llm.ts**: `getLLMResponse`, `buildContextualSystemPrompt` (wallet/network/balance context for system prompt).
+- **dotbot/llm.ts**: `getLLMResponse`, `buildContextualSystemPrompt` (wallet/network/balance context for system prompt). Includes a **format-retry guardrail**: when the LLM returns prose instead of a JSON ExecutionPlan (e.g. "I've prepared a transaction flow..."), the response is detected and the LLM is called once more with a correction prompt asking for JSON only.
 - **dotbot/rpcLifecycle.ts**: `ensureRpcConnectionsReady` (connect relay + optional Asset Hub, init ExecutionSystem and signer).
 - **dotbot/balanceChain.ts**: `getBalance`, `getChainInfo`.
 - **dotbot/types.ts**: `DotBotConfig`, `ChatResult`, `ChatOptions`, `DotBotEvent`, etc.
@@ -423,7 +423,7 @@ lib/dotbot-core/executionEngine/
 **Purpose**: Core infrastructure services.
 
 **Key Services:**
-- **RpcManager**: Lives in `lib/dotbot-core/rpcManager/` (RpcManager.ts, healthTracker, factories). Multi-endpoint management with health monitoring, failover, and **network-awareness**
+- **RpcManager**: Lives in `lib/dotbot-core/rpcManager/` (RpcManager.ts, healthTracker, factories). Multi-endpoint management with health monitoring, failover, and **network-awareness**. Periodic health checks run every 30 minutes by default (configurable). On API disconnect or error, the cached read API is cleared (`clearReadApiIf`) so the next `getReadApi()` triggers failover to a healthy endpoint.
 - **Chopsticks Client**: Client interface for runtime simulation (makes HTTP requests to backend server)
 - **SettingsManager**: Centralized settings management with persistence (simulation config, extensible for future settings)
 - **SequentialSimulation**: Multi-transaction simulation service (sequential execution on single fork for state tracking, client interface)
@@ -1050,8 +1050,9 @@ Use RpcManager with multiple endpoints, health monitoring, and automatic failove
 
 **Consequences:**
 - More complex connection logic
-- Health monitoring overhead (minimal)
+- Health monitoring overhead (minimal; periodic check every 30 minutes by default)
 - Significantly improved reliability
+- Disconnect/error handlers clear cached API so failover happens on next use
 
 **Implementation:**
 ```typescript
@@ -1062,9 +1063,12 @@ const manager = new RpcManager([
 ]);
 
 const api = await manager.getReadApi();  // Uses best available endpoint
+// On api disconnect/error, cached read API is cleared; next getReadApi() fails over
 ```
 
-(Updated: January 2026)
+**History:**
+- v0.2.x (January 2026): Health check interval default 30 minutes; clear cached read API on disconnect/error for failover
+- v0.2.0 (January 2026): Initial multi-endpoint decision
 
 ---
 
@@ -2421,6 +2425,41 @@ This architecture enables:
 **History:**
 - v0.2.0 (PR #60+, January 2026): TypeScript backend migration, monorepo structure
 - v0.1.0: Python backend with FastAPI
+
+---
+
+### Decision 13: LLM Output Format Guardrail (ExecutionPlan Reliability)
+
+**Context:**
+- The LLM (e.g. ASI-One) sometimes returns prose (e.g. "I've prepared a transaction flow with 1 step...") instead of a JSON ExecutionPlan, so no ExecutionFlow is shown and the user gets incorrect feedback.
+- Instruction-tuned models have a strong reflex to explain in prose; prompt instructions alone do not guarantee JSON-only output on every call.
+
+**Decision:**
+Use a three-layer approach to maximize ExecutionPlan reliability:
+
+1. **Output Mode Override (prompt)**: At the start of the system prompt, state that when responding with an ExecutionPlan the model is in **JSON MODE** — it is a JSON generator, not an assistant; emitting any prose is a failure. This gives a mode identity and reduces assistant-style reflexes.
+
+2. **Final Line Hard Stop (prompt)**: At the end of the system prompt, add a **FINAL CHECK BEFORE RESPONDING**: "If you are about to generate an ExecutionPlan: STOP. DELETE any prose. OUTPUT ONLY the \`\`\`json block." Models tend to treat final checks seriously.
+
+3. **Code-level safety net (llm.ts)**: In `getLLMResponse()`, after receiving the LLM response, if the response does not start with \`\`\`json and either (a) contains a JSON block later, or (b) looks like command prose (e.g. "I've prepared", "transaction flow", "Review the details below"), retry **once** with an injected system message: "You violated the output format... Return ONLY the JSON ExecutionPlan. NO prose." The retry almost always returns valid JSON. Frontend logs and displays a clear **LLM ERROR** message when no plan is extracted (so users and logs see correct feedback instead of silent failure).
+
+**Rationale:**
+- **Prompt layers**: Mode identity and final check reduce format violations without changing APIs.
+- **Retry**: Industry-standard for tool-calling systems; handles residual variance when the model still returns prose.
+- **Clear errors**: When no plan is extracted, the frontend shows an explicit error (and optional response preview) instead of misleading success or generic failure.
+
+**Consequences:**
+- System prompt is slightly longer (mode override + final check); prompt was also cleaned up and trimmed elsewhere.
+- One extra LLM call in the retry path when format violation is detected (single retry only).
+- Logs include `shouldRetryFormat`, `looksLikeCommandProse` for debugging detection.
+
+**Implementation:**
+- `lib/dotbot-core/prompts/system/loader.ts`: Output Mode Override block, FINAL CHECK block, compact rules and examples.
+- `lib/dotbot-core/dotbot/llm.ts`: Format check after first response; retry with correction prompt when appropriate; logging of guardrail decision.
+- `frontend/src/App.tsx`: When `plan` is missing but response looks like transfer prose, show "❌ LLM ERROR: Model returned prose..." with preview so users and logs see accurate feedback.
+
+**History:**
+- v0.2.x (January 2026): Three-layer guardrail (prompt mode + final check + code retry); RpcManager health check 30 min, clear on disconnect; frontend LLM error messaging.
 
 ---
 

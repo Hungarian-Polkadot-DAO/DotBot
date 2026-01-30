@@ -44,7 +44,7 @@ export async function startExecution(
     // Fallback: e.g. message came from WebSocket without plan.
     if (!plan && executionMessage?.executionArray) {
       dotbot.dotbotLogger.debug({ executionId }, 'ExecutionPlan missing, extracting from state');
-      const extractedPlan = (dotbot.currentChat as any).extractExecutionPlanFromState(executionMessage.executionArray);
+      const extractedPlan = dotbot.currentChat.extractExecutionPlanFromState(executionMessage.executionArray);
       if (extractedPlan) {
         plan = extractedPlan;
         await dotbot.currentChat.updateExecutionMessage(executionMessage.id!, { executionPlan: plan });

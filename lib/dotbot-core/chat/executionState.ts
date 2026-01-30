@@ -98,9 +98,9 @@ export class ExecutionStateManager {
   }
 
   /**
-   * Extract ExecutionPlan from saved ExecutionArrayState
+   * Extract ExecutionPlan from saved ExecutionArrayState (public for executionRunner when rebuilding from state).
    */
-  private extractExecutionPlanFromState(state: ExecutionArrayState): ExecutionPlan | null {
+  extractExecutionPlanFromState(state: ExecutionArrayState): ExecutionPlan | null {
     try {
       const steps: ExecutionStep[] = [];
       

@@ -266,6 +266,13 @@ export class ChatInstance {
   }
 
   /**
+   * Extract ExecutionPlan from saved ExecutionArrayState (used by executionRunner when rebuilding from state).
+   */
+  extractExecutionPlanFromState(state: ExecutionArrayState): ExecutionPlan | null {
+    return this.executionStateManager.extractExecutionPlanFromState(state);
+  }
+
+  /**
    * Update an execution message (e.g., when execution state changes)
    */
   async updateExecutionMessage(messageId: string, updates: Partial<any>): Promise<void> {

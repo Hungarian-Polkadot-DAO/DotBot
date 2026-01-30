@@ -8,7 +8,6 @@
 import React, { useState, useEffect, useRef as _useRef } from 'react';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ThemeProvider } from './contexts/ThemeContext';
-// WebSocket removed - frontend does all simulation locally
 import { useScenarioPrompt } from './hooks/useScenarioPrompt';
 import WalletButton from './components/wallet/WalletButton';
 import ThemeToggle from './components/ui/ThemeToggle';
@@ -277,37 +276,84 @@ const AppContent: React.FC = () => {
   ): Promise<any>[] => {
     const persistencePromises: Promise<any>[] = [];
 
-    // Add bot response
-    if (chatResult.response) {
+    // ERROR CHECK 1: If we have a plan, we MUST have executionId or executionArrayState.id
+    // This is a backend bug - make it VERY VISIBLE
+    if (chatResult.plan) {
+      const executionId = chatResult.executionId || chatResult.executionArrayState?.id;
+      if (!executionId) {
+        const errorMsg = `❌ BACKEND ERROR: ExecutionPlan received but NO executionId provided. ExecutionFlow will NOT be shown. This is a backend bug. Result keys: ${Object.keys(chatResult).join(', ')}. Plan ID: ${chatResult.plan.id || 'missing'}.`;
+        console.error('[App]', errorMsg);
+        persistencePromises.push(
+          currentChat.addBotMessage(errorMsg, true)
+            .then(() => {
+              if (dotbot) {
+                dotbot.emit({ type: DotBotEventType.BOT_MESSAGE_ADDED, message: errorMsg, timestamp: Date.now() });
+              }
+            })
+            .catch((err: unknown) => console.error('[App] Failed to persist error message:', err))
+        );
+        return persistencePromises; // Stop here - don't try to add execution message
+      }
+    }
+
+    // ERROR CHECK 2: If response looks like LLM returned prose instead of JSON (no plan extracted)
+    // This means the LLM didn't follow instructions - make it VERY VISIBLE
+    const responseText = typeof chatResult.response === 'string' ? chatResult.response.trim() : '';
+    const looksLikeProseInsteadOfPlan = 
+      !chatResult.plan && 
+      responseText && 
+      /I've prepared a transaction flow|transaction flow with \d+ step/i.test(responseText) &&
+      !responseText.includes('```json') &&
+      !responseText.includes('"id"') &&
+      !responseText.includes('"steps"');
+    
+    if (looksLikeProseInsteadOfPlan) {
+      const errorMsg = `❌ LLM ERROR: Model returned prose message instead of JSON ExecutionPlan. No ExecutionFlow will be shown. Response preview: "${responseText.substring(0, 150)}...". This means the LLM (ASI-One) did not follow instructions to return JSON.`;
+      console.error('[App]', errorMsg);
+      // Still show the LLM's response, but also add an error message
       persistencePromises.push(
-        currentChat.addBotMessage(chatResult.response, true)
+        currentChat.addBotMessage(errorMsg, true)
           .then(() => {
-            console.log('[App] Bot message persisted');
-            // Emit event so Chat component can react
             if (dotbot) {
-              dotbot.emit({ type: DotBotEventType.BOT_MESSAGE_ADDED, message: chatResult.response, timestamp: Date.now() });
+              dotbot.emit({ type: DotBotEventType.BOT_MESSAGE_ADDED, message: errorMsg, timestamp: Date.now() });
             }
           })
-          .catch((err: unknown) => console.error('[App] Failed to persist bot message:', err))
+          .catch((err: unknown) => console.error('[App] Failed to persist error message:', err))
       );
     }
 
-    // If there's an execution plan, add execution message
+    // Always add a bot message when we have a successful result so the UI shows the reply
+    if (!chatResult.plan) {
+      console.log('[App] ⚠️  No ExecutionPlan in result - this is a conversation-only response (no ExecutionFlow will be shown). Response length:', chatResult.response?.length || 0);
+    }
+    const botContent =
+      typeof chatResult.response === 'string' && chatResult.response.trim() !== ''
+        ? chatResult.response.trim()
+        : chatResult.plan
+          ? `I've prepared a transaction flow with ${chatResult.plan.steps?.length ?? 0} step(s). Review the details below and click "Accept and Start" when ready.`
+          : 'I\'ve processed your request.';
+    persistencePromises.push(
+      currentChat.addBotMessage(botContent, true)
+        .then(() => {
+          console.log('[App] Bot message persisted');
+          if (dotbot) {
+            dotbot.emit({ type: DotBotEventType.BOT_MESSAGE_ADDED, message: botContent, timestamp: Date.now() });
+          }
+        })
+        .catch((err: unknown) => console.error('[App] Failed to persist bot message:', err))
+    );
+
+    // If there's an execution plan, add execution message (and ExecutionFlow)
+    // NOTE: executionId was already validated above, so we know it exists here
     if (chatResult.plan) {
-      console.log('[App] ExecutionPlan received from backend:', {
+      const executionId = chatResult.executionId || chatResult.executionArrayState?.id;
+      console.log('[App] ✅ ExecutionPlan received from backend (VALID - has plan + executionId):', {
         planId: chatResult.plan.id,
         stepsCount: chatResult.plan.steps.length,
-        originalRequest: chatResult.plan.originalRequest
+        originalRequest: chatResult.plan.originalRequest,
+        executionId,
+        hasExecutionArrayState: !!chatResult.executionArrayState
       });
-      
-      const executionId = chatResult.executionId || chatResult.executionArrayState?.id;
-      
-      if (!executionId) {
-        console.error('[App] CRITICAL: Backend did not provide executionId for execution plan. This is a backend bug.');
-        console.error('[App] Plan:', chatResult.plan);
-        console.error('[App] Result:', chatResult);
-        throw new Error('Backend did not provide executionId for execution plan. This is a backend bug.');
-      }
       
       // Check for existing execution message AFTER user/bot messages are added
       const existingMessage = currentChat.getDisplayMessages()
@@ -671,6 +717,7 @@ const AppContent: React.FC = () => {
                   injectedPrompt={injectedPrompt?.prompt || null}
                   onPromptProcessed={notifyPromptProcessed}
                   autoSubmit={autoSubmitPrompts}
+                  conversationRefresh={conversationRefresh}
             />
           ) : (
             <div style={{ textAlign: 'center', padding: '2rem' }}>

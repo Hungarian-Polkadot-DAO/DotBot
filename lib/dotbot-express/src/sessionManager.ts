@@ -293,7 +293,7 @@ export class DotBotSessionManager {
       sessionLogger.error({ 
         error: storeError.message,
         sessionId 
-      }, 'getOrCreateSession: Failed to check store');
+      }, 'SessionManager: Failed to check store');
       throw storeError;
     }
   }
@@ -312,7 +312,7 @@ export class DotBotSessionManager {
       sessionId,
       environment: config.environment,
       network
-    }, 'getOrCreateSession: Creating DotBot instance');
+    }, 'SessionManager: Creating DotBot instance');
     
     const createPromise = DotBot.create(config);
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -332,7 +332,7 @@ export class DotBotSessionManager {
         sessionId,
         dotbotEnvironment: dotbot.getEnvironment(),
         dotbotNetwork: dotbot.getNetwork()
-      }, 'getOrCreateSession: DotBot instance created');
+      }, 'SessionManager: DotBot instance created');
       
       return dotbot;
     } catch (dotbotError: any) {
@@ -343,7 +343,7 @@ export class DotBotSessionManager {
         environment: config.environment,
         network,
         errorName: dotbotError.name
-      }, 'getOrCreateSession: Failed to create DotBot instance');
+      }, 'SessionManager: Failed to create DotBot instance');
       throw dotbotError;
     }
   }
@@ -363,7 +363,7 @@ export class DotBotSessionManager {
       environment,
       network,
       aiProvider
-    }, 'getOrCreateSession: Creating new session');
+    }, 'SessionManager: Creating new session');
 
     const aiService = this.createAIService(aiProvider);
     const chatManager = new ChatInstanceManager({
@@ -405,7 +405,7 @@ export class DotBotSessionManager {
       environment: session.environment,
       network: session.network,
       createdAt: session.createdAt.toISOString()
-    }, 'getOrCreateSession: Session stored successfully');
+    }, 'SessionManager: Session stored successfully');
 
     return session;
   }
@@ -426,7 +426,7 @@ export class DotBotSessionManager {
       environment,
       network: effectiveNetwork,
       aiProvider
-    }, 'getOrCreateSession: Checking for existing session');
+    }, 'SessionManager: Checking for existing session');
 
     const existing = await this.getExistingSession(sessionId);
     
@@ -437,14 +437,14 @@ export class DotBotSessionManager {
         sessionLogger.info({ 
           sessionId,
           lastAccessed: existing.lastAccessed.toISOString()
-        }, 'getOrCreateSession: Reusing existing session');
+        }, 'SessionManager: Reusing existing session');
         return existing;
       }
       
       sessionLogger.warn({ 
         sessionId,
         reason: 'wallet/environment/network mismatch'
-      }, 'getOrCreateSession: Removing mismatched session');
+      }, 'SessionManager: Removing mismatched session');
       await this.store.delete(sessionId);
     }
 

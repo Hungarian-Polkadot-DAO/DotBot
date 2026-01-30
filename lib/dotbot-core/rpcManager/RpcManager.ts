@@ -9,7 +9,7 @@
  * 
  * Health checks are both EVENT-DRIVEN and PERIODIC:
  * - Health is checked when connecting to an endpoint (event-driven)
- * - Periodic background polling keeps health data up-to-date (every 10 minutes by default)
+ * - Periodic background polling keeps health data up-to-date (every 30 minutes by default, skipped when already connected)
  * - Endpoints marked healthy/unhealthy based on connection success/failure
  * - Health data is persisted to localStorage for cross-session persistence
  * 
@@ -18,6 +18,8 @@
  * - createExecutionSession(): For transactions, locks API instance (no failover)
  */
 
+// Must run before @polkadot/api loads so its logger uses our patched console (suppress API-WS disconnect noise)
+import '../polkadotConsolePatch';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { createSubsystemLogger, Subsystem } from '../services/logger';
 import { ExecutionSession } from './ExecutionSession';
@@ -42,7 +44,7 @@ export class RpcManager {
     this.connectionTimeout = config.connectionTimeout || 10000; // 10 seconds
     const failoverTimeout = config.failoverTimeout || 5 * 60 * 1000; // 5 minutes
     const healthDataMaxAge = config.healthDataMaxAge || 24 * 60 * 60 * 1000; // 24 hours
-    const healthCheckInterval = config.healthCheckInterval || 10 * 60 * 1000; // 10 minutes
+    const healthCheckInterval = config.healthCheckInterval || 30 * 60 * 1000; // 30 minutes
 
     // Initialize health map
     this.healthMap = new Map();
@@ -385,6 +387,18 @@ export class RpcManager {
   }
 
   /**
+   * Clear cached read API if it's the given instance (so next getReadApi() will try endpoints again / failover).
+   * Called when the read API disconnects or errors so we don't keep returning a dead connection.
+   */
+  private clearReadApiIf(api: ApiPromise): void {
+    if (this.currentReadApi === api) {
+      this.currentReadApi = null;
+      this.currentEndpoint = null;
+      this.rpcLogger.debug({}, 'Read API disconnected or errored - cleared cache for failover on next getReadApi()');
+    }
+  }
+
+  /**
    * Get API for READ operations (can failover)
    * 
    * This is for queries, balance checks, etc. that don't create transactions.
@@ -427,6 +441,8 @@ export class RpcManager {
           const api = await this.tryConnect(endpoint);
           this.currentEndpoint = endpoint;
           this.currentReadApi = api;
+          api.on('disconnected', () => this.clearReadApiIf(api));
+          api.on('error', () => this.clearReadApiIf(api));
           return api;
         } catch (error) {
           const { error: errorObj } = this.normalizeError(error);
@@ -453,6 +469,8 @@ export class RpcManager {
         const api = await this.tryConnect(endpoint);
         this.currentEndpoint = endpoint;
         this.currentReadApi = api;
+        api.on('disconnected', () => this.clearReadApiIf(api));
+        api.on('error', () => this.clearReadApiIf(api));
         this.rpcLogger.info({ endpoint }, `Successfully connected to endpoint: ${endpoint}`);
         return api;
       } catch (error) {
@@ -599,10 +617,18 @@ export class RpcManager {
 
   /**
    * Perform a health check on all endpoints
-   * This performs a lightweight connection test
+   * This performs a lightweight connection test.
+   * Skips opening new connections when we already have a healthy read API (reduces connection churn and log noise).
    */
   async performHealthCheck(): Promise<void> {
-    const checkPromises = this.endpoints.map(async (endpoint) => {
+    if (this.currentReadApi?.isConnected) {
+      this.rpcLogger.debug({ endpoint: this.currentEndpoint }, 'Skipping health check: read API already connected');
+      return;
+    }
+
+    // Only probe a subset of endpoints per run to limit connection churn (prefer first/health-ordered)
+    const endpointsToCheck = this.healthTracker.getOrderedEndpoints().slice(0, 5);
+    const checkPromises = endpointsToCheck.map(async (endpoint) => {
       const endpointStartTime = Date.now();
       try {
         const provider = new WsProvider(endpoint);
@@ -677,8 +703,9 @@ export class RpcManager {
     const healthyCount = Array.from(this.healthMap.values()).filter(h => h.healthy).length;
     this.rpcLogger.info({ 
       healthyCount,
-      totalEndpoints: this.endpoints.length
-    }, `Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy`);
+      totalEndpoints: this.endpoints.length,
+      checked: endpointsToCheck.length
+    }, `Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy (checked ${endpointsToCheck.length})`);
   }
 
   /**

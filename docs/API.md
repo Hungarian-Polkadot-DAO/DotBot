@@ -1403,11 +1403,12 @@ interface ChatResult {
 
 **Behavior (v0.2.0):**
 1. Saves user message to chat history
-2. Gets LLM response with network-specific context
-3. Extracts ExecutionPlan if present
-4. If plan found: **Prepares** execution (orchestrates, adds to chat) - **does NOT auto-execute**
-5. Returns result with `executed: false` (user must approve via UI)
-6. User clicks "Accept & Start" → UI calls `dotbot.startExecution(executionId)`
+2. Gets LLM response with network-specific context (system prompt includes Output Mode Override and Final Check for JSON-only ExecutionPlan)
+3. **Format guardrail**: If the LLM returns prose instead of a JSON ExecutionPlan (e.g. "I've prepared a transaction flow..."), `getLLMResponse` detects it and retries once with a correction prompt asking for JSON only. If no plan is extracted after that, the frontend shows a clear "❌ LLM ERROR" message with a response preview so logs and users see accurate feedback.
+4. Extracts ExecutionPlan if present
+5. If plan found: **Prepares** execution (orchestrates, adds to chat) - **does NOT auto-execute**
+6. Returns result with `executed: false` (user must approve via UI)
+7. User clicks "Accept & Start" → UI calls `dotbot.startExecution(executionId)`
 
 **Example:**
 ```typescript
@@ -2910,7 +2911,7 @@ constructor(
 **Parameters:**
 - `endpoints` (string[]): Array of WebSocket RPC URLs
 - `options` (RpcManagerOptions, optional): Configuration options
-  - `healthCheckInterval` (number): Health check frequency in ms (default: 60000)
+  - `healthCheckInterval` (number): Health check frequency in ms (default: 1800000, i.e. 30 minutes)
   - `connectionTimeout` (number): Connection timeout in ms (default: 10000)
   - `maxRetries` (number): Maximum connection retries (default: 3)
 - `storageKey` (string, optional): localStorage key for health data. Default: 'dotbot_rpc_health'. *Added in v0.2.0*
@@ -2929,7 +2930,7 @@ const { relayChainManager, assetHubManager } = createRpcManagersForNetwork('west
 // ⚠️ MANUAL: Only if you need custom endpoints
 const customManager = new RpcManager(
   ['wss://custom-endpoint.com'],
-  { healthCheckInterval: 30000 },
+  { healthCheckInterval: 1800000 },  // 30 minutes (default)
   'dotbot_rpc_health_custom'  // Provide unique key
 );
 ```
@@ -2945,6 +2946,7 @@ Each network uses separate storage keys to prevent health data conflicts:
 - Westend Asset Hub: `dotbot_rpc_health_westend_assethub`
 
 **Version History:**
+- v0.2.x (January 2026): Default `healthCheckInterval` changed to 30 minutes (1800000 ms); cached read API cleared on disconnect/error for failover
 - v0.2.0 (January 2026): Added `storageKey` parameter for network isolation
 - v0.1.0: Initial implementation
 
@@ -2957,7 +2959,7 @@ const manager = new RpcManager(
     'wss://polkadot.api.onfinality.io/public-ws'
   ],
   {
-    healthCheckInterval: 60000,
+    healthCheckInterval: 1800000,  // 30 minutes (default)
     connectionTimeout: 10000,
     maxRetries: 3
   },
