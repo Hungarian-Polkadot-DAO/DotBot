@@ -73,9 +73,8 @@ npm install @polkadot/api @polkadot/util @polkadot/util-crypto
 **Recommended: Use DotBot (High-Level API)**
 
 ```typescript
-import { DotBot } from './lib/dotbot';
-import { createRpcManagersForNetwork } from './lib/rpcManager';
-import type { Network } from './lib/rpcManager';
+import { DotBot, createRpcManagersForNetwork } from '@dotbot/core';
+import type { Network } from '@dotbot/core';
 
 // 1. Select network
 const network: Network = 'polkadot'; // or 'kusama', 'westend'
@@ -95,15 +94,15 @@ const dotbot = await DotBot.create({
   }
 });
 
-// 4. Use natural language!
-const response = await dotbot.chat("Send 5 DOT to Alice", {
-  llm: async (message, systemPrompt) => {
-    // Call your LLM service (OpenAI, ASI-One, etc.)
+// 4. Use natural language! (RPC and signer are lazy-loaded on first chat/getBalance)
+const result = await dotbot.chat("Send 5 DOT to Alice", {
+  llm: async (message, systemPrompt, context) => {
+    // Call your LLM service (OpenAI, ASI-One, etc.); context.conversationHistory available
     return await llmService.chat(message, systemPrompt);
   }
 });
 
-console.log(response);  // "Transfer successful!"
+console.log(result.response);  // Text or execution plan; result.executed is false until user approves
 ```
 
 **Why DotBot?**
@@ -121,9 +120,8 @@ If you need fine-grained control over agents and execution:
 
 ```typescript
 import { ApiPromise } from '@polkadot/api';
-import { AssetTransferAgent } from './lib/agents/asset-transfer';
-import { Executioner } from './lib/executionEngine';
-import { createRpcManagersForNetwork, Network } from './lib/rpcManager';
+import { AssetTransferAgent, ExecutionSystem, createRpcManagersForNetwork } from '@dotbot/core';
+import type { Network } from '@dotbot/core';
 
 // 1. Select network
 const network: Network = 'polkadot'; // or 'kusama', 'westend'
@@ -145,16 +143,9 @@ agent.initialize(
   assetHubManager
 );
 
-// 5. Initialize executioner manually
-const executioner = new Executioner();
-executioner.initialize(
-  relayApi,
-  accountInfo,
-  signer,
-  assetHubApi,
-  relayChainManager,
-  assetHubManager
-);
+// 5. Use ExecutionSystem for orchestration + execution (or use DotBot for turnkey)
+const executionSystem = new ExecutionSystem();
+// ... initialize executionSystem with api, account, signer, assetHubApi, managers
 
 // 6. Use agents directly
 const result = await agent.transfer({
@@ -164,8 +155,7 @@ const result = await agent.transfer({
   chain: 'assetHub'
 });
 
-// 7. Execute manually
-const executionResult = await executioner.execute(result);
+// 7. Execute via ExecutionSystem / Executioner (see executionEngine exports)
 ```
 
 **When to use Low-Level API:**
@@ -173,7 +163,6 @@ const executionResult = await executioner.execute(result);
 - Need specific agent behavior
 - Bypassing natural language layer
 - Custom execution workflows
-```
 
 ### Network Configuration
 
@@ -1115,7 +1104,7 @@ function createWestendAssetHubManager(): RpcManager
 import {
   createWestendRelayChainManager,
   createWestendAssetHubManager
-} from './lib/rpcManager';
+} from '@dotbot/core';
 
 const relayManager = createWestendRelayChainManager();
 const assetHubManager = createWestendAssetHubManager();
@@ -1272,7 +1261,7 @@ function getKnowledgeBaseForNetwork(network: Network): PolkadotKnowledge
 function formatKnowledgeBaseForNetwork(network: Network): string
 ```
 
-**Full documentation:** See `frontend/src/lib/prompts/system/knowledge/networkUtils.ts`
+**Full documentation:** See `lib/dotbot-core/prompts/system/knowledge/networkUtils.ts`
 
 **Version Added:** v0.2.0 (January 2026)
 
@@ -3072,7 +3061,7 @@ interface TransferCapabilities {
 
 **Example:**
 ```typescript
-import { detectTransferCapabilities } from './lib/agents/asset-transfer/utils';
+import { detectTransferCapabilities } from '@dotbot/core';
 
 const capabilities = await detectTransferCapabilities(api);
 
@@ -3119,7 +3108,7 @@ interface SafeExtrinsicResult {
 
 **Example:**
 ```typescript
-import { buildSafeTransferExtrinsic } from './lib/agents/asset-transfer/utils';
+import { buildSafeTransferExtrinsic } from '@dotbot/core';
 
 const result = buildSafeTransferExtrinsic(
   api,
@@ -3716,11 +3705,11 @@ interface ScenarioExpectation {
 
 ```typescript
 import { ApiPromise } from '@polkadot/api';
-import { AssetTransferAgent } from './lib/agents/asset-transfer';
+import { AssetTransferAgent } from '@dotbot/core';
 import { Executioner } from './lib/executionEngine';
 import { ExecutionArray } from './lib/executionEngine/executionArray';
 import { BrowserWalletSigner } from './lib/executionEngine/signers';
-import { RpcManager } from './lib/rpcManager';
+import { RpcManager } from '@dotbot/core';
 
 async function transferDot() {
   // 1. Setup RPC managers
@@ -3819,8 +3808,9 @@ async function batchTransfer() {
 ### Custom Agent Example
 
 ```typescript
-import { BaseAgent } from './lib/agents/baseAgent';
-import { AgentResult, AgentError } from './lib/agents/types';
+import { BaseAgent } from '@dotbot/core';
+import type { AgentResult } from '@dotbot/core';
+// For AgentError when building agents inside the repo: import { AgentError } from './agents/types';
 
 export class CustomAgent extends BaseAgent {
   getAgentName(): string {
@@ -3834,10 +3824,7 @@ export class CustomAgent extends BaseAgent {
       // 1. Validate
       const validation = this.validateAddress(params.address);
       if (!validation.valid) {
-        throw new AgentError(
-          validation.errors.join(', '),
-          'INVALID_ADDRESS'
-        );
+        throw new Error(validation.errors.join(', '));
       }
       
       // 2. Get API
@@ -3854,10 +3841,7 @@ export class CustomAgent extends BaseAgent {
       );
       
       if (!dryRunResult.success) {
-        throw new AgentError(
-          dryRunResult.error!,
-          'DRY_RUN_FAILED'
-        );
+        throw new Error(dryRunResult.error ?? 'Dry run failed');
       }
       
       // 5. Return result
@@ -3870,13 +3854,8 @@ export class CustomAgent extends BaseAgent {
         }
       );
     } catch (error) {
-      if (error instanceof AgentError) {
-        throw error;
-      }
-      throw new AgentError(
-        error instanceof Error ? error.message : 'Unknown error',
-        'CUSTOM_OPERATION_FAILED'
-      );
+      if (error instanceof Error) throw error;
+      throw new Error(error instanceof Error ? error.message : 'Unknown error');
     }
   }
 }
