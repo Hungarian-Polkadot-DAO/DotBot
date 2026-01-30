@@ -302,6 +302,15 @@ export class DotBot {
           planId: plan.id,
           stepsCount: plan.steps.length
         }, 'chat: ExecutionPlan extracted');
+      } else if (
+        llmResponse &&
+        /I've prepared a transaction flow|transaction flow with \d+ step/i.test(llmResponse.trim())
+      ) {
+        // LLM returned the friendly prose message instead of the JSON ExecutionPlan — no ExecutionFlow will be shown
+        this.dotbotLogger.warn(
+          { responsePreview: llmResponse.trim().slice(0, 120), responseLength: llmResponse.length },
+          'chat: LLM returned prose instead of JSON ExecutionPlan — no plan extracted, no ExecutionFlow'
+        );
       }
       
       // Route response based on plan presence

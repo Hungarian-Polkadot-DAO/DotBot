@@ -22,6 +22,16 @@ export async function getLLMResponse(dotbot: DotBotInstance, message: string, op
       async (msg, prompt) => callLLM(dotbot, msg, prompt, options!.llm, conversationHistory)
     );
   }
+  // Log raw LLM response so it can be found easily (e.g. to debug plan extraction or wrong replies)
+  const previewLen = 300;
+  dotbot.dotbotLogger.info(
+    {
+      responseLength: llmResponse.length,
+      responsePreview: llmResponse.length <= previewLen ? llmResponse : llmResponse.slice(0, previewLen) + '...',
+            hasJsonBlock: /\s*```json\s*[\s\S]*?```/.test(llmResponse),
+    },
+    'LLM raw response'
+  );
   return llmResponse;
 }
 

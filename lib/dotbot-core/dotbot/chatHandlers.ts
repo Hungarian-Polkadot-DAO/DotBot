@@ -124,6 +124,7 @@ export async function handleExecutionResponse(
   const originalRequestText = plan.originalRequest ? ` for: "${plan.originalRequest}"` : '';
   const friendlyMessage = `I've prepared a transaction flow with ${plan.steps.length} step${plan.steps.length !== 1 ? 's' : ''}${originalRequestText}. Review the details below and click "Accept and Start" when ready.`;
 
+  // If you see "Execution prepared" in logs, we had a plan and return plan + executionId. If that log is missing, we took handleConversationResponse and the bot message is the LLM's raw text (sometimes the model echoes this same prose instead of JSON).
   dotbot.dotbotLogger.info({ planId: plan.id, stepsCount: plan.steps.length, message: friendlyMessage }, 'Execution prepared');
 
   if (dotbot.currentChat) {

@@ -18,29 +18,13 @@
  * - createExecutionSession(): For transactions, locks API instance (no failover)
  */
 
+// Must run before @polkadot/api loads so its logger uses our patched console (suppress API-WS disconnect noise)
+import '../polkadotConsolePatch';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { createSubsystemLogger, Subsystem } from '../services/logger';
 import { ExecutionSession } from './ExecutionSession';
 import { HealthTracker } from './healthTracker';
 import type { RpcManagerConfig, EndpointHealth } from './types';
-
-/**
- * One-time patch to suppress noisy @polkadot/api WsProvider disconnect logs (1006 Abnormal Closure).
- * The library logs every disconnect to console.error; we filter those so they don't flood the console.
- */
-function suppressPolkadotWsDisconnectLogs(): void {
-  if (typeof console === 'undefined' || !console.error) return;
-  const key = '__dotbot_polkadot_ws_suppress_patched__';
-  if ((console as unknown as Record<string, unknown>)[key]) return;
-  (console as unknown as Record<string, unknown>)[key] = true;
-  const orig = console.error.bind(console);
-  console.error = (...args: unknown[]) => {
-    const msg = args.map(a => (typeof a === 'string' ? a : String(a))).join(' ');
-    if (msg.includes('API-WS') && msg.includes('disconnected')) return;
-    orig(...args);
-  };
-}
-suppressPolkadotWsDisconnectLogs();
 
 /**
  * RPC Manager for handling multiple endpoints with automatic failover
