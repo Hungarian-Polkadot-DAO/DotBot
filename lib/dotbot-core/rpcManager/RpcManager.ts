@@ -9,7 +9,7 @@
  * 
  * Health checks are both EVENT-DRIVEN and PERIODIC:
  * - Health is checked when connecting to an endpoint (event-driven)
- * - Periodic background polling keeps health data up-to-date (every 10 minutes by default)
+ * - Periodic background polling keeps health data up-to-date (every 30 minutes by default, skipped when already connected)
  * - Endpoints marked healthy/unhealthy based on connection success/failure
  * - Health data is persisted to localStorage for cross-session persistence
  * 
@@ -23,6 +23,24 @@ import { createSubsystemLogger, Subsystem } from '../services/logger';
 import { ExecutionSession } from './ExecutionSession';
 import { HealthTracker } from './healthTracker';
 import type { RpcManagerConfig, EndpointHealth } from './types';
+
+/**
+ * One-time patch to suppress noisy @polkadot/api WsProvider disconnect logs (1006 Abnormal Closure).
+ * The library logs every disconnect to console.error; we filter those so they don't flood the console.
+ */
+function suppressPolkadotWsDisconnectLogs(): void {
+  if (typeof console === 'undefined' || !console.error) return;
+  const key = '__dotbot_polkadot_ws_suppress_patched__';
+  if ((console as unknown as Record<string, unknown>)[key]) return;
+  (console as unknown as Record<string, unknown>)[key] = true;
+  const orig = console.error.bind(console);
+  console.error = (...args: unknown[]) => {
+    const msg = args.map(a => (typeof a === 'string' ? a : String(a))).join(' ');
+    if (msg.includes('API-WS') && msg.includes('disconnected')) return;
+    orig(...args);
+  };
+}
+suppressPolkadotWsDisconnectLogs();
 
 /**
  * RPC Manager for handling multiple endpoints with automatic failover
@@ -42,7 +60,7 @@ export class RpcManager {
     this.connectionTimeout = config.connectionTimeout || 10000; // 10 seconds
     const failoverTimeout = config.failoverTimeout || 5 * 60 * 1000; // 5 minutes
     const healthDataMaxAge = config.healthDataMaxAge || 24 * 60 * 60 * 1000; // 24 hours
-    const healthCheckInterval = config.healthCheckInterval || 10 * 60 * 1000; // 10 minutes
+    const healthCheckInterval = config.healthCheckInterval || 30 * 60 * 1000; // 30 minutes
 
     // Initialize health map
     this.healthMap = new Map();
@@ -599,10 +617,18 @@ export class RpcManager {
 
   /**
    * Perform a health check on all endpoints
-   * This performs a lightweight connection test
+   * This performs a lightweight connection test.
+   * Skips opening new connections when we already have a healthy read API (reduces connection churn and log noise).
    */
   async performHealthCheck(): Promise<void> {
-    const checkPromises = this.endpoints.map(async (endpoint) => {
+    if (this.currentReadApi?.isConnected) {
+      this.rpcLogger.debug({ endpoint: this.currentEndpoint }, 'Skipping health check: read API already connected');
+      return;
+    }
+
+    // Only probe a subset of endpoints per run to limit connection churn (prefer first/health-ordered)
+    const endpointsToCheck = this.healthTracker.getOrderedEndpoints().slice(0, 5);
+    const checkPromises = endpointsToCheck.map(async (endpoint) => {
       const endpointStartTime = Date.now();
       try {
         const provider = new WsProvider(endpoint);
@@ -677,8 +703,9 @@ export class RpcManager {
     const healthyCount = Array.from(this.healthMap.values()).filter(h => h.healthy).length;
     this.rpcLogger.info({ 
       healthyCount,
-      totalEndpoints: this.endpoints.length
-    }, `Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy`);
+      totalEndpoints: this.endpoints.length,
+      checked: endpointsToCheck.length
+    }, `Health check complete: ${healthyCount}/${this.endpoints.length} endpoints healthy (checked ${endpointsToCheck.length})`);
   }
 
   /**

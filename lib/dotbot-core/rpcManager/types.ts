@@ -30,6 +30,6 @@ export interface RpcManagerConfig {
   connectionTimeout?: number; // Connection attempt timeout (default: 10 seconds)
   storageKey?: string; // LocalStorage key for persisting health data (default: no persistence)
   healthDataMaxAge?: number; // Max age for persisted health data before invalidation (default: 24 hours)
-  healthCheckInterval?: number; // Interval for periodic health checks in milliseconds (default: 10 minutes)
+  healthCheckInterval?: number; // Interval for periodic health checks in milliseconds (default: 30 minutes)
   enablePeriodicHealthChecks?: boolean; // Enable background health monitoring (default: true)
 }
