@@ -26,6 +26,8 @@ interface ChatProps {
   onPromptProcessed?: () => void;
   /** Auto-submit injected prompts (default: true) */
   autoSubmit?: boolean;
+  /** Incremented by parent when messages are added so Chat re-reads getDisplayMessages() */
+  conversationRefresh?: number;
 }
 
 const Chat: React.FC<ChatProps> = ({
@@ -37,6 +39,7 @@ const Chat: React.FC<ChatProps> = ({
   injectedPrompt = null,
   onPromptProcessed,
   autoSubmit = true,
+  conversationRefresh = 0,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -194,7 +197,7 @@ const Chat: React.FC<ChatProps> = ({
       dotbot.removeEventListener(handleDotBotEvent);
       clearInterval(pollInterval);
     };
-  }, [dotbot, dotbot.currentChat?.id]);
+  }, [dotbot, dotbot.currentChat?.id, conversationRefresh]);
   
   // Force re-render when executionArray is added to execution messages
   // This ensures ExecutionFlow updates when executionArray state changes
