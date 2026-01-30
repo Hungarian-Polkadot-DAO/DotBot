@@ -237,6 +237,7 @@ export class ExecutionSystem {
    * @param accountAddress Account address for simulation
    * @param onSimulationStatus Optional callback for simulation status
    * @param executionId Optional execution ID to preserve when rebuilding (prevents duplicate ExecutionMessages)
+   * @param options Optional: skipSimulation (e.g. when rebuilding), afterOrchestrate (e.g. update chat before simulation)
    * @returns ExecutionArray ready for execution
    */
   async prepareExecutionArray(
@@ -247,7 +248,11 @@ export class ExecutionSystem {
     assetHubManager: RpcManager,
     accountAddress: string,
     onSimulationStatus?: SimulationStatusCallback,
-    executionId?: string
+    executionId?: string,
+    options?: {
+      skipSimulation?: boolean;
+      afterOrchestrate?: (executionArray: ExecutionArray) => void | Promise<void>;
+    }
   ): Promise<ExecutionArray> {
     const executionArray = await this.orchestrateExecutionArray(
       plan,
@@ -255,17 +260,23 @@ export class ExecutionSystem {
       assetHubSession,
       executionId
     );
-    
-    await this.runSimulation(
-      executionArray,
-      accountAddress,
-      relayChainSession,
-      assetHubSession,
-      relayChainManager,
-      assetHubManager,
-      onSimulationStatus
-    );
-    
+
+    if (options?.afterOrchestrate) {
+      await options.afterOrchestrate(executionArray);
+    }
+
+    if (options?.skipSimulation !== true) {
+      await this.runSimulation(
+        executionArray,
+        accountAddress,
+        relayChainSession,
+        assetHubSession,
+        relayChainManager,
+        assetHubManager,
+        onSimulationStatus
+      );
+    }
+
     return executionArray;
   }
   

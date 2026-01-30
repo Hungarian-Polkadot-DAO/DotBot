@@ -18,6 +18,9 @@ export type {
   DotBotEventListener,
 } from './dotbot';
 
+// Error hierarchy (for consumers that need to catch specific errors)
+export { DotBotError, ExecutionPreparationError } from './errors';
+
 // RPC Manager - For advanced endpoint management
 export { 
   RpcManager, 

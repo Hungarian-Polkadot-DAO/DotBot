@@ -73,7 +73,7 @@ npm run dev:frontend
 
 That's it! DotBot handles the complexity behind the scenes.
 
-**Note:** Transactions now require explicit user approval before execution (two-step pattern).
+**Note:** Transactions use a two-step pattern: after the LLM suggests a plan, the UI shows an ExecutionFlow; the user clicks "Accept & Start" to approve, then signs in the wallet. RPC connections and the browser wallet signer are **lazy-loaded** on first use (e.g. first `chat()` or `getBalance()`).
 
 ## Architecture Overview
 
@@ -81,39 +81,33 @@ DotBot follows a clean, scalable monorepo architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                  Frontend (React)                         │
-│               ChatGPT-like web interface                  │
-│         Uses @dotbot/core for blockchain ops              │
+│                  Frontend (React)                       │
+│               ChatGPT-like web interface                │
+│         Uses @dotbot/core for blockchain ops            │
 └─────────────────────────────────────────────────────────┘
                             ↓ HTTP API
 ┌─────────────────────────────────────────────────────────┐
-│              Backend (TypeScript/Express)                 │
-│         @dotbot/express routes & middleware               │
-│      Secure AI provider API key management                │
-│          Session management for DotBot instances          │
+│              Backend (TypeScript/Express)               │
+│         @dotbot/express routes & middleware             │
+│      Secure AI provider API key management              │
+│          Session management for DotBot instances        │
 └─────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────┐
-│             @dotbot/core (Shared Library)                 │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │Asset Transfer│  │  Governance  │  │   Staking    │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-│                                                           │
-│  Agents:                                                 │
-│  - Validate user input                                   │
-│  - Create production-safe extrinsics                     │
-│  - Return ready-to-sign transactions                     │
-│                                                           │
-│  Execution Engine:                                       │
-│  - Optional Chopsticks simulation                        │
-│  - Wallet signing                                        │
-│  - Network broadcasting                                  │
-│  - Finalization monitoring                               │
+│             @dotbot/core (Shared Library)               │
+│  DotBot class (dotbot.ts) + dotbot/*.ts logic modules   │
+│  Agents: Asset Transfer (others planned)                 │
+│  - Validate input, create production-safe extrinsics    │
+│  Execution Engine:                                      │
+│  - Optional Chopsticks simulation                       │
+│  - Wallet signing (lazy-loaded)                         │
+│  - Network broadcasting                                 │
+│  - Finalization monitoring                              │
 └─────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────┐
-│                   Polkadot Network                        │
-│         (Relay Chain, Asset Hub, Parachains)             │
+│                   Polkadot Network                      │
+│         (Relay Chain, Asset Hub, Parachains)            │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -135,6 +129,12 @@ DotBot/                              # Monorepo root
 │
 ├── lib/                             # Shared libraries
 │   ├── dotbot-core/                 # @dotbot/core
+│   │   ├── dotbot.ts                # DotBot class (turnkey API)
+│   │   ├── dotbot/                  # DotBot logic (create, chat, execution, RPC, LLM)
+│   │   │   ├── create.ts, chatHandlers.ts, chatLifecycle.ts
+│   │   │   ├── executionPreparation.ts, executionRunner.ts
+│   │   │   ├── llm.ts, rpcLifecycle.ts, balanceChain.ts, types.ts
+│   │   │
 │   │   ├── agents/                  # Specialized agents
 │   │   │   ├── asset-transfer/      # DOT/token transfers
 │   │   │   ├── governance/          # Voting, delegation
@@ -148,16 +148,12 @@ DotBot/                              # Monorepo root
 │   │   │   ├── signing/             # Transaction signing
 │   │   │   └── broadcasting/        # Network broadcasting
 │   │   │
-│   │   ├── services/                # Core services
-│   │   │   ├── ai/                  # AI service abstraction
-│   │   │   ├── rpcManager.ts        # Multi-endpoint RPC
-│   │   │   ├── simulation/          # Chopsticks integration
-│   │   │   └── logger.ts            # Structured logging
-│   │   │
+│   │   ├── chat/                    # ChatInstance, ChatInstanceManager
+│   │   ├── rpcManager/              # RpcManager, health, factories
+│   │   ├── prompts/                 # LLM system prompts
+│   │   ├── services/                # AI, logger, simulation
+│   │   ├── storage/                 # chatStorage, fileStorage
 │   │   ├── scenarioEngine/          # Testing framework
-│   │   │   ├── components/          # EntityCreator, StateAllocator, etc.
-│   │   │   └── scenarios/           # Test scenarios
-│   │   │
 │   │   └── types/                   # TypeScript types
 │   │
 │   └── dotbot-express/              # @dotbot/express
@@ -169,23 +165,7 @@ DotBot/                              # Monorepo root
 │       └── package.json
 │
 ├── backend/                         # TypeScript/Express backend
-│   ├── src/
-│   │   ├── app.ts                   # Express app configuration
-│   │   └── index.ts                 # Server entry point
-│   ├── test/
-│   │   └── integration/             # OpenAPI integration tests
-│   │       └── openapi-test-runner.ts
-│   ├── openapi.yaml                 # API specification (base truth)
-│   ├── test-mock-api.sh             # Prism mock server launcher
-│   └── package.json
-│
 ├── frontend/                        # React web application
-│   ├── src/
-│   │   ├── components/              # React UI components
-│   │   └── services/
-│   │       └── backendApi.ts        # Backend API client
-│   └── package.json
-│
 ├── docs/                            # Documentation
 │   ├── README.md                    # This file (overview)
 │   ├── ARCHITECTURE.md              # Design decisions
@@ -216,17 +196,19 @@ Handles DOT and token transfers across Polkadot ecosystem.
 **Example:**
 ```typescript
 const result = await agent.transfer({
-  sender: 'sender-address',
+  address: 'sender-address',  // From BaseAgentParams
   recipient: 'recipient-address',
   amount: '5',  // 5 DOT
+  chain: 'assetHub',
   keepAlive: true
 });
 ```
 
-### More Agents Coming
+### More Agents Coming (not yet in AGENT_REGISTRY)
 
 - Asset Swap Agent (DEX integration)
-- Governance Agent (voting, delegation)
+- Governance Agent (voting, delegation; code exists but commented out)
+- Staking Agent (bond, nominate, etc.; code exists but commented out)
 - Multisig Agent (coordination)
 
 ---
@@ -317,7 +299,7 @@ Smart endpoint management:
 
 **NEW** in v0.2.0: Systematic testing framework for DotBot:
 - Deterministic test entity creation
-- Multi-mode execution (synthetic, emulated, live)
+- Execution modes: live (synthetic and emulated currently disabled)
 - UI-integrated testing (tests through actual UI)
 - LLM-consumable evaluation logs
 - Comprehensive test scenarios (happy-path, adversarial, jailbreak, etc.)
@@ -387,30 +369,30 @@ npm run test:endpoint /api/health  # Test specific endpoint
 
 ## Common Use Cases
 
-### Single Transfer
+### Single Transfer (Low-Level)
 
 ```typescript
-import { AssetTransferAgent } from './lib/agents/asset-transfer';
+import { AssetTransferAgent, ExecutionSystem } from '@dotbot/core';
 
 const agent = new AssetTransferAgent();
-agent.initialize(api, assetHubApi);
+agent.initialize(api, assetHubApi, null, relayChainManager, assetHubManager);
 
 const result = await agent.transfer({
-  sender: accountAddress,
+  address: accountAddress,
   recipient: 'recipient-address',
   amount: '10.5',
+  chain: 'assetHub',
   keepAlive: true
 });
 
-// Execute with executioner
-await executioner.executeExtrinsic(result);
+// Execute via ExecutionSystem / executioner (see API.md)
 ```
 
-### Batch Transfer
+### Batch Transfer (Low-Level)
 
 ```typescript
 const result = await agent.batchTransfer({
-  sender: accountAddress,
+  address: accountAddress,
   transfers: [
     { recipient: 'address1', amount: '5' },
     { recipient: 'address2', amount: '3' },
@@ -418,8 +400,7 @@ const result = await agent.batchTransfer({
   keepAlive: true
 });
 
-// Single transaction for both transfers
-await executioner.executeExtrinsic(result);
+// Execute via ExecutionSystem / executioner
 ```
 
 ## Next Steps
