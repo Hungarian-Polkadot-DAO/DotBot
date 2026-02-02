@@ -3,7 +3,7 @@
  * Stateful: get/rebuild ExecutionArray from chat, validate sessions, then run.
  * Stateless: load sessions/plan from DotBot maps, rebuild ExecutionArray, run, then cleanup.
  *
- * Also: restoreExecution (rebuild in place, no run), retryExecution (new execution from same plan, prepare + start).
+ * Also: restoreExecution (rebuild in place, no run), rerunExecution (new execution from same plan, prepare + start).
  */
 
 import type { ExecutionOptions } from '../executionEngine/types';
@@ -102,6 +102,13 @@ export async function startExecution(
 
   const executioner = dotbot.executionSystem.getExecutioner();
   await executioner.execute(executionArray, options);
+
+  const finalState = executionArray.getState();
+  const executionMessage = findExecutionMessage(dotbot, executionId) as { id?: string } | undefined;
+  if (executionMessage?.id) {
+    await dotbot.currentChat!.updateExecutionMessage(executionMessage.id, { executionArray: finalState });
+    dotbot.dotbotLogger.debug({ executionId }, 'Persisted final execution state');
+  }
 }
 
 /** Stateless: load sessions/plan from DotBot, check TTL and session validity, rebuild, execute, cleanup. */
@@ -197,28 +204,28 @@ export async function restoreExecution(dotbot: DotBotInstance, executionId: stri
 }
 
 /**
- * Retry: create a new execution from the same plan (new executionId, new message, prepare + start).
+ * Rerun: create a new execution from the same plan (new executionId, new message, prepare + start).
  * Stateful only. Uses executionMessage.executionPlan or extracts from executionArray state.
  */
-export async function retryExecution(
+export async function rerunExecution(
   dotbot: DotBotInstance,
   executionMessage: ExecutionMessage,
   options?: ExecutionOptions
 ): Promise<void> {
   await dotbot.ensureRpcConnectionsReady();
   if (!dotbot._stateful) {
-    throw new Error('retryExecution is only supported in stateful mode.');
+    throw new Error('rerunExecution is only supported in stateful mode.');
   }
   if (!dotbot.currentChat) {
-    throw new Error('No active chat. Cannot retry execution.');
+    throw new Error('No active chat. Cannot rerun execution.');
   }
   const plan = await getPlanFromMessage(dotbot, executionMessage);
   if (!plan) {
-    throw new Error('Execution has no plan. Cannot retry.');
+    throw new Error('Execution has no plan. Cannot rerun.');
   }
   const newExecutionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   await addExecutionMessageEarly(dotbot, newExecutionId, plan);
   await prepareExecution(dotbot, plan, newExecutionId, true);
   await startExecution(dotbot, newExecutionId, options);
-  dotbot.dotbotLogger.info({ executionId: newExecutionId, fromExecutionId: executionMessage.executionId }, 'Retry execution started');
+  dotbot.dotbotLogger.info({ executionId: newExecutionId, fromExecutionId: executionMessage.executionId }, 'Rerun execution started');
 }

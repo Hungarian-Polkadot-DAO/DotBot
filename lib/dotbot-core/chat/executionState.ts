@@ -23,28 +23,6 @@ export class ExecutionStateManager {
   private chatLogger = createSubsystemLogger(Subsystem.CHAT);
 
   /**
-   * Restore ExecutionArray instances from execution messages
-   */
-  restoreExecutionArrays(executionMessages: ExecutionMessage[]): void {
-    for (const execMessage of executionMessages) {
-      try {
-        // Skip if executionArray is not yet available (still being prepared)
-        if (!execMessage.executionArray) {
-          continue;
-        }
-        const executionArray = ExecutionArray.fromState(execMessage.executionArray);
-        this.executionArrays.set(execMessage.executionId, executionArray);
-      } catch (error) {
-        this.chatLogger.error({ 
-          executionId: execMessage.executionId,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
-        }, `Failed to restore execution array ${execMessage.executionId}`);
-      }
-    }
-  }
-
-  /**
    * Rebuild ExecutionArray instances by re-orchestrating from saved metadata
    */
   async rebuildExecutionArrays(

@@ -27,7 +27,7 @@ import { WalletAccount } from './types/wallet';
 import { RpcManager, Network, ExecutionSession } from './rpcManager';
 import { ChatInstanceManager } from './chat/chatInstanceManager';
 import { ChatInstance } from './chat/chatInstance';
-import type { Environment, ConversationItem } from './chat/types';
+import type { Environment, ConversationItem, ExecutionMessage } from './chat/types';
 import { createSubsystemLogger, Subsystem } from './services/logger';
 import {
   getSimulationConfig,
@@ -43,7 +43,7 @@ import {
   handleExecutionResponse as handleExecutionResponseImpl,
 } from './dotbot/chatHandlers';
 import { prepareExecution as prepareExecutionImpl, prepareExecutionStateless as prepareExecutionStatelessImpl } from './dotbot/executionPreparation';
-import { startExecution as startExecutionImpl, startExecutionStateless as startExecutionStatelessImpl, cleanupExecutionSessions as cleanupExecutionSessionsImpl, cleanupExpiredExecutions as cleanupExpiredExecutionsImpl } from './dotbot/executionRunner';
+import { startExecution as startExecutionImpl, startExecutionStateless as startExecutionStatelessImpl, cleanupExecutionSessions as cleanupExecutionSessionsImpl, cleanupExpiredExecutions as cleanupExpiredExecutionsImpl, restoreExecution as restoreExecutionImpl, rerunExecution as rerunExecutionImpl } from './dotbot/executionRunner';
 import { ensureRpcConnectionsReady as ensureRpcConnectionsReadyImpl } from './dotbot/rpcLifecycle';
 import { initializeChatInstance as initializeChatInstanceImpl, clearHistory as clearHistoryImpl, switchEnvironment as switchEnvironmentImpl, loadChatInstance as loadChatInstanceImpl } from './dotbot/chatLifecycle';
 import { getLLMResponse as getLLMResponseImpl } from './dotbot/llm';
@@ -269,6 +269,16 @@ export class DotBot {
   /** Start execution (user clicked "Accept & Start"). Requires prepareExecution() already called. */
   async startExecution(executionId: string, options?: ExecutionOptions): Promise<void> {
     return startExecutionImpl(this, executionId, options);
+  }
+
+  /** Restore interrupted execution (rebuild in place; user can then Accept & Start). Stateful only. */
+  async restoreExecution(executionId: string): Promise<void> {
+    return restoreExecutionImpl(this, executionId);
+  }
+
+  /** Rerun: new execution from same plan (new id, new message, prepare + start). Stateful only. */
+  async rerunExecution(executionMessage: ExecutionMessage, options?: ExecutionOptions): Promise<void> {
+    return rerunExecutionImpl(this, executionMessage, options);
   }
 
   private async startExecutionStateless(executionId: string, options?: ExecutionOptions): Promise<void> {
