@@ -9,7 +9,7 @@
 import React from 'react';
 import { User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import dotbotFavicon from '../../assets/dotbot-favicon.svg';
+import dotbotLogoWhite from '../../assets/dotbot-logo-white.svg';
 import type { TextMessage, SystemMessage } from '@dotbot/core';
 
 interface MessageProps {
@@ -48,7 +48,7 @@ const Message: React.FC<MessageProps> = ({ message }) => {
         ) : (
           <>
             <div className={`message-avatar ${displayType}`}>
-              <img src={dotbotFavicon} alt="DotBot" className="message-avatar-img" />
+              <img src={dotbotLogoWhite} alt="DotBot" className="message-avatar-img" />
             </div>
             <span className="message-name">{senderName}</span>
             <span className="message-date">{formatDateTime(message.timestamp)}</span>
