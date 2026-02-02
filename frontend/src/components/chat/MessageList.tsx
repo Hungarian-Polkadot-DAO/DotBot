@@ -1,24 +1,28 @@
 /**
  * MessageList Component
- * 
+ *
  * Scrollable container for chat messages with auto-scroll behavior.
- * 
- * Will be part of @dotbot/react package.
+ * When suppressScrollRef.current is true, the next effect run skips scrolling (e.g. after Restore).
  */
 
 import React, { useRef, useEffect, ReactNode } from 'react';
 
 interface MessageListProps {
   children: ReactNode;
+  /** When set to true before children update, the next scroll is skipped and ref is cleared. */
+  suppressScrollRef?: React.MutableRefObject<boolean>;
 }
 
-const MessageList: React.FC<MessageListProps> = ({ children }) => {
+const MessageList: React.FC<MessageListProps> = ({ children, suppressScrollRef }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
+    if (suppressScrollRef?.current) {
+      suppressScrollRef.current = false;
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [children]);
+  }, [children, suppressScrollRef]);
 
   return (
     <div className="chat-messages">

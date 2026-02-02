@@ -5,7 +5,7 @@
  * Shows all steps that will happen and provides a single "Accept and Start" button.
  */
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import type { ExecutionMessage, DotBot } from '@dotbot/core';
 import type { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 import { isSimulationEnabled } from '@dotbot/core/executionEngine/simulation/simulationConfig';
@@ -23,20 +23,20 @@ import {
   isFlowComplete,
   isFlowExecuting,
   isFlowSuccessful,
-  isFlowFailed
+  isFlowFailed,
+  isFlowInterrupted,
 } from './executionFlowUtils';
-import { handleAcceptAndStart } from './executionHandlers';
+import { handleAcceptAndStart, handleRestore, handleRerun } from './executionHandlers';
 import './execution-flow.css';
 
 export interface ExecutionFlowProps {
-  // New API: Pass ExecutionMessage + DotBot instance
   executionMessage?: ExecutionMessage;
   dotbot?: DotBot;
-  
-  // Legacy API: Pass state directly
   state?: ExecutionArrayState | null;
   onAcceptAndStart?: () => void;
   onCancel?: () => void;
+  /** Call before Restore to prevent scroll-to-bottom. */
+  onSuppressScrollRequest?: () => void;
   show?: boolean;
 }
 
@@ -46,27 +46,55 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
   state,
   onAcceptAndStart,
   onCancel,
+  onSuppressScrollRequest,
   show = true
 }) => {
-  // Use custom hooks for state management
   const executionState = useExecutionFlowState(executionMessage, dotbot, state);
   const { isExpanded, toggleExpand } = useExpandedItems();
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [isRerunning, setIsRerunning] = useState(false);
 
-  // Determine if we should show the component
+  const onRestoreHandler = useCallback(async () => {
+    if (!executionMessage || !dotbot) return;
+    onSuppressScrollRequest?.();
+    setIsRestoring(true);
+    try {
+      await handleRestore(executionMessage, dotbot);
+    } finally {
+      setIsRestoring(false);
+    }
+  }, [executionMessage, dotbot, onSuppressScrollRequest]);
+
+  const onRerunHandler = useCallback(async () => {
+    if (!executionMessage || !dotbot) return;
+    onSuppressScrollRequest?.();
+    setIsRerunning(true);
+    try {
+      await handleRerun(executionMessage, dotbot);
+    } finally {
+      setIsRerunning(false);
+    }
+  }, [executionMessage, dotbot, onSuppressScrollRequest]);
+
   const shouldShow = executionMessage ? true : show;
   if (!shouldShow) {
     return null;
   }
 
-  // Render loading state helper
+  const hasLiveArray = !!(executionMessage && dotbot?.currentChat?.getExecutionArray(executionMessage.executionId));
+  const isFrozenForLoading = !!executionMessage && !hasLiveArray;
+
   const renderLoadingState = (state: typeof executionState) => (
-    <div className="execution-flow-container">
+    <div className={`execution-flow-container ${isFrozenForLoading ? 'frozen' : ''}`.trim()}>
       <ExecutionFlowHeader
         executionState={state}
         isWaitingForApproval={false}
         isExecuting={false}
+        isFrozen={isFrozenForLoading}
+        isComplete={false}
+        isInterrupted={false}
       />
-      <LoadingState />
+      <LoadingState isFrozen={isFrozenForLoading} />
     </div>
   );
 
@@ -104,23 +132,46 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
 
   const flowStatus = flowSuccessful ? 'success' : flowFailed ? 'failed' : isExecuting ? 'executing' : 'pending';
 
+  const isFrozen = !!executionMessage && !hasLiveArray;
+  const interrupted = isFlowInterrupted(executionState);
+  const showRestore = isFrozen && interrupted;
+  const showRerun = isFrozen && isComplete && (flowSuccessful || flowFailed);
+  const showAccept = !isFrozen && !!(onAcceptAndStart || executionMessage);
+
+  const frozenClass = isFrozen
+    ? isComplete
+      ? 'frozen frozen-completed'
+      : 'frozen frozen-interrupted'
+    : '';
+
   return (
-    <div className="execution-flow-container" data-flow-status={flowStatus}>
+    <div
+      className={`execution-flow-container ${frozenClass}`.trim()}
+      data-flow-status={flowStatus}
+    >
       <ExecutionFlowHeader
         executionState={executionState}
         isWaitingForApproval={waitingForApproval}
         isExecuting={isExecuting}
         isFlowSuccessful={flowSuccessful}
         isFlowFailed={flowFailed}
+        isFrozen={isFrozen}
+        isComplete={isComplete}
+        isInterrupted={interrupted}
+        showRestore={showRestore}
+        showRerun={showRerun}
+        isRestoring={isRestoring}
+        isRerunning={isRerunning}
+        onRestore={onRestoreHandler}
+        onRerun={onRerunHandler}
       />
 
-      {!hasActiveSimulation && !allSimulationsComplete && waitingForApproval && (
+      {!isFrozen && !hasActiveSimulation && !allSimulationsComplete && waitingForApproval && (
         <ApprovalMessage simulationEnabled={simulationEnabled} />
       )}
 
       <div className="execution-flow-items">
         {executionState.items.map((item, index) => {
-          // Memoize expanded state to prevent unnecessary re-renders
           const itemIsExpanded = isExpanded(item.id);
           return (
             <ExecutionFlowItem
@@ -129,6 +180,7 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
               index={index}
               isExpanded={itemIsExpanded}
               onToggleExpand={toggleExpand}
+              isFrozen={isFrozen}
             />
           );
         })}
@@ -142,7 +194,8 @@ const ExecutionFlow: React.FC<ExecutionFlowProps> = ({
         isFlowFailed={flowFailed}
         isSimulating={isSimulating}
         showCancel={false}
-        showAccept={!!(onAcceptAndStart || executionMessage)}
+        showAccept={showAccept}
+        isFrozen={isFrozen}
         onAcceptAndStart={onAcceptAndStartHandler}
         onCancel={handleCancel}
       />

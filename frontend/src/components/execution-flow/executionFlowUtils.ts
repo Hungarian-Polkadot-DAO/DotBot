@@ -283,9 +283,20 @@ export function isFlowSuccessful(executionState: ExecutionArrayState): boolean {
  */
 export function isFlowFailed(executionState: ExecutionArrayState): boolean {
   if (!isFlowComplete(executionState)) return false;
-  // Empty array cannot have failed items
   if (executionState.items.length === 0) return false;
-  
   return executionState.items.some(item => item.status === 'failed');
+}
+
+/** Terminal statuses: step will not change. */
+const TERMINAL_STATUSES = ['completed', 'failed', 'finalized', 'cancelled'] as const;
+
+/**
+ * True if the flow has any non-terminal step (interrupted or not yet run).
+ */
+export function isFlowInterrupted(executionState: ExecutionArrayState): boolean {
+  if (executionState.items.length === 0) return false;
+  return executionState.items.some(
+    item => !TERMINAL_STATUSES.includes(item.status as typeof TERMINAL_STATUSES[number])
+  );
 }
 

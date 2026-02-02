@@ -45,6 +45,7 @@ const Chat: React.FC<ChatProps> = ({
   const [refreshKey, setRefreshKey] = useState(0);
   const [showInjectionEffect, setShowInjectionEffect] = useState(false);
   const processedPromptRef = useRef<string | null>(null);
+  const suppressScrollRef = useRef(false);
 
   const handleSubmit = useCallback(async () => {
     const trimmedValue = inputValue.trim();
@@ -263,11 +264,14 @@ const Chat: React.FC<ChatProps> = ({
   return (
     <div className="chat-container">
       {/* Messages */}
-      <MessageList>
+      <MessageList suppressScrollRef={suppressScrollRef}>
         <ConversationItems
           key={refreshKey}
           items={conversationItems}
           dotbot={dotbot}
+          onSuppressScrollRequest={() => {
+            suppressScrollRef.current = true;
+          }}
         />
         
         {/* Typing indicator */}

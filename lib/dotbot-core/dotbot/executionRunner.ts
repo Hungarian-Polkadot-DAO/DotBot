@@ -2,14 +2,48 @@
  * Execution runner: start execution after user clicks "Accept & Start".
  * Stateful: get/rebuild ExecutionArray from chat, validate sessions, then run.
  * Stateless: load sessions/plan from DotBot maps, rebuild ExecutionArray, run, then cleanup.
+ *
+ * Also: restoreExecution (rebuild in place, no run), rerunExecution (new execution from same plan, prepare + start).
  */
 
 import type { ExecutionOptions } from '../executionEngine/types';
 import type { ExecutionSession } from '../rpcManager';
 import type { ExecutionPlan } from '../prompts/system/execution/types';
-import { prepareExecution } from './executionPreparation';
+import type { ExecutionMessage } from '../chat/types';
+import { prepareExecution, addExecutionMessageEarly } from './executionPreparation';
 
 type DotBotInstance = any;
+
+/** Resolve ExecutionPlan from message (stored or extracted from state). */
+async function getPlanFromMessage(
+  dotbot: DotBotInstance,
+  executionMessage: { executionPlan?: ExecutionPlan; executionArray?: unknown; id?: string } | undefined
+): Promise<ExecutionPlan | null> {
+  if (!executionMessage) return null;
+  let plan = executionMessage.executionPlan ?? null;
+  if (!plan && executionMessage.executionArray) {
+    const extracted = dotbot.currentChat?.extractExecutionPlanFromState(executionMessage.executionArray as import('../executionEngine/types').ExecutionArrayState);
+    if (extracted) {
+      plan = extracted;
+      if (executionMessage.id) {
+        await dotbot.currentChat?.updateExecutionMessage(executionMessage.id, { executionPlan: extracted });
+      }
+    }
+  }
+  return plan;
+}
+
+/** Find execution message by executionId in current chat. */
+function findExecutionMessage(
+  dotbot: DotBotInstance,
+  executionId: string
+): { executionPlan?: ExecutionPlan; executionArray?: unknown; id?: string } | undefined {
+  return dotbot.currentChat
+    ?.getDisplayMessages()
+    .find(
+      (m: { type: string; executionId?: string }) => m.type === 'execution' && m.executionId === executionId
+    ) as { executionPlan?: ExecutionPlan; executionArray?: unknown; id?: string } | undefined;
+}
 
 async function validateExecutionSession(session: ExecutionSession): Promise<boolean> {
   if (!session.isActive) return false;
@@ -36,24 +70,11 @@ export async function startExecution(
   const needsRebuild = !executionArray || (executionArray.isInterrupted() && dotbot.currentChat);
 
   if (needsRebuild) {
-    const executionMessage = dotbot.currentChat.getDisplayMessages().find(
-      (m: { type: string; executionId?: string }) => m.type === 'execution' && m.executionId === executionId
-    ) as { executionId?: string; executionPlan?: unknown; executionArray?: unknown; id?: string } | undefined;
-
-    let plan = executionMessage?.executionPlan;
-    // Fallback: e.g. message came from WebSocket without plan.
-    if (!plan && executionMessage?.executionArray) {
-      dotbot.dotbotLogger.debug({ executionId }, 'ExecutionPlan missing, extracting from state');
-      const extractedPlan = dotbot.currentChat.extractExecutionPlanFromState(executionMessage.executionArray);
-      if (extractedPlan) {
-        plan = extractedPlan;
-        await dotbot.currentChat.updateExecutionMessage(executionMessage.id!, { executionPlan: plan });
-        dotbot.dotbotLogger.info({ executionId }, 'Extracted and saved ExecutionPlan from state');
-      }
-    }
+    const executionMessage = findExecutionMessage(dotbot, executionId);
+    const plan = await getPlanFromMessage(dotbot, executionMessage);
 
     if (plan) {
-      await prepareExecution(dotbot, plan as ExecutionPlan, executionId, true); // skipSimulation: already ran at prepare
+      await prepareExecution(dotbot, plan, executionId, true);
       executionArray = dotbot.currentChat.getExecutionArray(executionId);
       if (!executionArray) throw new Error('Failed to rebuild execution array');
     } else if (!executionArray) {
@@ -81,6 +102,13 @@ export async function startExecution(
 
   const executioner = dotbot.executionSystem.getExecutioner();
   await executioner.execute(executionArray, options);
+
+  const finalState = executionArray.getState();
+  const executionMessage = findExecutionMessage(dotbot, executionId) as { id?: string } | undefined;
+  if (executionMessage?.id) {
+    await dotbot.currentChat!.updateExecutionMessage(executionMessage.id, { executionArray: finalState });
+    dotbot.dotbotLogger.debug({ executionId }, 'Persisted final execution state');
+  }
 }
 
 /** Stateless: load sessions/plan from DotBot, check TTL and session validity, rebuild, execute, cleanup. */
@@ -152,4 +180,52 @@ export function cleanupExpiredExecutions(dotbot: DotBotInstance): number {
     }
   }
   return cleaned;
+}
+
+/**
+ * Restore an interrupted execution (rebuild ExecutionArray in place, no run).
+ * Stateful only. After restore, user can click "Accept & Start" to run.
+ */
+export async function restoreExecution(dotbot: DotBotInstance, executionId: string): Promise<void> {
+  await dotbot.ensureRpcConnectionsReady();
+  if (!dotbot._stateful) {
+    throw new Error('restoreExecution is only supported in stateful mode.');
+  }
+  if (!dotbot.currentChat) {
+    throw new Error('No active chat. Cannot restore execution.');
+  }
+  const executionMessage = findExecutionMessage(dotbot, executionId);
+  const plan = await getPlanFromMessage(dotbot, executionMessage);
+  if (!plan) {
+    throw new Error(`Execution ${executionId} has no plan. Cannot restore.`);
+  }
+  await prepareExecution(dotbot, plan, executionId, true);
+  dotbot.dotbotLogger.info({ executionId }, 'Execution restored; user can Accept & Start');
+}
+
+/**
+ * Rerun: create a new execution from the same plan (new executionId, new message, prepare + start).
+ * Stateful only. Uses executionMessage.executionPlan or extracts from executionArray state.
+ */
+export async function rerunExecution(
+  dotbot: DotBotInstance,
+  executionMessage: ExecutionMessage,
+  options?: ExecutionOptions
+): Promise<void> {
+  await dotbot.ensureRpcConnectionsReady();
+  if (!dotbot._stateful) {
+    throw new Error('rerunExecution is only supported in stateful mode.');
+  }
+  if (!dotbot.currentChat) {
+    throw new Error('No active chat. Cannot rerun execution.');
+  }
+  const plan = await getPlanFromMessage(dotbot, executionMessage);
+  if (!plan) {
+    throw new Error('Execution has no plan. Cannot rerun.');
+  }
+  const newExecutionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  await addExecutionMessageEarly(dotbot, newExecutionId, plan);
+  await prepareExecution(dotbot, plan, newExecutionId, true);
+  await startExecution(dotbot, newExecutionId, options);
+  dotbot.dotbotLogger.info({ executionId: newExecutionId, fromExecutionId: executionMessage.executionId }, 'Rerun execution started');
 }

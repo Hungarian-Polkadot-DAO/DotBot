@@ -15,6 +15,8 @@ import ExecutionFlow from '../execution-flow/ExecutionFlow';
 interface ConversationItemsProps {
   items: ConversationItem[];
   dotbot: DotBot;
+  /** Call when Restore/Retry is clicked so Chat can suppress the next scroll-to-bottom. */
+  onSuppressScrollRequest?: () => void;
 }
 
 /**
@@ -24,7 +26,7 @@ function isExecutionMessage(item: ConversationItem): item is ExecutionMessage {
   return item.type === 'execution';
 }
 
-const ConversationItems: React.FC<ConversationItemsProps> = ({ items, dotbot }) => {
+const ConversationItems: React.FC<ConversationItemsProps> = ({ items, dotbot, onSuppressScrollRequest }) => {
   // Deduplicate execution messages by executionId - keep only the latest one
   // This prevents duplicate ExecutionFlow components from being rendered
   const executionMessagesByExecutionId = new Map<string, ExecutionMessage>();
@@ -88,6 +90,7 @@ const ConversationItems: React.FC<ConversationItemsProps> = ({ items, dotbot }) 
               key={item.id}
               executionMessage={item}
               dotbot={dotbot}
+              onSuppressScrollRequest={onSuppressScrollRequest}
             />
           );
         }

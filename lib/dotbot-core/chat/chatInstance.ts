@@ -59,12 +59,8 @@ export class ChatInstance {
     // Initialize managers
     this.executionStateManager = new ExecutionStateManager();
     this.sessionManager = new ExecutionSessionManager(data.id);
-    
-    // Restore ExecutionArray instances from execution messages
-    const executionMessages = this.data.messages.filter(
-      m => m.type === 'execution'
-    ) as ExecutionMessage[];
-    this.executionStateManager.restoreExecutionArrays(executionMessages);
+    // Historical execution flows are not restored on load; they stay snapshot-only (frozen)
+    // until the user clicks Restore, which uses rebuildExecutionArrays for that flow.
   }
 
   /**

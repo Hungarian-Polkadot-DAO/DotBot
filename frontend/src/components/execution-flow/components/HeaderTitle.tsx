@@ -1,7 +1,8 @@
 /**
  * Header Title Component
- * 
- * Displays the execution flow title and step count
+ *
+ * Displays the execution flow title and step count.
+ * Frozen = historical (snapshot); running = live ExecutionArray.
  */
 
 import React from 'react';
@@ -13,6 +14,9 @@ export interface HeaderTitleProps {
   isExecuting: boolean;
   isFlowSuccessful?: boolean;
   isFlowFailed?: boolean;
+  isFrozen?: boolean;
+  isComplete?: boolean;
+  isInterrupted?: boolean;
 }
 
 const HeaderTitle: React.FC<HeaderTitleProps> = ({
@@ -20,35 +24,51 @@ const HeaderTitle: React.FC<HeaderTitleProps> = ({
   isWaitingForApproval,
   isExecuting,
   isFlowSuccessful,
-  isFlowFailed
+  isFlowFailed,
+  isFrozen = false,
+  isComplete = false,
+  isInterrupted = false
 }) => {
   if (!executionState) {
     return (
       <div className="execution-flow-title">
         <h3>Execution Flow</h3>
-        <span className="execution-flow-count">Preparing...</span>
+        <span className="execution-flow-count">
+          {isFrozen ? '—' : 'Preparing...'}
+        </span>
       </div>
     );
   }
 
-  // Determine header title based on flow state
   let headerTitle = 'Execution Flow';
-  if (isWaitingForApproval) {
-    headerTitle = 'Review Transaction Flow';
-  } else if (isFlowSuccessful) {
-    headerTitle = '✓ Flow Completed Successfully';
-  } else if (isFlowFailed) {
-    headerTitle = '✗ Flow Failed';
-  } else if (isExecuting) {
-    headerTitle = 'Executing Flow';
+  let countLabel = `${executionState.totalItems} step${executionState.totalItems !== 1 ? 's' : ''}`;
+
+  if (isFrozen) {
+    if (isComplete) {
+      headerTitle = isFlowSuccessful ? '✓ Completed' : isFlowFailed ? '✗ Failed' : 'Completed';
+      countLabel = 'All steps done';
+    } else if (isInterrupted) {
+      headerTitle = 'Interrupted';
+      countLabel = 'Incomplete — use Restore to continue';
+    } else {
+      headerTitle = 'Execution Flow';
+    }
+  } else {
+    if (isWaitingForApproval) {
+      headerTitle = 'Review Transaction Flow';
+    } else if (isFlowSuccessful) {
+      headerTitle = '✓ Flow Completed Successfully';
+    } else if (isFlowFailed) {
+      headerTitle = '✗ Flow Failed';
+    } else if (isExecuting) {
+      headerTitle = 'Executing Flow';
+    }
   }
 
   return (
     <div className="execution-flow-title">
       <h3>{headerTitle}</h3>
-      <span className="execution-flow-count">
-        {executionState.totalItems} step{executionState.totalItems !== 1 ? 's' : ''}
-      </span>
+      <span className="execution-flow-count">{countLabel}</span>
     </div>
   );
 };

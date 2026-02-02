@@ -332,6 +332,10 @@ describe('ExecutionFlow', () => {
       const executionState = createMockExecutionArrayState({
         items: [{ id: 'item-1', status: 'pending' }] as any,
       });
+      // Flow must be "live" (not frozen) for Accept to show: dotbot must have a live ExecutionArray for this id
+      (mockDotBot.currentChat as any).getExecutionArray = jest.fn((id: string) =>
+        id === executionMessage.executionId ? {} : null
+      );
       
       mockUseExecutionFlowState.mockReturnValue(executionState);
       mockDotBot.startExecution = jest.fn().mockResolvedValue(undefined);
@@ -348,7 +352,7 @@ describe('ExecutionFlow', () => {
         />
       );
 
-      // Find and click the accept button
+      // Find and click the accept button (only visible when flow is live and waiting for approval)
       const acceptButton = screen.getByTestId('accept-button');
       acceptButton.click();
 
