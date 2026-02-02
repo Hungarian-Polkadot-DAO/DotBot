@@ -1,15 +1,11 @@
 /**
  * Execution Flow Handlers
- * 
- * Simple handlers for stateful mode (frontend simulation)
+ *
+ * Handlers for Accept & Start, Restore, and Rerun.
  */
 
 import { ExecutionMessage, DotBot } from '@dotbot/core';
 
-/**
- * Handle accept and start execution
- * Simple: just call DotBot.startExecution (stateful mode)
- */
 export async function handleAcceptAndStart(
   executionMessage: ExecutionMessage | undefined,
   dotbot: DotBot | undefined,
@@ -23,5 +19,29 @@ export async function handleAcceptAndStart(
     }
   } else if (onAcceptAndStart) {
     onAcceptAndStart();
+  }
+}
+
+export async function handleRestore(
+  executionMessage: ExecutionMessage | undefined,
+  dotbot: DotBot | undefined
+): Promise<void> {
+  if (!executionMessage || !dotbot) return;
+  try {
+    await dotbot.restoreExecution(executionMessage.executionId);
+  } catch (error) {
+    console.error('[ExecutionFlow] Restore failed:', error);
+  }
+}
+
+export async function handleRerun(
+  executionMessage: ExecutionMessage | undefined,
+  dotbot: DotBot | undefined
+): Promise<void> {
+  if (!executionMessage || !dotbot) return;
+  try {
+    await dotbot.rerunExecution(executionMessage, { autoApprove: false });
+  } catch (error) {
+    console.error('[ExecutionFlow] Rerun failed:', error);
   }
 }

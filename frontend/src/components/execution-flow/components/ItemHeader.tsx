@@ -16,13 +16,16 @@ export interface ItemHeaderProps {
   index: number;
   isExpanded: boolean;
   onToggleExpand: () => void;
+  /** When true (frozen/historical flow), no spinning icon. */
+  isFrozen?: boolean;
 }
 
 const ItemHeader: React.FC<ItemHeaderProps> = ({
   item,
   index,
   isExpanded,
-  onToggleExpand
+  onToggleExpand,
+  isFrozen = false
 }) => {
   const simulationEnabled = isSimulationEnabled();
   const hasDetails = !!(item.warnings?.length || item.metadata || item.simulationStatus);
@@ -65,7 +68,7 @@ const ItemHeader: React.FC<ItemHeaderProps> = ({
     >
       <div className="execution-item-main">
         <div className="execution-item-number">{index + 1}</div>
-        {getStatusIcon(item.status)}
+        {getStatusIcon(item.status, isFrozen)}
         <div className="execution-item-content">
           <div className="execution-item-description">{item.description}</div>
           <div className="execution-item-meta">

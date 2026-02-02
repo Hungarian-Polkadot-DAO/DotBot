@@ -1,7 +1,7 @@
 /**
  * Execution Flow Footer Component
- * 
- * Displays approval actions or progress bar
+ *
+ * Displays approval actions or progress bar. Restore/Rerun live in the header.
  */
 
 import React from 'react';
@@ -17,6 +17,7 @@ export interface ExecutionFlowFooterProps {
   isSimulating: boolean;
   showCancel: boolean;
   showAccept: boolean;
+  isFrozen?: boolean;
   onAcceptAndStart: () => void;
   onCancel: () => void;
 }
@@ -30,12 +31,15 @@ const ExecutionFlowFooter: React.FC<ExecutionFlowFooterProps> = ({
   isSimulating,
   showCancel,
   showAccept,
+  isFrozen = false,
   onAcceptAndStart,
-  onCancel
+  onCancel,
 }) => {
+  const showApprovalRow = isWaitingForApproval && !isFrozen;
+
   return (
     <div className="execution-flow-footer">
-      {isWaitingForApproval ? (
+      {showApprovalRow ? (
         <ApprovalActions
           showCancel={showCancel}
           showAccept={showAccept}
