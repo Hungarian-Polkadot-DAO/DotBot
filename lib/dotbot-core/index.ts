@@ -146,6 +146,8 @@ export {
   mapPromptStatusToRuntimeStatus,
   mapRuntimeStatusToPromptStatus,
   createExecutionItemFromAgentResult,
+  isStepFinalized,
+  isExecutionArrayStateTerminal,
 } from './executionEngine/utils';
 export type {
   ExecutionItem,
