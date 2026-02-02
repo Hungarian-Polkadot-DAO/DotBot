@@ -24,6 +24,7 @@
     "lint:backend": "npm run lint --workspace=backend",
     "lint:core": "npm run lint --workspace=@dotbot/core",
     "lint:express": "npm run lint --workspace=@dotbot/express",
+    "type-check": "npm run type-check --workspace=frontend && npm run type-check --workspace=backend --if-present",
     "install:all": "npm install && npm run install --workspaces"
   },
   "overrides": {
