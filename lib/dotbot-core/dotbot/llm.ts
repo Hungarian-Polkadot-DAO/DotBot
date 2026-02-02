@@ -123,7 +123,8 @@ export async function buildContextualSystemPrompt(dotbot: DotBotInstance): Promi
       'Context build failed (RPC/balance/chain). Falling back to prompt WITHOUT wallet/context. ' +
         'Execution plans may lack sender → "Invalid sender address: Address is required" when user prepares execution.'
     );
-    return await buildSystemPrompt();
+    // Don't create system prompt if we can't get the context.
+    throw new Error(`Failed to build system prompt: ${errorMessage}`);
   }
 }
 
