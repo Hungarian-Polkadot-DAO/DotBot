@@ -163,6 +163,30 @@ function formatPlanckToDot(planck: string | number, decimals = 10, _tokenSymbol?
 }
 
 /**
+ * Build a one-line balance summary for the current turn.
+ * Appended near the user message so the model uses it for balance questions instead of older history.
+ * Returns empty string when balance context is missing.
+ */
+export function formatBalanceTurnContext(context: SystemContext | undefined): string {
+  if (!context?.balance) return '';
+  const relayChainDecimals = context.network.relayChainDecimals ?? getNetworkDecimals(context.network.network);
+  const assetHubDecimals = context.network.assetHubDecimals ?? relayChainDecimals;
+  const totalDot = formatPlanckToDot(context.balance.total, relayChainDecimals);
+  const relayFreeDot = formatPlanckToDot(context.balance.relayChain.free, relayChainDecimals);
+  const assetHubFreeDot = context.balance.assetHub
+    ? formatPlanckToDot(context.balance.assetHub.free, assetHubDecimals)
+    : null;
+  const parts = [`Total: ${totalDot} ${context.balance.symbol}`];
+  parts.push(`Relay: ${relayFreeDot} ${context.balance.symbol}`);
+  parts.push(
+    assetHubFreeDot !== null
+      ? `Asset Hub: ${assetHubFreeDot} ${context.balance.symbol}`
+      : 'Asset Hub: not connected'
+  );
+  return `[Current turn balance — use ONLY this line for balance; IGNORE any balance numbers in previous messages] ${parts.join(' | ')}.`;
+}
+
+/**
  * Format context information for inclusion in system prompt
  */
 function formatContext(context?: SystemContext): string {
@@ -261,7 +285,7 @@ function formatConversationHistoryRelevance(): string {
 
 The recent user/assistant messages you receive are for **continuity only**. They are of **lower relevance** than this system prompt and the "Current Context" section above.
 
-- For **balance**, **chain state**, and **current facts**, use **only** the "Current Context" section.
+- For **balance**, **chain state**, and **current facts**, use **only** the "Current Context" section and the **[Current turn balance]** line that appears right after the user's message. **Never** use balance numbers from earlier user or assistant messages—they are often outdated.
 - Do not treat numbers or facts from earlier messages as current.
 `;
 }

@@ -48,12 +48,13 @@ jest.mock('../../executionEngine/system');
 jest.mock('../../executionEngine/signers/browserSigner');
 jest.mock('../../prompts/system/loader', () => ({
   buildSystemPrompt: jest.fn().mockResolvedValue('Default system prompt'),
+  formatBalanceTurnContext: jest.fn((_context: any) => ''),
 }));
 jest.mock('../../dotbot/llm', () => {
   const actual = jest.requireActual('../../dotbot/llm');
   return {
     ...actual,
-    buildContextualSystemPrompt: jest.fn().mockResolvedValue('Mock system prompt'),
+    buildContextualSystemPrompt: jest.fn().mockResolvedValue({ systemPrompt: 'Mock system prompt', turnContext: undefined }),
   };
 });
 jest.mock('../../prompts/system/knowledge', () => ({
@@ -1320,7 +1321,7 @@ describe('DotBot', () => {
   });
 
   describe('buildContextualSystemPrompt()', () => {
-    const actualLlm = jest.requireActual('../../dotbot/llm') as { buildContextualSystemPrompt: (dotbot: any) => Promise<string> };
+    const actualLlm = jest.requireActual('../../dotbot/llm') as { buildContextualSystemPrompt: (dotbot: any) => Promise<{ systemPrompt: string; turnContext?: string }> };
     let dotbot: DotBot;
 
     beforeEach(async () => {
@@ -1376,15 +1377,15 @@ describe('DotBot', () => {
       // Clear any previous calls from creation
       jest.clearAllMocks();
 
-      const prompt = await actualLlm.buildContextualSystemPrompt(dotbot);
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       // LAZY LOADING: buildContextualSystemPrompt() should trigger RPC connections
       expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
       expect(mockExecutionSystem.initialize).toHaveBeenCalled();
 
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
+      expect(typeof result.systemPrompt).toBe('string');
+      expect(result.systemPrompt.length).toBeGreaterThan(0);
     });
 
     it('should include Asset Hub balance when available', async () => {
@@ -1440,11 +1441,11 @@ describe('DotBot', () => {
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://kusama-rpc.polkadot.io');
       (buildSystemPrompt as jest.Mock).mockResolvedValue('Kusama system prompt');
 
-      const prompt = await actualLlm.buildContextualSystemPrompt(dotbot);
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       expect(dotbot.getChainInfo).toHaveBeenCalled();
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
+      expect(typeof result.systemPrompt).toBe('string');
     });
 
     it('should throw when context fetch fails (no fallback)', async () => {
@@ -1479,12 +1480,12 @@ describe('DotBot', () => {
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
       (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt without Asset Hub');
 
-      const prompt = await actualLlm.buildContextualSystemPrompt(dotbot);
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       // Should still build prompt successfully
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
+      expect(typeof result.systemPrompt).toBe('string');
+      expect(result.systemPrompt.length).toBeGreaterThan(0);
     });
 
     describe('Network-specific context', () => {

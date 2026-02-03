@@ -2,10 +2,16 @@
  * LLM: get response, build contextual prompt, call custom or AI-service LLM.
  */
 
-import { buildSystemPrompt } from '../prompts/system/loader';
+import { buildSystemPrompt, formatBalanceTurnContext } from '../prompts/system/loader';
 import { processSystemQueries, areSystemQueriesEnabled } from '../prompts/system/systemQuery';
 import { CHAT_HISTORY_MESSAGE_LIMIT } from './constants';
 import type { ChatOptions, ConversationMessage } from './types';
+
+export interface ContextualPromptResult {
+  systemPrompt: string;
+  /** One-line balance summary for this turn; append near user message so the model uses it for balance questions. */
+  turnContext?: string;
+}
 
 type DotBotInstance = any;
 
@@ -20,12 +26,22 @@ function applyHistoryLimit(
 
 /** System prompt (or override), history, then call LLM; optional system-query post-process. */
 export async function getLLMResponse(dotbot: DotBotInstance, message: string, options?: ChatOptions): Promise<string> {
-  const systemPrompt = options?.systemPrompt || (await buildContextualSystemPrompt(dotbot));
+  let systemPrompt: string;
+  let turnContext: string | undefined;
+  if (options?.systemPrompt) {
+    systemPrompt = options.systemPrompt;
+    turnContext = undefined;
+  } else {
+    const built = await buildContextualSystemPrompt(dotbot);
+    systemPrompt = built.systemPrompt;
+    turnContext = built.turnContext;
+  }
+
   const rawHistory = options?.conversationHistory || dotbot.getHistory();
   const limit = options?.historyLimit ?? CHAT_HISTORY_MESSAGE_LIMIT;
   const conversationHistory = applyHistoryLimit(rawHistory, limit);
 
-  let llmResponse = await callLLM(dotbot, message, systemPrompt, options?.llm, conversationHistory);
+  let llmResponse = await callLLM(dotbot, message, systemPrompt, options?.llm, conversationHistory, turnContext);
   
   // Optional: post-process LLM output for system queries (e.g. balance lookup) when custom LLM is used
   if (areSystemQueriesEnabled() && options?.llm) {
@@ -33,7 +49,7 @@ export async function getLLMResponse(dotbot: DotBotInstance, message: string, op
       llmResponse,
       systemPrompt,
       message,
-      async (msg, prompt) => callLLM(dotbot, msg, prompt, options!.llm, conversationHistory)
+      async (msg, prompt) => callLLM(dotbot, msg, prompt, options!.llm, conversationHistory, turnContext)
     );
   }
   
@@ -84,7 +100,7 @@ Return ONLY the JSON ExecutionPlan.
 NO prose. NO explanation. NO text before or after.
 ONLY the \`\`\`json code block.`;
     
-    llmResponse = await callLLM(dotbot, message, correctionPrompt, options?.llm, conversationHistory); // same sliced history
+    llmResponse = await callLLM(dotbot, message, correctionPrompt, options?.llm, conversationHistory, turnContext);
     
     dotbot.dotbotLogger.info(
       {
@@ -100,8 +116,8 @@ ONLY the \`\`\`json code block.`;
   return llmResponse;
 }
 
-/** Build system prompt with wallet, network, balance (or fallback to basic). */
-export async function buildContextualSystemPrompt(dotbot: DotBotInstance): Promise<string> {
+/** Build system prompt with wallet, network, balance; also a one-line turn context for balance questions. */
+export async function buildContextualSystemPrompt(dotbot: DotBotInstance): Promise<ContextualPromptResult> {
   await dotbot.ensureRpcConnectionsReady();
   try {
     const balance = await dotbot.getBalance();
@@ -109,7 +125,7 @@ export async function buildContextualSystemPrompt(dotbot: DotBotInstance): Promi
     const tokenSymbol = dotbot.network === 'westend' ? 'WND' : dotbot.network === 'kusama' ? 'KSM' : 'DOT';
     const relayChainDecimals = dotbot.api!.registry.chainDecimals?.[0];
     const assetHubDecimals = dotbot.assetHubApi?.registry.chainDecimals?.[0];
-    return await buildSystemPrompt({
+    const context = {
       wallet: { isConnected: true, address: dotbot.wallet.address, provider: dotbot.wallet.source },
       network: {
         network: dotbot.network,
@@ -124,7 +140,10 @@ export async function buildContextualSystemPrompt(dotbot: DotBotInstance): Promi
         total: balance.total,
         symbol: tokenSymbol,
       },
-    });
+    };
+    const systemPrompt = await buildSystemPrompt(context);
+    const turnContext = formatBalanceTurnContext(context);
+    return { systemPrompt, turnContext };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     dotbot.dotbotLogger.warn(
@@ -147,17 +166,22 @@ export async function callLLM(
   message: string,
   systemPrompt: string,
   customLLM?: (message: string, systemPrompt: string, context?: unknown) => Promise<string>,
-  conversationHistory?: ConversationMessage[]
+  conversationHistory?: ConversationMessage[],
+  turnContext?: string
 ): Promise<string> {
+  const contextPayload = {
+    conversationHistory: conversationHistory || [],
+    turnContext: turnContext || undefined,
+    walletAddress: dotbot.wallet.address,
+    network: dotbot.network.charAt(0).toUpperCase() + dotbot.network.slice(1),
+  };
   if (customLLM) {
-    return await customLLM(message, systemPrompt, { conversationHistory: conversationHistory || [] });
+    return await customLLM(message, systemPrompt, contextPayload);
   }
   if (dotbot.aiService) {
     return await dotbot.aiService.sendMessage(message, {
       systemPrompt,
-      conversationHistory: conversationHistory || [],
-      walletAddress: dotbot.wallet.address,
-      network: dotbot.network.charAt(0).toUpperCase() + dotbot.network.slice(1),
+      ...contextPayload,
     });
   }
   // No LLM configured

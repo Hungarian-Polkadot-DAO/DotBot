@@ -183,6 +183,15 @@ export class ASIOneService {
       });
     }
 
+    // Append current-turn balance so the model uses it for balance questions (avoids stale balance from history)
+    const turnContext = context?.turnContext;
+    if (turnContext && turnContext.trim().length > 0) {
+      messages.push({
+        role: 'user',
+        content: turnContext
+      });
+    }
+
     return messages;
   }
 
