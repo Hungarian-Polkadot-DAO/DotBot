@@ -171,7 +171,12 @@ function formatContext(context?: SystemContext): string {
   }
   
   let prompt = '\n## Current Context\n\n';
-  
+  prompt += `**SOURCE OF TRUTH (balance and chain data):**
+- The balance and chain data in this section are provided by the **system for this turn only**. They are refreshed on every message.
+- You are an LLM. You do **NOT** connect to any backend, API, or network. The user's wallet/interface provides this data to you in the system prompt.
+- When the user asks "what is my balance?", "balance now?", or similar, use **ONLY** the figures in this "Current Context" section. Do **NOT** repeat or infer from earlier messages in the conversation (earlier replies may have stale balance).
+- Never mention "backend", "API", "connection issue", "unable to fetch", or "localhost" for balance. If balance data is missing below, say balance data is temporarily unavailable and the user can check their wallet.\n\n`;
+
   // Wallet context
   if (context.wallet.isConnected && context.wallet.address) {
     prompt += `**Wallet**: Connected (${context.wallet.address})\n`;
@@ -244,6 +249,21 @@ function formatContext(context?: SystemContext): string {
   prompt += '\n';
   
   return prompt;
+}
+
+/**
+ * Section explaining how to treat conversation history relative to Current Context.
+ * Keeps history as continuity-only and lower relevance so the model prefers system prompt and balance for this turn.
+ */
+function formatConversationHistoryRelevance(): string {
+  return `
+## Conversation history (relevance)
+
+The recent user/assistant messages you receive are for **continuity only**. They are of **lower relevance** than this system prompt and the "Current Context" section above.
+
+- For **balance**, **chain state**, and **current facts**, use **only** the "Current Context" section.
+- Do not treat numbers or facts from earlier messages as current.
+`;
 }
 
 /**
@@ -339,9 +359,11 @@ If the user command qualifies for JSON MODE, you MUST switch modes.
   
   prompt += BASE_SYSTEM_PROMPT;
   
-  // Add context information
+  // Add context information (wallet, network, balance)
   prompt += formatContext(context);
-  
+  // How to treat conversation history relative to Current Context
+  prompt += formatConversationHistoryRelevance();
+
   // Add Knowledge Base (network-specific)
   if (context?.network?.network) {
     prompt += formatKnowledgeBaseForNetwork(context.network.network);
@@ -497,7 +519,8 @@ If the user command qualifies for JSON MODE, you MUST switch modes.
   
   // Add context information
   prompt += formatContext(context);
-  
+  prompt += formatConversationHistoryRelevance();
+
   // Add Polkadot Knowledge Base
   prompt += formatPolkadotKnowledgeBase();
   
