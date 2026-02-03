@@ -4,14 +4,27 @@
 
 import { buildSystemPrompt } from '../prompts/system/loader';
 import { processSystemQueries, areSystemQueriesEnabled } from '../prompts/system/systemQuery';
+import { CHAT_HISTORY_MESSAGE_LIMIT } from './constants';
 import type { ChatOptions, ConversationMessage } from './types';
 
 type DotBotInstance = any;
 
+/** Limit conversation history to the last N messages so the model prioritizes system prompt and Current Context. */
+function applyHistoryLimit(
+  history: ConversationMessage[],
+  limit: number
+): ConversationMessage[] {
+  if (limit <= 0) return [];
+  return history.slice(-limit);
+}
+
 /** System prompt (or override), history, then call LLM; optional system-query post-process. */
 export async function getLLMResponse(dotbot: DotBotInstance, message: string, options?: ChatOptions): Promise<string> {
   const systemPrompt = options?.systemPrompt || (await buildContextualSystemPrompt(dotbot));
-  const conversationHistory = options?.conversationHistory || dotbot.getHistory();
+  const rawHistory = options?.conversationHistory || dotbot.getHistory();
+  const limit = options?.historyLimit ?? CHAT_HISTORY_MESSAGE_LIMIT;
+  const conversationHistory = applyHistoryLimit(rawHistory, limit);
+
   let llmResponse = await callLLM(dotbot, message, systemPrompt, options?.llm, conversationHistory);
   
   // Optional: post-process LLM output for system queries (e.g. balance lookup) when custom LLM is used
@@ -71,7 +84,7 @@ Return ONLY the JSON ExecutionPlan.
 NO prose. NO explanation. NO text before or after.
 ONLY the \`\`\`json code block.`;
     
-    llmResponse = await callLLM(dotbot, message, correctionPrompt, options?.llm, conversationHistory);
+    llmResponse = await callLLM(dotbot, message, correctionPrompt, options?.llm, conversationHistory); // same sliced history
     
     dotbot.dotbotLogger.info(
       {
