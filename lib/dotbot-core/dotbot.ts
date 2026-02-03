@@ -53,6 +53,7 @@ import { DotBotEventType } from './dotbot/types';
 
 export type { DotBotConfig, ChatResult, ChatOptions, ConversationMessage, DotBotEvent, DotBotEventListener } from './dotbot/types';
 export { DotBotEventType } from './dotbot/types';
+export { CHAT_HISTORY_MESSAGE_LIMIT } from './dotbot/constants';
 
 // Forward declaration to avoid circular dependency
 type AIServiceType = import('./services/ai/aiService').AIService;

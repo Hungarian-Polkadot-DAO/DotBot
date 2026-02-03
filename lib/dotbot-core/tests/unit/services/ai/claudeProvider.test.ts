@@ -178,25 +178,25 @@ describe('ClaudeProvider', () => {
       expect(requestBody.system).toBe(customSystemPrompt);
     });
 
-    it('should limit conversation history to last 20 messages', async () => {
+    it('should use conversation history as-is (limit is applied by caller in getLLMResponse)', async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         status: 200,
         json: async () => mockResponse,
       });
 
-      const longHistory = Array.from({ length: 30 }, (_, i) => ({
-        role: 'user' as const,
+      const history = Array.from({ length: 5 }, (_, i) => ({
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
         content: `Message ${i}`,
       }));
 
       await provider.sendMessage('Current', {
-        conversationHistory: longHistory,
+        conversationHistory: history,
       });
 
       const requestBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-      // Should have 20 history + 1 current = 21 messages
-      expect(requestBody.messages.length).toBe(21);
+      // 5 history + 1 current = 6 messages (provider does not slice; core limits to CHAT_HISTORY_MESSAGE_LIMIT)
+      expect(requestBody.messages.length).toBe(6);
     });
 
     it('should include current user message', async () => {

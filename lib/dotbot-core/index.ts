@@ -20,6 +20,7 @@ export type {
   DotBotEvent,
   DotBotEventListener,
 } from './dotbot';
+export { CHAT_HISTORY_MESSAGE_LIMIT } from './dotbot/constants';
 
 // Error hierarchy (for consumers that need to catch specific errors)
 export { DotBotError, ExecutionPreparationError } from './errors';

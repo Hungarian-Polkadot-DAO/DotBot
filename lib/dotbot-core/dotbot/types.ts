@@ -110,6 +110,8 @@ export interface ChatOptions {
   llm?: (message: string, systemPrompt: string, context?: unknown) => Promise<string>;
   /** Previous messages for context (e.g. when not using built-in chat persistence). */
   conversationHistory?: ConversationMessage[];
+  /** Override default history message limit (default: CHAT_HISTORY_MESSAGE_LIMIT). Use 0 for no history, or a higher value for debugging. */
+  historyLimit?: number;
 }
 
 /** Internal: args passed to DotBot constructor from getCreateArgs(). */

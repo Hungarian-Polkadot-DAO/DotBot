@@ -33,7 +33,7 @@ jest.mock('@polkadot/util-crypto', () => ({
   },
 }));
 
-import { DotBot, DotBotConfig, ConversationMessage } from '../../dotbot';
+import { DotBot, DotBotConfig, ConversationMessage, CHAT_HISTORY_MESSAGE_LIMIT } from '../../dotbot';
 import { extractExecutionPlan } from '../../prompts/system/utils';
 import { ApiPromise } from '@polkadot/api';
 import { WalletAccount } from '../../types/wallet';
@@ -48,12 +48,13 @@ jest.mock('../../executionEngine/system');
 jest.mock('../../executionEngine/signers/browserSigner');
 jest.mock('../../prompts/system/loader', () => ({
   buildSystemPrompt: jest.fn().mockResolvedValue('Default system prompt'),
+  formatBalanceTurnContext: jest.fn((_context: any) => ''),
 }));
 jest.mock('../../dotbot/llm', () => {
   const actual = jest.requireActual('../../dotbot/llm');
   return {
     ...actual,
-    buildContextualSystemPrompt: jest.fn().mockResolvedValue('Mock system prompt'),
+    buildContextualSystemPrompt: jest.fn().mockResolvedValue({ systemPrompt: 'Mock system prompt', turnContext: undefined }),
   };
 });
 jest.mock('../../prompts/system/knowledge', () => ({
@@ -667,7 +668,7 @@ describe('DotBot', () => {
         systemPrompt: 'Mock system prompt', // skip buildContextualSystemPrompt (would need RPC/balance in test)
       });
 
-      // System prompt is the one we passed (mock); LLM receives conversationHistory
+      // System prompt is the one we passed (mock); LLM receives conversationHistory (unchanged when ≤ limit)
       expect(mockCustomLLM).toHaveBeenCalledWith(
         'What did we talk about?',
         expect.any(String),
@@ -678,6 +679,61 @@ describe('DotBot', () => {
           ]),
         })
       );
+    });
+
+    it('should limit conversation history to CHAT_HISTORY_MESSAGE_LIMIT when not overridden', async () => {
+      const longHistory: ConversationMessage[] = Array.from({ length: 15 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i + 1}`,
+        timestamp: Date.now(),
+      }));
+
+      mockCustomLLM.mockResolvedValue('Response');
+
+      await dotbot.chat('Follow-up question?', {
+        llm: mockCustomLLM,
+        conversationHistory: longHistory,
+        systemPrompt: 'Mock system prompt',
+      });
+
+      expect(mockCustomLLM).toHaveBeenCalledWith(
+        'Follow-up question?',
+        expect.any(String),
+        expect.objectContaining({
+          conversationHistory: expect.any(Array),
+        })
+      );
+      const callArgs = mockCustomLLM.mock.calls[0];
+      const passedHistory = callArgs[2]?.conversationHistory as ConversationMessage[];
+      expect(passedHistory).toHaveLength(CHAT_HISTORY_MESSAGE_LIMIT);
+      // Should be the last 8 messages (indices 7..14)
+      expect(passedHistory[0].content).toBe('Message 8');
+      expect(passedHistory[7].content).toBe('Message 15');
+    });
+
+    it('should respect options.historyLimit when provided', async () => {
+      const history: ConversationMessage[] = [
+        { role: 'user', content: 'A', timestamp: Date.now() },
+        { role: 'assistant', content: 'B', timestamp: Date.now() },
+        { role: 'user', content: 'C', timestamp: Date.now() },
+        { role: 'assistant', content: 'D', timestamp: Date.now() },
+        { role: 'user', content: 'E', timestamp: Date.now() },
+      ];
+
+      mockCustomLLM.mockResolvedValue('Response');
+
+      await dotbot.chat('Question?', {
+        llm: mockCustomLLM,
+        conversationHistory: history,
+        systemPrompt: 'Mock system prompt',
+        historyLimit: 3,
+      });
+
+      const callArgs = mockCustomLLM.mock.calls[0];
+      const passedHistory = callArgs[2]?.conversationHistory as ConversationMessage[];
+      expect(passedHistory).toHaveLength(3);
+      expect(passedHistory[0].content).toBe('C');
+      expect(passedHistory[2].content).toBe('E');
     });
 
     it('should use custom system prompt when provided', async () => {
@@ -1265,7 +1321,7 @@ describe('DotBot', () => {
   });
 
   describe('buildContextualSystemPrompt()', () => {
-    const actualLlm = jest.requireActual('../../dotbot/llm') as { buildContextualSystemPrompt: (dotbot: any) => Promise<string> };
+    const actualLlm = jest.requireActual('../../dotbot/llm') as { buildContextualSystemPrompt: (dotbot: any) => Promise<{ systemPrompt: string; turnContext?: string }> };
     let dotbot: DotBot;
 
     beforeEach(async () => {
@@ -1321,15 +1377,15 @@ describe('DotBot', () => {
       // Clear any previous calls from creation
       jest.clearAllMocks();
 
-      const prompt = await actualLlm.buildContextualSystemPrompt(dotbot);
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       // LAZY LOADING: buildContextualSystemPrompt() should trigger RPC connections
       expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
       expect(mockExecutionSystem.initialize).toHaveBeenCalled();
 
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
+      expect(typeof result.systemPrompt).toBe('string');
+      expect(result.systemPrompt.length).toBeGreaterThan(0);
     });
 
     it('should include Asset Hub balance when available', async () => {
@@ -1385,11 +1441,11 @@ describe('DotBot', () => {
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://kusama-rpc.polkadot.io');
       (buildSystemPrompt as jest.Mock).mockResolvedValue('Kusama system prompt');
 
-      const prompt = await actualLlm.buildContextualSystemPrompt(dotbot);
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       expect(dotbot.getChainInfo).toHaveBeenCalled();
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
+      expect(typeof result.systemPrompt).toBe('string');
     });
 
     it('should throw when context fetch fails (no fallback)', async () => {
@@ -1424,12 +1480,12 @@ describe('DotBot', () => {
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
       (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt without Asset Hub');
 
-      const prompt = await actualLlm.buildContextualSystemPrompt(dotbot);
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       // Should still build prompt successfully
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
+      expect(typeof result.systemPrompt).toBe('string');
+      expect(result.systemPrompt.length).toBeGreaterThan(0);
     });
 
     describe('Network-specific context', () => {
