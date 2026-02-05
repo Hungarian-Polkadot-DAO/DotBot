@@ -739,7 +739,9 @@ export function isLogicalExpectation(expectation: ScenarioExpectation): expectat
     logical.all ||
     logical.any ||
     logical.not ||
-    logical.when
+    logical.when ||
+    logical.then ||
+    logical.else
   );
 }
 

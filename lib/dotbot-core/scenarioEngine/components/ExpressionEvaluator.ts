@@ -105,31 +105,40 @@ export class ExpressionEvaluator {
   
   /**
    * Evaluate comparison operator
+   * 
+   * When multiple operators are present (e.g., { gte: '0.01', lte: '10' }),
+   * ALL must pass for the overall comparison to pass.
    */
   private evaluateComparisonOperator(actual: unknown, comp: ComparisonOperator): ComparisonResult {
     const actualStr = String(actual);
     const actualNum = this.parseNumber(actual);
+    const results: ComparisonResult[] = [];
     
-    // Equality operators
-    if (comp.eq !== undefined) return this.evaluateEquals(actual, comp.eq);
-    if (comp.ne !== undefined) return this.evaluateNotEquals(actual, comp.ne);
+    // Evaluate ALL operators present (they all must pass)
+    if (comp.eq !== undefined) results.push(this.evaluateEquals(actual, comp.eq));
+    if (comp.ne !== undefined) results.push(this.evaluateNotEquals(actual, comp.ne));
+    if (comp.gt !== undefined) results.push(this.evaluateGreaterThan(actualNum, comp.gt));
+    if (comp.gte !== undefined) results.push(this.evaluateGreaterThanOrEqual(actualNum, comp.gte));
+    if (comp.lt !== undefined) results.push(this.evaluateLessThan(actualNum, comp.lt));
+    if (comp.lte !== undefined) results.push(this.evaluateLessThanOrEqual(actualNum, comp.lte));
+    if (comp.between) results.push(this.evaluateBetween(actualNum, comp.between));
+    if (comp.matches) results.push(this.evaluateMatches(actualStr, comp.matches));
+    if (comp.in) results.push(this.evaluateIn(actual, comp.in));
+    if (comp.notIn) results.push(this.evaluateNotIn(actual, comp.notIn));
     
-    // Numeric comparisons
-    if (comp.gt !== undefined) return this.evaluateGreaterThan(actualNum, comp.gt);
-    if (comp.gte !== undefined) return this.evaluateGreaterThanOrEqual(actualNum, comp.gte);
-    if (comp.lt !== undefined) return this.evaluateLessThan(actualNum, comp.lt);
-    if (comp.lte !== undefined) return this.evaluateLessThanOrEqual(actualNum, comp.lte);
+    if (results.length === 0) {
+      return { passed: false, message: 'No valid comparison operator found', actualValue: actual };
+    }
     
-    // Range and pattern matching
-    if (comp.between) return this.evaluateBetween(actualNum, comp.between);
-    if (comp.matches) return this.evaluateMatches(actualStr, comp.matches);
+    // All operators must pass
+    const allPassed = results.every(r => r.passed);
+    const messages = results.map(r => r.message).join(', ');
     
-    // List operations
-    if (comp.in) return this.evaluateIn(actual, comp.in);
-    if (comp.notIn) return this.evaluateNotIn(actual, comp.notIn);
-    
-    // No valid operator found
-    return { passed: false, message: 'No valid comparison operator found', actualValue: actual };
+    return {
+      passed: allPassed,
+      message: allPassed ? messages : messages,
+      actualValue: actual,
+    };
   }
   
   private evaluateEquals(actual: unknown, expected: unknown): ComparisonResult {

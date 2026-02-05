@@ -16,3 +16,6 @@ export type { ExecutorConfig, ExecutionContext, ExecutorDependencies } from './S
 export { Evaluator, createEvaluator } from './Evaluator';
 export type { EvaluatorConfig, ExpectationResult, EvaluationReport } from './Evaluator';
 
+export { ExpressionValidator, createExpressionValidator } from './ExpressionValidator';
+export type { ValidationResult } from './ExpressionValidator';
+

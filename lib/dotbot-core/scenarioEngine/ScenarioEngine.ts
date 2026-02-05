@@ -78,6 +78,8 @@ import {
   Evaluator,
   createEvaluator,
   ExecutorDependencies,
+  ExpressionValidator,
+  createExpressionValidator,
 } from './components';
 
 import type { ApiPromise } from '@polkadot/api';
@@ -110,6 +112,7 @@ export class ScenarioEngine {
   private stateAllocator: StateAllocator | null = null;
   private executor: ScenarioExecutor | null = null;
   private evaluator: Evaluator | null = null;
+  private expressionValidator: ExpressionValidator;
   
   // Dependencies for executor
   private executorDeps: ExecutorDependencies | null = null;
@@ -159,6 +162,7 @@ export class ScenarioEngine {
       status: 'idle',
       entities: new Map(),
     };
+    this.expressionValidator = createExpressionValidator();
   }
 
   // ===========================================================================
@@ -1807,6 +1811,24 @@ export class ScenarioEngine {
     }
     if (!scenario.expectations || scenario.expectations.length === 0) {
       throw new Error('Scenario must have at least one expectation');
+    }
+
+    // Validate expectations using ExpressionValidator
+    for (let i = 0; i < scenario.expectations.length; i++) {
+      const expectation = scenario.expectations[i];
+      const result = this.expressionValidator.validate(expectation);
+
+      // Log warnings (non-blocking)
+      if (result.warnings.length > 0) {
+        this.log('warn', `Expectation #${i + 1} in scenario "${scenario.name}" has warnings:\n${result.warnings.join('\n')}`);
+      }
+
+      // Throw on errors (blocking)
+      if (!result.valid) {
+        throw new Error(
+          `Invalid expectation #${i + 1} in scenario "${scenario.name}":\n${result.errors.join('\n')}`
+        );
+      }
     }
   }
 
