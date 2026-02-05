@@ -58,6 +58,20 @@ export interface ComparisonResult {
   expectedValue?: unknown;
 }
 
+export interface LogicalEvaluationResult {
+  /** Whether the logical expression passed */
+  passed: boolean;
+  
+  /** Human-readable message explaining the result */
+  message: string;
+  
+  /** Individual sub-results (for all/any operators) */
+  subResults?: LogicalEvaluationResult[];
+  
+  /** Operator used (all, any, not, when) */
+  operator?: string;
+}
+
 /**
  * Expression Evaluator for comparison and logical operators
  */

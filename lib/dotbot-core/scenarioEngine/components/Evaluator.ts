@@ -14,8 +14,9 @@ import type {
   ScenarioEngineEventListener,
   ScenarioEngineEvent,
   ParamValue,
+  LogicalExpectation,
 } from '../types';
-import { isComparisonOperator } from '../types';
+import { isComparisonOperator, isLogicalExpectation } from '../types';
 import { ExpressionEvaluator } from './ExpressionEvaluator';
 
 // =============================================================================
@@ -298,6 +299,18 @@ export class Evaluator {
       message: `🔍 Evaluating expectation: ${this.describeExpectation(expectation)}`,
     });
 
+    // Handle logical operators (all, any, not, when/then/else)
+    if (isLogicalExpectation(expectation)) {
+      return this.evaluateLogicalExpectation(
+        expectation as LogicalExpectation,
+        lastResponse,
+        allResponses,
+        stepResults,
+        allExecutionPlans,
+        _stepResultWithExecution
+      );
+    }
+
     const checks: ExpectationResult['checks'] = [];
     let overallMet = true;
     let totalScore = 0;
@@ -559,6 +572,242 @@ export class Evaluator {
       details: this.generateExpectationDetails(checks, overallMet),
       checks,
     };
+  }
+
+  /**
+   * Evaluate a logical expectation (Phase 3: all/any/not/when)
+   * 
+   * Handles logical operators that combine multiple expectations.
+   */
+  private evaluateLogicalExpectation(
+    expectation: LogicalExpectation,
+    lastResponse: string,
+    allResponses: string[],
+    stepResults: StepResult[],
+    allExecutionPlans: NonNullable<StepResult['executionPlan']>[],
+    stepResultWithExecution: StepResult | null
+  ): ExpectationResult {
+    const checks: ExpectationResult['checks'] = [];
+    let overallMet = true;
+    let totalScore = 0;
+    let totalWeight = 0;
+
+    // Handle 'all' (AND) - all sub-expectations must pass
+    if (expectation.all && Array.isArray(expectation.all)) {
+      this.emit({
+        type: 'log',
+        level: 'debug',
+        message: `   🔗 Evaluating ALL (AND) with ${expectation.all.length} sub-expectations`,
+      });
+
+      for (const subExpectation of expectation.all) {
+        const result = this.evaluateSingleExpectation(
+          subExpectation,
+          lastResponse,
+          allResponses,
+          stepResults,
+          allExecutionPlans,
+          stepResultWithExecution
+        );
+
+        // Add all sub-checks to our checks array
+        if (result.checks) {
+          checks.push(...result.checks);
+        }
+
+        // Short-circuit: if any fails, the whole 'all' fails
+        if (!result.met) {
+          overallMet = false;
+        }
+
+        totalScore += result.score;
+        totalWeight += 1;
+      }
+
+      // For 'all', average the scores
+      const finalScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 0;
+
+      return {
+        expectation,
+        met: overallMet,
+        score: finalScore,
+        details: overallMet 
+          ? `All ${expectation.all.length} sub-expectations passed`
+          : `Some sub-expectations failed (${checks.filter(c => !c.passed).length}/${checks.length} checks failed)`,
+        checks,
+      };
+    }
+
+    // Handle 'any' (OR) - at least one sub-expectation must pass
+    if (expectation.any && Array.isArray(expectation.any)) {
+      this.emit({
+        type: 'log',
+        level: 'debug',
+        message: `   🔗 Evaluating ANY (OR) with ${expectation.any.length} sub-expectations`,
+      });
+
+      let anyPassed = false;
+      const subResults: ExpectationResult[] = [];
+
+      for (const subExpectation of expectation.any) {
+        const result = this.evaluateSingleExpectation(
+          subExpectation,
+          lastResponse,
+          allResponses,
+          stepResults,
+          allExecutionPlans,
+          stepResultWithExecution
+        );
+
+        subResults.push(result);
+
+        if (result.met) {
+          anyPassed = true;
+          // Short-circuit: first passing expectation satisfies 'any'
+          // But we continue to collect all results for reporting
+        }
+
+        if (result.checks) {
+          checks.push(...result.checks);
+        }
+
+        totalScore += result.score;
+        totalWeight += 1;
+      }
+
+      overallMet = anyPassed;
+      const finalScore = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 0;
+
+      return {
+        expectation,
+        met: overallMet,
+        score: finalScore,
+        details: overallMet 
+          ? `At least one sub-expectation passed`
+          : `No sub-expectations passed (0/${expectation.any.length})`,
+        checks,
+      };
+    }
+
+    // Handle 'not' (NOT) - sub-expectation must NOT pass
+    if (expectation.not) {
+      this.emit({
+        type: 'log',
+        level: 'debug',
+        message: `   🔗 Evaluating NOT (negation)`,
+      });
+
+      const result = this.evaluateSingleExpectation(
+        expectation.not,
+        lastResponse,
+        allResponses,
+        stepResults,
+        allExecutionPlans,
+        stepResultWithExecution
+      );
+
+      // Invert the result
+      overallMet = !result.met;
+      const finalScore = overallMet ? 100 : 0;
+
+      // Invert all checks
+      const invertedChecks = result.checks?.map(check => ({
+        ...check,
+        passed: !check.passed,
+        message: `NOT(${check.message})`,
+      })) || [];
+
+      return {
+        expectation,
+        met: overallMet,
+        score: finalScore,
+        details: overallMet 
+          ? `Negated expectation correctly failed`
+          : `Negated expectation incorrectly passed`,
+        checks: invertedChecks,
+      };
+    }
+
+    // Handle 'when/then/else' (conditional)
+    if (expectation.when) {
+      this.emit({
+        type: 'log',
+        level: 'debug',
+        message: `   🔗 Evaluating WHEN/THEN/ELSE (conditional)`,
+      });
+
+      // Evaluate the condition
+      const conditionResult = this.evaluateSingleExpectation(
+        expectation.when,
+        lastResponse,
+        allResponses,
+        stepResults,
+        allExecutionPlans,
+        stepResultWithExecution
+      );
+
+      // Based on condition, evaluate then or else branch
+      if (conditionResult.met && expectation.then) {
+        this.emit({
+          type: 'log',
+          level: 'debug',
+          message: `      → Condition passed, evaluating THEN branch`,
+        });
+
+        return this.evaluateSingleExpectation(
+          expectation.then,
+          lastResponse,
+          allResponses,
+          stepResults,
+          allExecutionPlans,
+          stepResultWithExecution
+        );
+      } else if (!conditionResult.met && expectation.else) {
+        this.emit({
+          type: 'log',
+          level: 'debug',
+          message: `      → Condition failed, evaluating ELSE branch`,
+        });
+
+        return this.evaluateSingleExpectation(
+          expectation.else,
+          lastResponse,
+          allResponses,
+          stepResults,
+          allExecutionPlans,
+          stepResultWithExecution
+        );
+      } else {
+        // Condition result determines overall result
+        return conditionResult;
+      }
+    }
+
+    // If it has logical operators but none matched, fall back to base evaluation
+    // This handles mixed logical + base expectations
+    this.emit({
+      type: 'log',
+      level: 'debug',
+      message: `   ℹ️  Logical expectation has base fields, evaluating those`,
+    });
+
+    // Re-call evaluateSingleExpectation but it won't recurse because we've removed logical operators
+    const baseExpectation = { ...expectation };
+    delete (baseExpectation as any).all;
+    delete (baseExpectation as any).any;
+    delete (baseExpectation as any).not;
+    delete (baseExpectation as any).when;
+    delete (baseExpectation as any).then;
+    delete (baseExpectation as any).else;
+
+    return this.evaluateSingleExpectation(
+      baseExpectation,
+      lastResponse,
+      allResponses,
+      stepResults,
+      allExecutionPlans,
+      stepResultWithExecution
+    );
   }
 
   /**

@@ -99,6 +99,87 @@ export const HAPPY_PATH_TESTS: Scenario[] = [
       },
     ],
   },
+
+  // Phase 3: Logical AND (all) operator demo
+  {
+    id: 'happy-path-005',
+    name: 'Transfer with ALL Checks (Phase 3 Logical AND)',
+    description: 'Demonstrates Phase 3 logical AND: all conditions must be true',
+    category: 'happy-path',
+    tags: ['logical-operators', 'phase3', 'demo', 'all', 'and'],
+    steps: [
+      {
+        id: 'step-1',
+        type: 'prompt',
+        input: 'Send 0.3 WND to Alice',
+      }
+    ],
+    expectations: [
+      {
+        // Phase 3: ALL (AND) - every sub-expectation must pass
+        all: [
+          { responseType: 'execution' },
+          { expectedAgent: 'AssetTransferAgent' },
+          { expectedFunction: 'transfer' },
+          { expectedParams: { amount: { gte: '0.1' }, recipient: 'Alice' } },
+        ],
+      },
+    ],
+  },
+
+  // Phase 3: Logical OR (any) operator demo
+  {
+    id: 'happy-path-006',
+    name: 'Flexible Error Message Detection (Phase 3 Logical OR)',
+    description: 'Demonstrates Phase 3 logical OR: at least one condition must be true',
+    category: 'happy-path',
+    tags: ['logical-operators', 'phase3', 'demo', 'any', 'or'],
+    steps: [
+      {
+        id: 'step-1',
+        type: 'prompt',
+        input: 'Send 0.2 WND to Alice',
+      }
+    ],
+    expectations: [
+      {
+        // Phase 3: ANY (OR) - at least one must pass
+        // This is useful for flexible text matching (multiple valid phrasings)
+        any: [
+          { expectedParams: { recipient: 'Alice' } },
+          { expectedParams: { recipient: 'alice' } },
+          { expectedParams: { recipient: { matches: /^[Aa]lice$/ } } },
+        ],
+      },
+    ],
+  },
+
+  // Phase 3: Logical NOT operator demo
+  {
+    id: 'happy-path-007',
+    name: 'No Error Messages (Phase 3 Logical NOT)',
+    description: 'Demonstrates Phase 3 logical NOT: condition must NOT be true',
+    category: 'happy-path',
+    tags: ['logical-operators', 'phase3', 'demo', 'not', 'negation'],
+    steps: [
+      {
+        id: 'step-1',
+        type: 'prompt',
+        input: 'Send 0.1 WND to Alice',
+      }
+    ],
+    expectations: [
+      {
+        responseType: 'execution',
+      },
+      {
+        // Phase 3: NOT - ensure response does NOT contain error messages
+        not: {
+          shouldContain: ['error', 'failed', 'rejected'],
+        },
+      },
+    ],
+  },
   
   // TODO: Convert remaining scenarios to proper Scenario format
   // { 
