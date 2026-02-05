@@ -217,14 +217,26 @@ const AppContent: React.FC = () => {
   };
 
   // Helper: Validate prerequisites before sending message
-  const validateSendMessagePrerequisites = (): { currentChat: any } => {
+  const validateSendMessagePrerequisites = async (): Promise<{ currentChat: any }> => {
     if (!dotbot || !backendSessionId || !selectedAccount) {
       throw new Error('Please connect your wallet first');
     }
 
-    const currentChat = dotbot.currentChat;
+    let currentChat = dotbot.currentChat;
+    
+    // If no active chat exists, create one
     if (!currentChat) {
-      throw new Error('No active chat session');
+      console.log('[App] No active chat found, creating new chat for message');
+      await dotbot.clearHistory(); // Creates a new chat
+      currentChat = dotbot.currentChat;
+      
+      if (!currentChat) {
+        throw new Error('Failed to create chat session');
+      }
+      
+      // Update UI state
+      setCurrentChatId(currentChat.id);
+      setShowWelcomeScreen(false);
     }
 
     return { currentChat };
@@ -344,7 +356,6 @@ const AppContent: React.FC = () => {
     persistencePromises.push(
       currentChat.addBotMessage(botContent, true)
         .then(() => {
-          console.log('[App] Bot message persisted');
           if (dotbot) {
             dotbot.emit({ type: DotBotEventType.BOT_MESSAGE_ADDED, message: botContent, timestamp: Date.now() });
           }
@@ -353,29 +364,14 @@ const AppContent: React.FC = () => {
     );
 
     // If there's an execution plan, add execution message (and ExecutionFlow)
-    // NOTE: executionId was already validated above, so we know it exists here
     if (chatResult.plan) {
       const executionId = chatResult.executionId || chatResult.executionArrayState?.id;
-      console.log('[App] ✅ ExecutionPlan received from backend (VALID - has plan + executionId):', {
-        planId: chatResult.plan.id,
-        stepsCount: chatResult.plan.steps.length,
-        originalRequest: chatResult.plan.originalRequest,
-        executionId,
-        hasExecutionArrayState: !!chatResult.executionArrayState
-      });
       
       // Check for existing execution message AFTER user/bot messages are added
       const existingMessage = currentChat.getDisplayMessages()
         .find((m: any) => m.type === 'execution' && m.executionId === executionId);
       
       if (!existingMessage) {
-        console.log('[App] ExecutionPlan sent to frontend - adding execution message:', { 
-          executionId, 
-          planId: chatResult.plan.id,
-          stepsCount: chatResult.plan.steps.length,
-          hasState: !!chatResult.executionArrayState,
-          hasPlan: !!chatResult.plan 
-        });
         
         // Add execution message first (stores plan)
         // Use skipReload: true to avoid reloading before user/bot messages are persisted
@@ -387,24 +383,15 @@ const AppContent: React.FC = () => {
           true // Skip reload to avoid race condition with user/bot message persistence
         )
           .then(async (_executionMessage: ExecutionMessage) => {
-            console.log('[App] Execution message persisted');
-            
             // Trigger UI refresh to show execution message
             setConversationRefresh(prev => prev + 1);
             
             // Frontend rebuilds ExecutionArray from plan and runs simulation
-            // NOTE: This will create RPC connections directly from the frontend to blockchain nodes
-            // This is expected when frontend simulation is enabled (backendSimulation: false)
-            // The frontend DotBot instance uses its own RPC managers to connect to public endpoints
             if (chatResult.plan && dotbot) {
-              console.log('[App] Rebuilding ExecutionArray from plan and running simulation on frontend');
-              console.log('[App] NOTE: Frontend will create direct RPC connections for simulation');
               try {
-                // prepareExecution is private, but we need to call it to rebuild and simulate
-                // Type assertion to access private method (prepareExecution will create ExecutionArray and run simulation)
-                // This will trigger RPC connections via dotbot's relayChainManager and assetHubManager
+                // Call prepareExecution to rebuild ExecutionArray and run simulation
+                // (prepareExecution is private but we need it here)
                 await (dotbot as any).prepareExecution(chatResult.plan, executionId, false);
-                console.log('[App] Frontend simulation completed');
                 
                 // Trigger UI refresh after ExecutionArray is set
                 setConversationRefresh(prev => prev + 1);
@@ -430,7 +417,6 @@ const AppContent: React.FC = () => {
         if (Object.keys(updates).length > 0) {
           persistencePromises.push(
             currentChat.updateExecutionMessage(existingMessage.id, updates)
-              .then(() => console.log('[App] Execution message updated:', Object.keys(updates)))
               .catch((err: unknown) => console.error('[App] Failed to update execution message:', err))
           );
         }
@@ -442,10 +428,6 @@ const AppContent: React.FC = () => {
 
   // Helper: Update UI after messages are added
   const updateUIAfterMessages = (persistencePromises: Promise<any>[]) => {
-    // Messages are now in memory (push is synchronous), trigger UI refresh
-    console.log('[App] Messages added to memory, triggering refresh. Count:', dotbot?.currentChat?.getDisplayMessages().length);
-    console.log('[App] Current messages:', dotbot?.currentChat?.getDisplayMessages().map((m: any) => ({ type: m.type, id: m.id })));
-    
     // Trigger UI refresh immediately (messages are in memory, persistence happens in background)
     setConversationRefresh(prev => prev + 1);
     
@@ -505,14 +487,12 @@ const AppContent: React.FC = () => {
 
     try {
       // Step 1: Validate prerequisites
-      const { currentChat } = validateSendMessagePrerequisites();
+      const { currentChat } = await validateSendMessagePrerequisites();
 
       // Step 2: Add user message to chat IMMEDIATELY (before backend call)
       // This ensures the user sees their message right away
       const userMessagePromise = currentChat.addUserMessage(message, true)
         .then(() => {
-          console.log('[App] User message persisted');
-          // Emit event so Chat component can react
           if (dotbot) {
             dotbot.emit({ type: DotBotEventType.USER_MESSAGE_ADDED, message, timestamp: Date.now() });
           }
@@ -721,7 +701,7 @@ const AppContent: React.FC = () => {
                 />
               )}
             </div>
-              ) : showWelcomeScreen && dotbot && dotbot.currentChat ? (
+              ) : showWelcomeScreen && dotbot && dotbot.currentChat && !injectedPrompt ? (
             <WelcomeScreen
                   onSendMessage={handleSendMessageWithScenario}
                   onCheckBalance={handleCheckBalance}
@@ -731,7 +711,7 @@ const AppContent: React.FC = () => {
                   placeholder={placeholder}
                   isTyping={isTyping}
             />
-              ) : dotbot && dotbot.currentChat ? (
+              ) : dotbot ? (
             <Chat
                   key={currentChatId || 'default'}
                   dotbot={dotbot}
@@ -739,7 +719,7 @@ const AppContent: React.FC = () => {
                   isTyping={isTyping}
                   disabled={!dotbot}
                   placeholder={placeholder}
-                  injectedPrompt={injectedPrompt?.prompt || null}
+                  injectedPrompt={injectedPrompt}
                   onPromptProcessed={notifyPromptProcessed}
                   autoSubmit={autoSubmitPrompts}
                   conversationRefresh={conversationRefresh}
