@@ -208,11 +208,8 @@ export const useScenarioEngine = ({
   
   useEffect(() => {
     if (!engine || !dotbot) {
-      console.log('[useScenarioEngine] Skipping subscription - engine:', !!engine, 'dotbot:', !!dotbot);
       return;
     }
-    
-    console.log('[useScenarioEngine] Setting up event listener');
     
     // Subscribe to DotBot events for automatic response capture
     // This should only happen once when engine/dotbot change, not on every callback change
@@ -236,16 +233,11 @@ export const useScenarioEngine = ({
     };
     
     const handleEvent = (event: any) => {
-      console.log('[useScenarioEngine] Event received:', event.type);
-      if (event.type === 'report-update' || event.type === 'inject-prompt' || event.type === 'phase-start') {
-        console.log('[useScenarioEngine] Important event details:', event);
-      }
-      
-      if (event.type === 'report-update') {
+      try {
+        if (event.type === 'report-update') {
         // Create a single message object for the content chunk
         // This is more efficient than splitting into individual lines
         const content = event.content || '';
-        console.log('[useScenarioEngine] report-update content:', content.substring(0, 100), 'length:', content.length);
         if (content) {
           // Determine message type based on content
           let messageType: ReportMessageData['type'] = 'default';
@@ -265,10 +257,7 @@ export const useScenarioEngine = ({
             timestamp: Date.now(),
             type: messageType,
           };
-          console.log('[useScenarioEngine] Calling onAddMessageRef with message:', message.id, message.content.substring(0, 50));
           onAddMessageRef.current(message);
-        } else {
-          console.warn('[useScenarioEngine] report-update event has empty content');
         }
         return;
       }
@@ -281,12 +270,19 @@ export const useScenarioEngine = ({
       }
       
       if (event.type === 'phase-start') {
+        console.log('[useScenarioEngine] Handling phase-start, phase:', event.phase);
         const newPhase: ExecutionPhase = {
           phase: event.phase,
           messages: [],
           stepCount: 0,
         };
-        onPhaseChangeRef.current?.(newPhase);
+        if (onPhaseChangeRef.current) {
+          try {
+            onPhaseChangeRef.current(newPhase);
+          } catch (error) {
+            console.error('[useScenarioEngine] Error in phase change handler:', error);
+          }
+        }
         // Report content is handled by ScenarioEngine - no need to append here
       } else if (event.type === 'phase-update') {
         applyPhaseUpdate(prev => ({
@@ -420,10 +416,13 @@ export const useScenarioEngine = ({
         // Report content is handled by ScenarioEngine - no need to append here
         onStatusChangeRef.current?.('Processing step result...');
       }
+      } catch (error) {
+        console.error('[useScenarioEngine] Error in event handler:', error);
+        // Don't throw - let execution continue
+      }
     };
     
     engine.addEventListener(handleEvent);
-    console.log('[useScenarioEngine] Event listener registered');
     
     // Sync existing report content if scenario is already running
     // This handles the case where we subscribe after the scenario started
@@ -432,7 +431,6 @@ export const useScenarioEngine = ({
     try {
       const currentReport = engine.getReport();
       if (currentReport && currentReport.trim()) {
-        console.log('[useScenarioEngine] Syncing existing report content, length:', currentReport.length);
         // Determine message type based on content
         let messageType: ReportMessageData['type'] = 'default';
         if (currentReport.includes('[ERROR]') || currentReport.includes('✗')) {
@@ -453,17 +451,15 @@ export const useScenarioEngine = ({
           type: messageType,
         };
         onAddMessageRef.current(syncMessage);
-        console.log('[useScenarioEngine] Synced existing report as message:', syncMessage.id);
       }
     } catch (error) {
       console.warn('[useScenarioEngine] Failed to sync report:', error);
     }
     
     return () => {
-      console.log('[useScenarioEngine] Cleaning up event listener');
       engine.removeEventListener(handleEvent);
-      // Unsubscribe from DotBot when component unmounts
-      engine.unsubscribeFromDotBot();
+      // Note: Don't unsubscribe from DotBot here - that's managed by App component
+      // Unsubscribing here causes issues when this hook re-runs on dotbot changes
     };
     // queryEntityBalance is included because it's used inside handleEvent (line 274)
     // It's wrapped in useCallback with [dotbot, engine] deps, so it's stable when those don't change
