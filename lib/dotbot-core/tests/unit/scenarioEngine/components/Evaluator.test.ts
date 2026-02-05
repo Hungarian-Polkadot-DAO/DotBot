@@ -528,4 +528,518 @@ describe('Evaluator', () => {
       expect(result.expectations[0].met).toBe(true);
     });
   });
+
+  describe('Comparison Operators', () => {
+    it('should evaluate parameter comparison with gte/lte range', () => {
+      const scenario: Scenario = {
+        id: 'test-1',
+        name: 'Test',
+        description: 'Test',
+        category: 'happy-path',
+        steps: [],
+        expectations: [
+          {
+            expectedAgent: 'AssetTransferAgent',
+            expectedFunction: 'transfer',
+            expectedParams: { amount: { gte: '0.1', lte: '10' } as any },
+          },
+        ],
+      };
+
+      const stepResults: StepResult[] = [{
+        stepId: 'step-1',
+        success: true,
+        startTime: 0,
+        endTime: 100,
+        duration: 100,
+        response: { type: 'text', content: 'Transfer executed' },
+        executionPlan: {
+          id: 'plan-1',
+          steps: [{
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: { amount: '5', recipient: 'Alice' },
+            description: 'Transfer 5 to Alice',
+            executionType: 'extrinsic',
+          }],
+          requiresApproval: false,
+        },
+      }];
+
+      const result = evaluator.evaluate(scenario, stepResults);
+      expect(result.expectations[0].met).toBe(true);
+    });
+
+    it('should fail when parameter is out of range', () => {
+      const scenario: Scenario = {
+        id: 'test-1',
+        name: 'Test',
+        description: 'Test',
+        category: 'happy-path',
+        steps: [],
+        expectations: [
+          {
+            expectedParams: { amount: { gte: '10', lte: '100' } as any },
+          },
+        ],
+      };
+
+      const stepResults: StepResult[] = [{
+        stepId: 'step-1',
+        success: true,
+        startTime: 0,
+        endTime: 100,
+        duration: 100,
+        response: { type: 'text', content: 'Transfer executed' },
+        executionPlan: {
+          id: 'plan-1',
+          steps: [{
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: { amount: '5' }, // Below minimum
+            description: 'Transfer 5',
+            executionType: 'extrinsic',
+          }],
+          requiresApproval: false,
+        },
+      }];
+
+      const result = evaluator.evaluate(scenario, stepResults);
+      expect(result.expectations[0].met).toBe(false);
+    });
+  });
+
+  describe('Logical Operators', () => {
+    describe('ALL (AND) Operator', () => {
+      it('should pass when all sub-expectations pass', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              all: [
+                { responseType: 'execution' },
+                { shouldContain: ['transfer'] },
+                { shouldContain: ['Alice'] },
+              ],
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT to Alice' },
+          executionPlan: {
+            id: 'plan-1',
+            steps: [{
+              agentClassName: 'AssetTransferAgent',
+              functionName: 'transfer',
+              parameters: {},
+              description: 'Transfer',
+              executionType: 'extrinsic',
+            }],
+            requiresApproval: false,
+          },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(true);
+      });
+
+      it('should fail when any sub-expectation fails', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              all: [
+                { shouldContain: ['transfer'] },
+                { shouldContain: ['Bob'] }, // Will fail
+              ],
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT to Alice' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(false);
+      });
+    });
+
+    describe('ANY (OR) Operator', () => {
+      it('should pass when at least one sub-expectation passes', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              any: [
+                { shouldContain: ['insufficient balance'] },
+                { shouldContain: ['not enough funds'] },
+                { shouldContain: ['transfer'] }, // This one passes
+              ],
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(true);
+      });
+
+      it('should fail when all sub-expectations fail', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              any: [
+                { shouldContain: ['error'] },
+                { shouldContain: ['failed'] },
+                { shouldContain: ['rejected'] },
+              ],
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT to Alice' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(false);
+      });
+    });
+
+    describe('NOT Operator', () => {
+      it('should pass when sub-expectation fails', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              not: { shouldContain: ['error', 'failed'] },
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT to Alice' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(true);
+      });
+
+      it('should fail when sub-expectation passes', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              not: { shouldContain: ['error'] },
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'An error occurred' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(false);
+      });
+    });
+
+    describe('Conditional (WHEN/THEN/ELSE) Operator', () => {
+      it('should evaluate THEN branch when condition passes', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              when: { shouldContain: ['transfer'] },
+              then: { shouldContain: ['Alice'] },
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT to Alice' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(true);
+      });
+
+      it('should evaluate ELSE branch when condition fails', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              when: { shouldContain: ['transfer'] },
+              then: { shouldContain: ['Alice'] },
+              else: { shouldContain: ['balance'] },
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'Your balance is 10 DOT' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(true);
+      });
+
+      it('should return condition result when no then/else provided', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              when: { shouldContain: ['transfer'] },
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(true);
+      });
+    });
+
+    describe('Nested Logical Operators', () => {
+      it('should handle nested ALL within ANY', () => {
+        const scenario: Scenario = {
+          id: 'test-1',
+          name: 'Test',
+          description: 'Test',
+          category: 'happy-path',
+          steps: [],
+          expectations: [
+            {
+              any: [
+                {
+                  all: [
+                    { shouldContain: ['transfer'] },
+                    { shouldContain: ['Alice'] },
+                  ],
+                } as any,
+                { shouldContain: ['balance'] },
+              ],
+            } as any,
+          ],
+        };
+
+        const stepResults: StepResult[] = [{
+          stepId: 'step-1',
+          success: true,
+          startTime: 0,
+          endTime: 100,
+          duration: 100,
+          response: { type: 'text', content: 'I will transfer 5 DOT to Alice' },
+        }];
+
+        const result = evaluator.evaluate(scenario, stepResults);
+        expect(result.expectations[0].met).toBe(true);
+      });
+    });
+  });
+
+  describe('Real-World Combined Use Cases', () => {
+    it('should validate transfer with ALL checks including range', () => {
+      const scenario: Scenario = {
+        id: 'test-1',
+        name: 'Test',
+        description: 'Test',
+        category: 'happy-path',
+        steps: [],
+        expectations: [
+          {
+            all: [
+              { responseType: 'execution' },
+              { expectedAgent: 'AssetTransferAgent' },
+              { expectedParams: { amount: { gte: '0.01', lte: '1000' } as any } },
+            ],
+          } as any,
+        ],
+      };
+
+      const stepResults: StepResult[] = [{
+        stepId: 'step-1',
+        success: true,
+        startTime: 0,
+        endTime: 100,
+        duration: 100,
+        response: { type: 'text', content: 'Transfer executed' },
+        executionPlan: {
+          id: 'plan-1',
+          steps: [{
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: { amount: '5.5' },
+            description: 'Transfer 5.5',
+            executionType: 'extrinsic',
+          }],
+          requiresApproval: false,
+        },
+      }];
+
+      const result = evaluator.evaluate(scenario, stepResults);
+      expect(result.expectations[0].met).toBe(true);
+    });
+
+    it('should validate flexible error messages with ANY', () => {
+      const scenario: Scenario = {
+        id: 'test-1',
+        name: 'Test',
+        description: 'Test',
+        category: 'edge-case',
+        steps: [],
+        expectations: [
+          {
+            any: [
+              { shouldContain: ['insufficient balance'] },
+              { shouldContain: ['not enough funds'] },
+              { shouldContain: ['balance too low'] },
+            ],
+          } as any,
+        ],
+      };
+
+      const stepResults: StepResult[] = [{
+        stepId: 'step-1',
+        success: true,
+        startTime: 0,
+        endTime: 100,
+        duration: 100,
+        response: { type: 'text', content: 'Sorry, you have insufficient balance for this transfer' },
+      }];
+
+      const result = evaluator.evaluate(scenario, stepResults);
+      expect(result.expectations[0].met).toBe(true);
+    });
+
+    it('should ensure no errors with NOT and successful execution', () => {
+      const scenario: Scenario = {
+        id: 'test-1',
+        name: 'Test',
+        description: 'Test',
+        category: 'happy-path',
+        steps: [],
+        expectations: [
+          { responseType: 'execution' },
+          {
+            not: { shouldContain: ['error', 'failed', 'rejected'] },
+          } as any,
+        ],
+      };
+
+      const stepResults: StepResult[] = [{
+        stepId: 'step-1',
+        success: true,
+        startTime: 0,
+        endTime: 100,
+        duration: 100,
+        response: { type: 'text', content: 'Transfer successful' },
+        executionPlan: {
+          id: 'plan-1',
+          steps: [{
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: {},
+            description: 'Transfer',
+            executionType: 'extrinsic',
+          }],
+          requiresApproval: false,
+        },
+      }];
+
+      const result = evaluator.evaluate(scenario, stepResults);
+      expect(result.expectations[0].met).toBe(true);
+      expect(result.expectations[1].met).toBe(true);
+    });
+  });
 });
