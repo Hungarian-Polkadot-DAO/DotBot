@@ -233,16 +233,19 @@ export class ScenarioEngine {
    * @param dotbot The DotBot instance to subscribe to
    */
   subscribeToDotBot(dotbot: DotBot): void {
-    // Unsubscribe from previous DotBot if any
+    // Skip if already subscribed to this DotBot instance
+    if (this.dotbot === dotbot && this.dotbotEventListener) {
+      return;
+    }
+    
     if (this.dotbot && this.dotbotEventListener) {
       this.dotbot.removeEventListener(this.dotbotEventListener);
+      this.dotbotEventListener = null;
     }
     
     this.dotbot = dotbot;
     
-    // Create event listener that automatically notifies executor AND builds report
-    // IMPORTANT: Only handle chat-complete - it contains everything we need
-    // bot-message-added and execution-message-added fire BEFORE chat-complete and are redundant
+    // Create event listener that automatically notifies executor and builds report
     this.dotbotEventListener = (event) => {
       // Log all DotBot events for debugging (use info level so we can see them)
       this.log('info', `[ScenarioEngine] DotBot event received: ${event.type}`);
@@ -290,7 +293,7 @@ export class ScenarioEngine {
           
           this.lastDotBotResponse = chatResult;
           
-          // CRITICAL: Notify executor that response was received (this resolves waitForResponseReceived promise)
+          // Notify executor that response was received
           if (this.executor) {
             this.log('info', '[ScenarioEngine] Notifying executor of response');
             this.executor.notifyResponseReceived(chatResult);
@@ -303,8 +306,6 @@ export class ScenarioEngine {
         }
           
         case DotBotEventType.BOT_MESSAGE_ADDED:
-          // IGNORE - chat-complete will fire after this with the same data
-          // Only used for UI display, not for scenario execution
           break;
           
         case DotBotEventType.EXECUTION_MESSAGE_ADDED:
@@ -958,7 +959,7 @@ export class ScenarioEngine {
    * Run a complete scenario
    */
   async runScenario(scenario: Scenario): Promise<ScenarioResult> {
-    // GUARD: Prevent concurrent scenario execution
+    // Prevent concurrent scenario execution
     if (this.runningScenario !== null) {
       const errorMsg = 'Cannot run scenario: another scenario is already running. Call endScenarioEarly() or wait for completion.';
       this.log('error', errorMsg);
@@ -968,25 +969,21 @@ export class ScenarioEngine {
     this.log('info', `Running scenario: ${scenario.name}`);
     const startTime = Date.now();
     
-    // Store scenario reference for early ending
     this.runningScenario = scenario;
     this.scenarioStartTime = startTime;
-
     try {
-      // CRITICAL: Defer ALL synchronous work to prevent UI freeze
-      // This includes validation, setup, state updates, and initial event emissions
-      // All of these operations can block the UI thread if done synchronously
-      await new Promise<void>((resolve) => {
+      // Defer synchronous work to prevent UI freeze
+      await new Promise<void>((resolve, reject) => {
         queueMicrotask(() => {
-          // Validate (synchronous but lightweight - still defer to be safe)
-          this.validateScenario(scenario);
-          this.ensureDependencies();
-          
-          // This prevents missing events that fire early (e.g., execution-message-added)
-          if (this.dotbot && !this.dotbotEventListener) {
-            this.log('info', 'DotBot subscription not active, subscribing now before scenario execution');
-            this.subscribeToDotBot(this.dotbot);
-          }
+          try {
+            // Validate scenario
+            this.validateScenario(scenario);
+            this.ensureDependencies();
+            
+            // Ensure DotBot subscription is active for event capture
+            if (this.dotbot && !this.dotbotEventListener) {
+              this.subscribeToDotBot(this.dotbot);
+            }
 
           // Ensure executor has wallet address resolver and Asset Hub API
           // Priority: walletAccount > dotbot wallet > undefined (will throw helpful error)
@@ -1046,6 +1043,10 @@ export class ScenarioEngine {
           this.emit({ type: 'report-update', content: initialReportContent });
           
           resolve();
+          } catch (error) {
+            this.log('error', `Setup microtask failed: ${error}`);
+            reject(error);
+          }
         });
       });
       
@@ -1076,9 +1077,8 @@ export class ScenarioEngine {
       // Log that execution phase completed
       this.log('info', `Execution phase completed with ${stepResults.length} step result(s)`);
 
-      // Phase 3: FINAL REPORT - Evaluate
-      // CRITICAL: Defer evaluation and summary generation to prevent UI freeze
-      // evaluator.evaluate() and generateSummary() do heavy synchronous work
+      // Phase 3: Evaluation
+      // Defer evaluation and summary generation to prevent UI freeze
       const evaluation = await new Promise<EvaluationResult>((resolve) => {
         queueMicrotask(() => {
           this.emit({ type: 'phase-start', phase: 'final-report', details: 'Evaluating results' });
@@ -1263,12 +1263,10 @@ export class ScenarioEngine {
       this.executor.stop();
     }
     
-    // Get current step results (may include partial/interrupted results now)
+    // Get current step results
     let stepResults = this.executor?.getContext()?.results || [];
     
     // If executor has a current step in progress, create a partial result for it
-    // NOTE: This is a fallback - the step's catch block should have already created a partial result
-    // But we check here in case the step hasn't reached the catch block yet
     const executorContext = this.executor?.getContext();
     if (executorContext && executorContext.currentPrompt) {
       // Check if we already have a result for the current step
@@ -1645,6 +1643,11 @@ export class ScenarioEngine {
    */
   addEventListener(listener: ScenarioEngineEventListener): void {
     this.eventListeners.add(listener);
+    
+    // Guard: Warn if too many listeners (indicates accumulation bug)
+    if (this.eventListeners.size > 2) {
+      console.warn(`[ScenarioEngine] Warning: ${this.eventListeners.size} event listeners registered (expected 1-2). This may indicate listener accumulation.`);
+    }
   }
 
   /**
@@ -1668,19 +1671,33 @@ export class ScenarioEngine {
       });
     }
     
-    // Debug logging
+    // Debug logging (avoid recursion by not using this.log for emit itself)
     if (event.type === 'report-update' || event.type === 'inject-prompt' || event.type === 'phase-start') {
-      this.log('info', `[emit] ${event.type}, listeners: ${this.eventListeners.size}`);
+      console.info(`[ScenarioEngine] [INFO] [emit] ${event.type}, listeners: ${this.eventListeners.size}`);
     }
     
-    for (const listener of this.eventListeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        console.error('Event listener error:', error);
-        this.log('error', `Event listener threw error: ${error}`);
+    // Defer listener calls to prevent blocking the main thread
+    queueMicrotask(() => {
+      let listenerIndex = 0;
+      for (const listener of this.eventListeners) {
+        listenerIndex++;
+        try {
+          if (event.type === 'phase-start') {
+            console.info(`[ScenarioEngine] [INFO] [emit] Calling listener ${listenerIndex}/${this.eventListeners.size} for phase-start`);
+          }
+          listener(event);
+          if (event.type === 'phase-start') {
+            console.info(`[ScenarioEngine] [INFO] [emit] Listener ${listenerIndex} completed for phase-start`);
+          }
+        } catch (error) {
+          console.error('[ScenarioEngine] Event listener error:', error);
+        }
       }
-    }
+      
+      if (event.type === 'phase-start') {
+        console.info(`[ScenarioEngine] [INFO] [emit] All listeners completed for phase-start`);
+      }
+    });
   }
 
   private updateState(updates: Partial<ScenarioEngineState>): void {
