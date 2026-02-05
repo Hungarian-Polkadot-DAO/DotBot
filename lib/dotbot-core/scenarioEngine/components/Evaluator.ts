@@ -13,7 +13,10 @@ import type {
   ScenarioCategory,
   ScenarioEngineEventListener,
   ScenarioEngineEvent,
+  ParamValue,
 } from '../types';
+import { isComparisonOperator } from '../types';
+import { ExpressionEvaluator } from './ExpressionEvaluator';
 
 // =============================================================================
 // TYPES
@@ -99,8 +102,15 @@ export interface EvaluationReport {
 export class Evaluator {
   private config: EvaluatorConfig;
   private eventListeners: Set<ScenarioEngineEventListener> = new Set();
+  
+  // Store last evaluation results for detailed reporting
+  private lastExpectationResults: ExpectationResult[] | null = null;
+  
+  // Expression evaluator for comparison operators (Phase 3)
+  private expressionEvaluator: ExpressionEvaluator;
 
   constructor(config: EvaluatorConfig = {}) {
+    this.expressionEvaluator = new ExpressionEvaluator();
     this.config = {
       strictMode: false,
       weights: {
@@ -159,6 +169,9 @@ export class Evaluator {
       scenario.expectations,
       stepResults
     );
+    
+    // Store for detailed reporting
+    this.lastExpectationResults = expectationResults;
 
     const { passed, score } = this.calculateOverallScore(expectationResults);
     const summary = this.generateSummary(scenario, expectationResults, passed, score);
@@ -178,6 +191,13 @@ export class Evaluator {
       summary,
       recommendations: recommendations.length > 0 ? recommendations : undefined,
     };
+  }
+  
+  /**
+   * Get the last evaluation results (includes detailed checks)
+   */
+  getLastExpectationResults(): ExpectationResult[] | null {
+    return this.lastExpectationResults;
   }
 
   /**
@@ -281,12 +301,25 @@ export class Evaluator {
     const checks: ExpectationResult['checks'] = [];
     let overallMet = true;
     let totalScore = 0;
-    let checkCount = 0;
+    let totalWeight = 0;
 
-    // Check response type
+    /**
+     * Weighted Scoring System:
+     * 
+     * Each check type has a weight that reflects its importance:
+     * - Weight 3 (Critical): expectedFunction - the core action being tested
+     * - Weight 2 (High): responseType, expectedAgent, expectedParams, shouldAskFor, shouldWarn, shouldReject, customValidator
+     * - Weight 1 (Medium): shouldContain, shouldNotContain, shouldMention
+     * 
+     * Score calculation: (sum of (check_result * weight)) / (sum of weights)
+     * This ensures that critical checks like function selection have more impact on the final score.
+     */
+
+    // Check response type (weight: 2 - high importance)
     if (expectation.responseType) {
       const responseType = this.detectResponseType(lastResponse, allExecutionPlans);
       const met = responseType === expectation.responseType;
+      const weight = 2;
       checks.push({
         name: 'responseType',
         passed: met,
@@ -295,41 +328,43 @@ export class Evaluator {
           : `Expected ${expectation.responseType}, got ${responseType}`,
       });
       if (!met) overallMet = false;
-      totalScore += met ? 100 : 0;
-      checkCount++;
+      totalScore += (met ? 100 : 0) * weight;
+      totalWeight += weight;
     }
 
-    // Check expected agent (from execution plans)
+    // Check expected agent (from execution plans) (weight: 2 - high importance)
     if (expectation.expectedAgent) {
       const agentCheckResult = this.checkExpectedAgent(expectation.expectedAgent, allExecutionPlans);
+      const weight = 2;
       checks.push({
         name: 'expectedAgent',
         passed: agentCheckResult.met,
         message: agentCheckResult.message,
       });
       if (!agentCheckResult.met) overallMet = false;
-      totalScore += agentCheckResult.met ? 100 : 0;
-      checkCount++;
+      totalScore += (agentCheckResult.met ? 100 : 0) * weight;
+      totalWeight += weight;
     }
     
-    // Check expected function (from execution plans)
+    // Check expected function (from execution plans) (weight: 3 - critical)
     if (expectation.expectedFunction) {
       const functionCheckResult = this.checkExpectedFunction(
         expectation.expectedFunction, 
         allExecutionPlans,
         expectation.expectedAgent
       );
+      const weight = 3;
       checks.push({
         name: 'expectedFunction',
         passed: functionCheckResult.met,
         message: functionCheckResult.message,
       });
       if (!functionCheckResult.met) overallMet = false;
-      totalScore += functionCheckResult.met ? 100 : 0;
-      checkCount++;
+      totalScore += (functionCheckResult.met ? 100 : 0) * weight;
+      totalWeight += weight;
     }
     
-    // Check expected parameters (from execution plans)
+    // Check expected parameters (from execution plans) (weight: 2 - high importance)
     if (expectation.expectedParams) {
       const paramsCheckResult = this.checkExpectedParams(
         expectation.expectedParams,
@@ -337,20 +372,22 @@ export class Evaluator {
         expectation.expectedAgent,
         expectation.expectedFunction
       );
+      const weight = 2;
       checks.push({
         name: 'expectedParams',
         passed: paramsCheckResult.met,
         message: paramsCheckResult.message,
       });
       if (!paramsCheckResult.met) overallMet = false;
-      totalScore += paramsCheckResult.met ? 100 : 0;
-      checkCount++;
+      totalScore += (paramsCheckResult.met ? 100 : 0) * weight;
+      totalWeight += weight;
     }
 
-    // Check shouldContain
+    // Check shouldContain (weight: 1 - medium importance)
     if (expectation.shouldContain?.length) {
       for (const text of expectation.shouldContain) {
         const met = lastResponse.toLowerCase().includes(text.toLowerCase());
+        const weight = 1;
         checks.push({
           name: `shouldContain: "${text}"`,
           passed: met,
@@ -359,15 +396,16 @@ export class Evaluator {
             : `Response does not contain "${text}"`,
         });
         if (!met) overallMet = false;
-        totalScore += met ? 100 : 0;
-        checkCount++;
+        totalScore += (met ? 100 : 0) * weight;
+        totalWeight += weight;
       }
     }
 
-    // Check shouldNotContain
+    // Check shouldNotContain (weight: 1 - medium importance)
     if (expectation.shouldNotContain?.length) {
       for (const text of expectation.shouldNotContain) {
         const met = !lastResponse.toLowerCase().includes(text.toLowerCase());
+        const weight = 1;
         checks.push({
           name: `shouldNotContain: "${text}"`,
           passed: met,
@@ -376,15 +414,16 @@ export class Evaluator {
             : `Response incorrectly contains "${text}"`,
         });
         if (!met) overallMet = false;
-        totalScore += met ? 100 : 0;
-        checkCount++;
+        totalScore += (met ? 100 : 0) * weight;
+        totalWeight += weight;
       }
     }
 
-    // Check shouldMention
+    // Check shouldMention (weight: 1 - medium importance)
     if (expectation.shouldMention?.length) {
       for (const topic of expectation.shouldMention) {
         const met = this.checkMentions(lastResponse, topic);
+        const weight = 1;
         checks.push({
           name: `shouldMention: "${topic}"`,
           passed: met,
@@ -393,15 +432,16 @@ export class Evaluator {
             : `Response does not mention "${topic}"`,
         });
         if (!met) overallMet = false;
-        totalScore += met ? 100 : 0;
-        checkCount++;
+        totalScore += (met ? 100 : 0) * weight;
+        totalWeight += weight;
       }
     }
 
-    // Check shouldAskFor (clarification)
+    // Check shouldAskFor (clarification) (weight: 2 - high importance)
     if (expectation.shouldAskFor?.length) {
       for (const item of expectation.shouldAskFor) {
         const met = this.checkAsksFor(lastResponse, item);
+        const weight = 2;
         checks.push({
           name: `shouldAskFor: "${item}"`,
           passed: met,
@@ -410,15 +450,16 @@ export class Evaluator {
             : `Bot does not ask for "${item}"`,
         });
         if (!met) overallMet = false;
-        totalScore += met ? 100 : 0;
-        checkCount++;
+        totalScore += (met ? 100 : 0) * weight;
+        totalWeight += weight;
       }
     }
 
-    // Check shouldWarn
+    // Check shouldWarn (weight: 2 - high importance)
     if (expectation.shouldWarn?.length) {
       for (const warning of expectation.shouldWarn) {
         const met = this.checkWarns(lastResponse, warning);
+        const weight = 2;
         checks.push({
           name: `shouldWarn: "${warning}"`,
           passed: met,
@@ -427,15 +468,16 @@ export class Evaluator {
             : `Bot does not warn about "${warning}"`,
         });
         if (!met) overallMet = false;
-        totalScore += met ? 100 : 0;
-        checkCount++;
+        totalScore += (met ? 100 : 0) * weight;
+        totalWeight += weight;
       }
     }
 
-    // Check shouldReject
+    // Check shouldReject (weight: 2 - high importance)
     if (expectation.shouldReject !== undefined) {
       const isRejection = this.detectRejection(lastResponse);
       const met = isRejection === expectation.shouldReject;
+      const weight = 2;
       checks.push({
         name: 'shouldReject',
         passed: met,
@@ -448,12 +490,13 @@ export class Evaluator {
             : 'Request was incorrectly rejected',
       });
       if (!met) overallMet = false;
-      totalScore += met ? 100 : 0;
-      checkCount++;
+      totalScore += (met ? 100 : 0) * weight;
+      totalWeight += weight;
     }
 
-    // Check custom validator
+    // Check custom validator (weight: 2 - high importance for custom logic)
     if (expectation.customValidator) {
+      const weight = 2;
       try {
         // eslint-disable-next-line no-new-func
         const validator = new Function(
@@ -470,8 +513,8 @@ export class Evaluator {
           message: met ? 'Custom validation passed' : 'Custom validation failed',
         });
         if (!met) overallMet = false;
-        totalScore += met ? 100 : 0;
-        checkCount++;
+        totalScore += (met ? 100 : 0) * weight;
+        totalWeight += weight;
       } catch (error) {
         checks.push({
           name: 'customValidator',
@@ -479,11 +522,12 @@ export class Evaluator {
           message: `Custom validator error: ${error}`,
         });
         overallMet = false;
-        checkCount++;
+        totalWeight += weight;
       }
     }
 
-    const score = checkCount > 0 ? Math.round(totalScore / checkCount) : 100;
+    // Calculate weighted score
+    const score = totalWeight > 0 ? Math.round(totalScore / totalWeight) : 100;
 
     // Emit evaluation result log with detailed check breakdown
     const checkSummary = checks
@@ -887,20 +931,38 @@ export class Evaluator {
         const actualValue = step.parameters[key];
         
         if (actualValue !== undefined) {
-          // Normalize values for comparison
-          const normalizedExpected = this.normalizeParamValue(expectedValue);
-          const normalizedActual = this.normalizeParamValue(actualValue);
-          
-          if (this.paramValuesMatch(normalizedExpected, normalizedActual)) {
-            found = true;
-            matchedParams.push(`${key}=${normalizedActual}`);
-            break;
+          // Phase 3: Use ExpressionEvaluator for comparison operators
+          if (isComparisonOperator(expectedValue as ParamValue)) {
+            const result = this.expressionEvaluator.evaluateComparison(
+              actualValue,
+              expectedValue as ParamValue
+            );
+            
+            if (result.passed) {
+              found = true;
+              matchedParams.push(`${key}=${String(actualValue)}`);
+              break;
+            }
+          } else {
+            // Backward compatible: Simple value comparison
+            const normalizedExpected = this.normalizeParamValue(expectedValue);
+            const normalizedActual = this.normalizeParamValue(actualValue);
+            
+            if (this.paramValuesMatch(normalizedExpected, normalizedActual)) {
+              found = true;
+              matchedParams.push(`${key}=${normalizedActual}`);
+              break;
+            }
           }
         }
       }
       
       if (!found) {
-        unmatchedParams.push(`${key}=${expectedValue}`);
+        // Format the expected value for error message
+        const expectedStr = isComparisonOperator(expectedValue as ParamValue)
+          ? JSON.stringify(expectedValue)
+          : String(expectedValue);
+        unmatchedParams.push(`${key}=${expectedStr}`);
       }
     }
 

@@ -149,6 +149,9 @@ export class ScenarioEngine {
   private capturedEvents: ScenarioEngineEvent[] = [];
   private capturedErrors: Array<{ step?: string; message: string; timestamp: number; stack?: string }> = [];
   private scenarioEndReason: ScenarioEndReason | null = null;
+  
+  // Store evaluation results for detailed reporting
+  private lastEvaluationResults: import('./components/Evaluator').ExpectationResult[] | null = null;
 
   constructor(config: ScenarioEngineConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -668,10 +671,36 @@ export class ScenarioEngine {
       lines.push(`Executions: ${totalExecuted} completed${totalFailed > 0 ? `, ${totalFailed} failed` : ''}`);
     }
     
-    // Expectations summary
-    const metExpectations = evaluation.expectations.filter(e => e.met).length;
-    const totalExpectations = evaluation.expectations.length;
-    lines.push(`Expectations: ${metExpectations}/${totalExpectations} met`);
+    // Get detailed evaluation results from evaluator
+    const detailedResults = this.evaluator?.getLastExpectationResults();
+    
+    if (detailedResults && detailedResults.length > 0) {
+      // Count scoreable checks across all expectations
+      const allChecks = detailedResults.flatMap(r => r.checks || []);
+      const passedChecks = allChecks.filter(c => c.passed).length;
+      const totalChecks = allChecks.length;
+      
+      // Show check-level summary (more granular and accurate than expectation-level)
+      lines.push(`Checks: ${passedChecks}/${totalChecks} passed`);
+      
+      if (totalChecks > 0) {
+        lines.push('');
+        lines.push('Check Details:');
+        
+        detailedResults.forEach((result) => {
+          result.checks?.forEach(check => {
+            const icon = check.passed ? '✓' : '✗';
+            lines.push(`  ${icon} ${check.name}: ${check.message}`);
+          });
+        });
+      }
+    } else {
+      // Fallback to expectation-level summary if no detailed checks available
+      const metExpectations = evaluation.expectations.filter(e => e.met).length;
+      const totalExpectations = evaluation.expectations.length;
+      lines.push(`Expectations: ${metExpectations}/${totalExpectations} met`);
+    }
+    
     lines.push('');
     
     // Errors summary
@@ -708,8 +737,6 @@ export class ScenarioEngine {
     
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     lines.push(''); // Empty line for separation
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     lines.push(''); // Empty line for separation
     
     return lines.join('\n');
@@ -1092,10 +1119,7 @@ export class ScenarioEngine {
           this.reportContent += finalReportContent;
           this.emit({ type: 'report-update', content: finalReportContent });
           
-          this.emit({ type: 'phase-update', phase: 'final-report', message: 'Analyzing scenario results...' });
-          this.appendToReport('  → Analyzing scenario results...\n');
-          
-          // This is heavy synchronous work - now deferred
+          // Evaluate scenario results
           const evalResult = this.evaluator!.evaluate(scenario, stepResults);
           resolve(evalResult);
         });
@@ -1130,7 +1154,18 @@ export class ScenarioEngine {
           
           // Add final result to report
           this.appendToReport(`\n[COMPLETE] ${evaluation.passed ? '✅ PASSED' : '❌ FAILED'}\n`);
-          this.appendToReport(`[SCORE] ${evaluation.score}/100\n`);
+          
+          // Only show overall score if there are enough scoreable elements (3+)
+          const detailedResults = this.evaluator?.getLastExpectationResults();
+          const scoreableChecks = detailedResults?.flatMap(r => r.checks || []).length || 0;
+          
+          if (scoreableChecks >= 3) {
+            this.appendToReport(`[SCORE] ${evaluation.score}/100 (${scoreableChecks} checks)\n`);
+          } else {
+            // Not enough elements to score meaningfully - just show pass/fail
+            this.appendToReport(`[RESULT] ${evaluation.passed ? 'All checks passed' : 'Some checks failed'}\n`);
+          }
+          
           this.appendToReport(`[DURATION] ${endTime - startTime}ms\n`);
 
           this.updateState({ status: 'completed' });
@@ -1350,9 +1385,6 @@ export class ScenarioEngine {
     this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     this.appendToReport('Evaluating results\n\n');
     
-    this.emit({ type: 'phase-update', phase: 'final-report', message: 'Analyzing scenario results...' });
-    this.appendToReport('  → Analyzing scenario results...\n');
-    
     // Evaluate with current results (now with refreshed execution state)
     const evaluation = this.evaluator!.evaluate(scenario, stepResults);
     
@@ -1382,7 +1414,21 @@ export class ScenarioEngine {
     
     // Add final result to report
     this.appendToReport(`\n[COMPLETE] ${evaluation.passed ? '✅ PASSED' : '❌ FAILED'} (Ended Early)\n`);
+    
+    // Only show overall score if there are enough scoreable elements (3+)
+    const detailedResults = this.evaluator?.getLastExpectationResults();
+    const scoreableChecks = detailedResults?.flatMap(r => r.checks || []).length || 0;
+    
+    if (scoreableChecks >= 3) {
+      this.appendToReport(`[SCORE] ${evaluation.score}/100 (${scoreableChecks} checks)\n`);
+    } else {
+      // Not enough elements to score meaningfully - just show pass/fail
+      this.appendToReport(`[RESULT] ${evaluation.passed ? 'All checks passed' : 'Some checks failed'}\n`);
+    }
+    
     this.appendToReport(`[DURATION] ${endTime - startTime}ms\n`);
+    this.appendToReport(`\n`);
+    this.appendToReport(`\n`)
     
     this.updateState({ status: 'completed' });
     this.emit({ type: 'scenario-complete', result });

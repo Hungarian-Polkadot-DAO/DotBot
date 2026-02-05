@@ -234,11 +234,6 @@ export class ScenarioExecutor {
     }
     
     if (this.responseReceivedResolver) {
-      this.emit({ 
-        type: 'log', 
-        level: 'info', 
-        message: `[Executor] Resolving waitForResponseReceived promise` 
-      });
       this.responseReceivedResolver(result);
       // Clear both resolver and rejector to prevent issues if stop() is called after
       this.responseReceivedResolver = null;
@@ -336,8 +331,8 @@ export class ScenarioExecutor {
       }
     }
 
-    // All steps completed
-    this.emit({ type: 'log', level: 'info', message: `All ${scenario.steps.length} step(s) completed` });
+    // All steps processed (prompts sent and responses received)
+    this.emit({ type: 'log', level: 'info', message: `All ${scenario.steps.length} step(s) processed` });
     return this.context.results;
   }
 
@@ -499,7 +494,7 @@ export class ScenarioExecutor {
     // Wait for user to submit and get response from DotBot (via UI)
     this.emit({ 
       type: 'dotbot-activity', 
-      activity: 'Waiting for response...',
+      activity: 'Waiting for DotBot response...',
       details: `Prompt: "${input.substring(0, 80)}${input.length > 80 ? '...' : ''}"`
     });
     
@@ -595,7 +590,7 @@ export class ScenarioExecutor {
     if (responseType === 'execution') {
       this.emit({ 
         type: 'dotbot-activity', 
-        activity: 'Generated execution plan',
+        activity: 'Execution plan prepared (awaiting user approval)',
         details: chatResult?.plan ? `Plan has ${chatResult.plan.steps?.length || 0} step(s)` : 'Execution plan created'
       });
     } else if (responseType === 'error') {

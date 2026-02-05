@@ -11,6 +11,7 @@ import type {
   ScenarioExpectation,
   ScenarioCategory,
   EntityConfig,
+  ParamValue,
 } from '../types';
 
 // =============================================================================
@@ -107,7 +108,7 @@ export class ScenarioBuilder {
   expectExecution(config: {
     agent?: string;
     function?: string;
-    params?: Record<string, unknown>;
+    params?: Record<string, ParamValue>;
   }): this {
     this.scenario.expectations!.push({
       responseType: 'execution',
@@ -346,7 +347,7 @@ export function knowledgeScenario(config: {
 export function expectExecution(
   agent: string,
   functionName: string,
-  params?: Record<string, unknown>
+  params?: Record<string, ParamValue>
 ): ScenarioExpectation {
   return {
     responseType: 'execution',

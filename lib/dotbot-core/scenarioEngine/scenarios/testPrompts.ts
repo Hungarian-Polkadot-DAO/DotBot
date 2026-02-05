@@ -72,6 +72,34 @@ export const HAPPY_PATH_TESTS: Scenario[] = [
     ],
   },
   
+  // Phase 3: Comparison operators demo
+  {
+    id: 'happy-path-004',
+    name: 'Transfer with Amount Range Check (Phase 3 Demo)',
+    description: 'Demonstrates Phase 3 comparison operators: amount must be between 0.1 and 1.0',
+    category: 'happy-path',
+    tags: ['comparison-operators', 'phase3', 'demo'],
+    steps: [
+      {
+        id: 'step-1',
+        type: 'prompt',
+        input: 'Send 0.5 WND to Alice',
+      }
+    ],
+    expectations: [
+      {
+        responseType: 'execution',
+        expectedAgent: 'AssetTransferAgent',
+        expectedFunction: 'transfer',
+        expectedParams: {
+          // Phase 3: Comparison operator - amount must be between 0.1 and 1.0
+          amount: { gte: '0.1', lte: '1.0' },
+          recipient: 'Alice',
+        },
+      },
+    ],
+  },
+  
   // TODO: Convert remaining scenarios to proper Scenario format
   // { 
   //   input: "Transfer 0.1 DOT to 5FHneW46NsNkdoJEFX69Kmr9SEirTvfGEf73dtGj3vJ73Zc", 
