@@ -10,8 +10,27 @@ import { ApiPromise, WsProvider } from '@polkadot/api';
 const mockSetup = jest.fn();
 const mockCreateChopsticksDatabase = jest.fn();
 const mockClassifyChopsticksError = jest.fn();
+const mockHead = {
+  hash: '0x1234',
+  meta: Promise.resolve({ query: { system: { account: jest.fn() } } }),
+  registry: Promise.resolve({
+    createType: jest.fn().mockImplementation((type: string, value: any) => {
+      if (type === 'Call') return value;
+      if (type === 'GenericExtrinsic') {
+        return {
+          signFake: jest.fn(),
+          signature: { set: jest.fn() },
+          toHex: () => '0xmocksignedhex',
+        };
+      }
+      return value;
+    }),
+  }),
+  runtimeVersion: Promise.resolve({}),
+  read: jest.fn().mockResolvedValue({ nonce: 0 }),
+};
 const mockChain = {
-  head: Promise.resolve('0x1234'),
+  head: Promise.resolve(mockHead),
   close: jest.fn().mockResolvedValue(undefined),
   dryRunExtrinsic: jest.fn(),
   newBlock: jest.fn(),
@@ -552,43 +571,25 @@ describe('Simulation Routes', () => {
     it('should stop on first failure', async () => {
       const handler = findRouteHandler(simulationRouter, '/simulate-sequential', 'post');
 
-      // Set error classification to not ignore so failures are treated as failures
-      mockClassifyChopsticksError.mockReturnValue({
-        ignore: false,
-        classification: 'INVALID_TRANSACTION',
-        severity: 'BLOCKING',
-      });
-
-      mockChain.newBlock
+      // Outcome is from dryRunExtrinsic; second dryRun returns failure
+      mockChain.dryRunExtrinsic
         .mockResolvedValueOnce({
-          result: {
-            isOk: true,
-            asOk: { isOk: true },
-          },
-          extrinsics: [{
-            result: {
-              isOk: true,
-              asOk: { isOk: true },
-            },
-          }],
+          outcome: { isOk: true, asOk: { isOk: true } },
+          storageDiff: [],
         })
         .mockResolvedValueOnce({
-          result: {
-            isOk: false,
-            asErr: {
-              type: 'InvalidTransaction',
-              toString: () => 'InvalidTransaction',
-            },
-          },
-          extrinsics: [{
-            result: {
+          outcome: {
+            isOk: true,
+            asOk: {
               isOk: false,
               asErr: {
-                type: 'InvalidTransaction',
-                toString: () => 'InvalidTransaction',
+                isModule: true,
+                asModule: { index: 0, error: 0 },
+                isToken: false,
               },
             },
-          }],
+          },
+          storageDiff: [],
         });
 
       mockRequest.body = {

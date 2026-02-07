@@ -416,7 +416,7 @@ export class ExecutionSystem {
       return;
     }
     
-    const rpcEndpoints = this.prepareSequentialSimulationEndpoints(apiForExtrinsics, relayChainManager, assetHubManager, relayChainSession, assetHubSession);
+    const rpcEndpoints = this.prepareSequentialSimulationEndpoints(apiForExtrinsics, relayApi, assetHubApi, relayChainManager, assetHubManager, relayChainSession, assetHubSession);
     this.setInitialSimulationStatus(items, executionArray);
     const sequentialItems = this.createSequentialSimulationItems(items, accountAddress);
     const itemStatusCallback = this.createItemStatusCallback(items, executionArray, onSimulationStatus);
@@ -452,19 +452,15 @@ export class ExecutionSystem {
   }
   
   /**
-   * Check if Chopsticks is available (server-only)
+   * Check if Chopsticks is available (backend server reachable).
+   * When available, returns simulateSequentialTransactions so multi-item flows use one fork.
    */
   private async checkChopsticksAvailability(): Promise<any> {
-    if (typeof window === 'undefined') {
-      const simulationModule = await import('../services/simulation');
-      const isChopsticksAvailable = simulationModule.isChopsticksAvailable;
-      const simulateSequentialTransactions = simulationModule.simulateSequentialTransactions;
-      const available = await isChopsticksAvailable();
-      return available ? simulateSequentialTransactions : null;
-    }
-    
-    this.executionLogger.debug({}, 'Skipping simulation import in browser - prevents blocking availability check');
-    return null;
+    const simulationModule = await import('../services/simulation');
+    const isChopsticksAvailable = simulationModule.isChopsticksAvailable;
+    const simulateSequentialTransactions = simulationModule.simulateSequentialTransactions;
+    const available = await isChopsticksAvailable();
+    return available ? simulateSequentialTransactions : null;
   }
   
   /**
@@ -489,16 +485,19 @@ export class ExecutionSystem {
   }
   
   /**
-   * Prepare RPC endpoints for sequential simulation
+   * Prepare RPC endpoints for sequential simulation.
+   * Uses API identity (not chainSS58) so Westend Asset Hub gets Asset Hub endpoint first.
    */
   private prepareSequentialSimulationEndpoints(
     apiForExtrinsics: ApiPromise,
+    relayApi: ApiPromise,
+    assetHubApi: ApiPromise | null,
     relayChainManager: RpcManager,
     assetHubManager: RpcManager,
     relayChainSession: ExecutionSession,
     assetHubSession: ExecutionSession | null
   ): string[] {
-    const isAssetHub = apiForExtrinsics.registry.chainSS58 === 0;
+    const isAssetHub = apiForExtrinsics === assetHubApi;
     const manager = isAssetHub ? assetHubManager : relayChainManager;
     const sessionEndpoint = isAssetHub ? assetHubSession?.endpoint : relayChainSession.endpoint;
     

@@ -1060,7 +1060,6 @@ export class ScenarioEngine {
           // This avoids unnecessary "empty state" render cycle
           this.clearReport(true); // silent = true
           
-          // Phase 1: BEGINNING - Setup
           this.emit({ type: 'phase-start', phase: 'beginning', details: 'Setting up scenario environment' });
           
           // Batch initial report updates to prevent multiple rapid events
@@ -1091,7 +1090,6 @@ export class ScenarioEngine {
       this.emit({ type: 'phase-update', phase: 'beginning', message: 'Setup complete' });
       this.appendToReport('  → Setup complete\n');
 
-      // Phase 2: CYCLE - Execute steps (unknown number of rounds)
       this.emit({ type: 'phase-start', phase: 'cycle', details: 'Executing scenario steps' });
       
       // Batch report updates to prevent multiple rapid events
@@ -1108,8 +1106,6 @@ export class ScenarioEngine {
       // Log that execution phase completed
       this.log('info', `Execution phase completed with ${stepResults.length} step result(s)`);
 
-      // Phase 3: Evaluation
-      // Defer evaluation and summary generation to prevent UI freeze
       const evaluation = await new Promise<EvaluationResult>((resolve) => {
         queueMicrotask(() => {
           this.emit({ type: 'phase-start', phase: 'final-report', details: 'Evaluating results' });

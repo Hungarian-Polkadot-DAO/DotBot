@@ -1421,7 +1421,7 @@ export class ScenarioExecutor {
    * Syntax: {{calc:functionName(arg1, arg2, ...)}}
    * 
    * Examples:
-   * - {{calc:insufficientBalance(0.1, 0.01)}} → calculates amount that would cause insufficient balance
+   * - {{calc:insufficientBalance(0.5, 0.01)}} → (remaining after first - fee) + 0.2, so second transfer fails
    * - {{calc:currentBalance()}} → queries current balance
    * - {{calc:balanceMinusAmount(0.5)}} → current balance - 0.5
    */
