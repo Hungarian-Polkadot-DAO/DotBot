@@ -14,6 +14,11 @@ import ConversationItems from './ConversationItems';
 import ChatInput from './ChatInput';
 import TypingIndicator from './TypingIndicator';
 
+interface InjectedPrompt {
+  prompt: string;
+  timestamp: number;
+}
+
 interface ChatProps {
   dotbot: DotBot;
   onSendMessage: (message: string) => Promise<any>;
@@ -21,11 +26,13 @@ interface ChatProps {
   disabled?: boolean;
   placeholder?: string;
   /** Injected prompt from ScenarioEngine (optional) */
-  injectedPrompt?: string | null;
+  injectedPrompt?: InjectedPrompt | null;
   /** Callback when injected prompt is processed */
   onPromptProcessed?: () => void;
   /** Auto-submit injected prompts (default: true) */
   autoSubmit?: boolean;
+  /** Incremented by parent when messages are added so Chat re-reads getDisplayMessages() */
+  conversationRefresh?: number;
 }
 
 const Chat: React.FC<ChatProps> = ({
@@ -37,11 +44,14 @@ const Chat: React.FC<ChatProps> = ({
   injectedPrompt = null,
   onPromptProcessed,
   autoSubmit = true,
+  conversationRefresh = 0,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [showInjectionEffect, setShowInjectionEffect] = useState(false);
-  const processedPromptRef = useRef<string | null>(null);
+  const processedTimestampRef = useRef<number | null>(null);
+  const activeTimersRef = useRef<{ submit?: NodeJS.Timeout; effect?: NodeJS.Timeout } | null>(null);
+  const suppressScrollRef = useRef(false);
 
   const handleSubmit = useCallback(async () => {
     const trimmedValue = inputValue.trim();
@@ -54,80 +64,59 @@ const Chat: React.FC<ChatProps> = ({
 
   // Handle injected prompt from ScenarioEngine
   useEffect(() => {
-    if (injectedPrompt) {
-      const trimmedPrompt = injectedPrompt.trim();
-      
-      // Prevent re-processing the same prompt (avoid infinite loop)
-      if (processedPromptRef.current === trimmedPrompt) {
-        return;
-      }
-      
-      // Prevent processing if already typing (avoid race conditions)
-      if (isTyping || disabled) {
-        return;
-      }
-      
-      processedPromptRef.current = trimmedPrompt;
-      setInputValue(trimmedPrompt);
-      setShowInjectionEffect(true);
-      
-      // Notify that prompt was filled into input (this unblocks waitForPromptProcessed)
-      // This happens BEFORE submission - the executor will then wait for the response
-      onPromptProcessed?.();
-      
-      // Auto-submit injected prompts if enabled (ScenarioEngine can work both ways)
-      let submitTimer: NodeJS.Timeout | null = null;
-      if (autoSubmit) {
-        // Small delay to ensure input is set and UI is ready
-        submitTimer = setTimeout(async () => {
-          // Double-check conditions before submitting
-          const canSubmit = !isTyping && !disabled && trimmedPrompt && processedPromptRef.current === trimmedPrompt;
-          
-          if (canSubmit) {
-            console.log('[Chat] Auto-submitting injected prompt:', trimmedPrompt.substring(0, 50) + '...');
-            // Mark as submitted to prevent re-submission
-            processedPromptRef.current = null;
-            setInputValue('');
-            try {
-              // Send the message - the ScenarioEngine will receive the response via DotBot events
-              await onSendMessage(trimmedPrompt);
-              console.log('[Chat] Successfully sent injected prompt');
-            } catch (error) {
-              console.error('[Chat] Failed to submit injected prompt:', error);
-              // Clear the processed ref so it can be retried
-              processedPromptRef.current = null;
-            }
-          } else {
-            // Conditions changed, don't send but still clear the processed ref
-            console.warn('[Chat] Cannot auto-submit prompt - conditions not met:', {
-              isTyping,
-              disabled,
-              hasPrompt: !!trimmedPrompt,
-              refMatches: processedPromptRef.current === trimmedPrompt
-            });
-            processedPromptRef.current = null;
-          }
-        }, 100);
-      } else {
-        console.log('[Chat] Auto-submit disabled - waiting for manual submission');
-      }
-      
-      // Reset injection effect after animation
-      const timer = setTimeout(() => {
-        setShowInjectionEffect(false);
-      }, 2000);
-      
-      return () => {
-        clearTimeout(timer);
-        if (submitTimer) {
-          clearTimeout(submitTimer);
-        }
-      };
-    } else {
-      // Clear processed prompt ref when no prompt is injected
-      processedPromptRef.current = null;
+    if (!injectedPrompt?.prompt) {
+      processedTimestampRef.current = null;
+      activeTimersRef.current = null;
+      return;
     }
-  }, [injectedPrompt, onPromptProcessed, isTyping, disabled, onSendMessage, autoSubmit]);
+    
+    // Prevent re-processing the same injection (check timestamp to handle re-renders)
+    if (processedTimestampRef.current === injectedPrompt.timestamp) {
+      return; // Skip without cleanup - timers from first run continue uninterrupted
+    }
+    
+    // Clear any existing timers from previous injection (different timestamp)
+    if (activeTimersRef.current) {
+      if (activeTimersRef.current.submit) clearTimeout(activeTimersRef.current.submit);
+      if (activeTimersRef.current.effect) clearTimeout(activeTimersRef.current.effect);
+    }
+    
+    const trimmedPrompt = injectedPrompt.prompt.trim();
+    processedTimestampRef.current = injectedPrompt.timestamp;
+    setInputValue(trimmedPrompt);
+    setShowInjectionEffect(true);
+    
+    // Notify ScenarioEngine that prompt was filled (unblocks waitForPromptProcessed)
+    onPromptProcessed?.();
+    
+    // Reset injection effect after animation
+    const effectTimer = setTimeout(() => {
+      setShowInjectionEffect(false);
+    }, 2000);
+    
+    // Auto-submit if enabled
+    if (autoSubmit) {
+      const submitTimer = setTimeout(async () => {
+        setInputValue('');
+        try {
+          await onSendMessage(trimmedPrompt);
+          activeTimersRef.current = null;
+        } catch (error) {
+          console.error('[Chat] Failed to submit injected prompt:', error);
+          activeTimersRef.current = null;
+        }
+      }, 100);
+      
+      // Store timers in ref (persists across re-renders)
+      activeTimersRef.current = { submit: submitTimer, effect: effectTimer };
+    } else {
+      activeTimersRef.current = { effect: effectTimer };
+    }
+    
+    // No cleanup function - we manage timers manually via activeTimersRef
+    // This prevents React from cancelling timers when component re-renders
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [injectedPrompt, autoSubmit]);
 
   // Get conversation items from ChatInstance
   // Use state to track messages so React detects changes
@@ -146,7 +135,7 @@ const Chat: React.FC<ChatProps> = ({
       return;
     }
     
-    // Update immediately
+    // Update conversation items from ChatInstance
     const updateItems = () => {
       if (!dotbot.currentChat) {
         setConversationItems([]);
@@ -154,11 +143,6 @@ const Chat: React.FC<ChatProps> = ({
         return;
       }
       const items = dotbot.currentChat.getDisplayMessages();
-      // Debug: log all items to see what we have
-      console.log('[Chat] Updating conversation items:', {
-        count: items.length,
-        items: items.map(item => ({ type: item.type, id: item.id, content: 'content' in item ? item.content.substring(0, 50) : 'N/A' }))
-      });
       setConversationItems(items);
       lastLengthRef.current = items.length;
     };
@@ -194,7 +178,7 @@ const Chat: React.FC<ChatProps> = ({
       dotbot.removeEventListener(handleDotBotEvent);
       clearInterval(pollInterval);
     };
-  }, [dotbot, dotbot.currentChat?.id]);
+  }, [dotbot, dotbot.currentChat?.id, conversationRefresh]);
   
   // Force re-render when executionArray is added to execution messages
   // This ensures ExecutionFlow updates when executionArray state changes
@@ -260,11 +244,14 @@ const Chat: React.FC<ChatProps> = ({
   return (
     <div className="chat-container">
       {/* Messages */}
-      <MessageList>
+      <MessageList suppressScrollRef={suppressScrollRef}>
         <ConversationItems
           key={refreshKey}
           items={conversationItems}
           dotbot={dotbot}
+          onSuppressScrollRequest={() => {
+            suppressScrollRef.current = true;
+          }}
         />
         
         {/* Typing indicator */}

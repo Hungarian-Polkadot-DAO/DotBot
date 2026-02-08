@@ -73,9 +73,8 @@ npm install @polkadot/api @polkadot/util @polkadot/util-crypto
 **Recommended: Use DotBot (High-Level API)**
 
 ```typescript
-import { DotBot } from './lib/dotbot';
-import { createRpcManagersForNetwork } from './lib/rpcManager';
-import type { Network } from './lib/rpcManager';
+import { DotBot, createRpcManagersForNetwork } from '@dotbot/core';
+import type { Network } from '@dotbot/core';
 
 // 1. Select network
 const network: Network = 'polkadot'; // or 'kusama', 'westend'
@@ -95,15 +94,15 @@ const dotbot = await DotBot.create({
   }
 });
 
-// 4. Use natural language!
-const response = await dotbot.chat("Send 5 DOT to Alice", {
-  llm: async (message, systemPrompt) => {
-    // Call your LLM service (OpenAI, ASI-One, etc.)
+// 4. Use natural language! (RPC and signer are lazy-loaded on first chat/getBalance)
+const result = await dotbot.chat("Send 5 DOT to Alice", {
+  llm: async (message, systemPrompt, context) => {
+    // Call your LLM service (OpenAI, ASI-One, etc.); context.conversationHistory available
     return await llmService.chat(message, systemPrompt);
   }
 });
 
-console.log(response);  // "Transfer successful!"
+console.log(result.response);  // Text or execution plan; result.executed is false until user approves
 ```
 
 **Why DotBot?**
@@ -121,9 +120,8 @@ If you need fine-grained control over agents and execution:
 
 ```typescript
 import { ApiPromise } from '@polkadot/api';
-import { AssetTransferAgent } from './lib/agents/asset-transfer';
-import { Executioner } from './lib/executionEngine';
-import { createRpcManagersForNetwork, Network } from './lib/rpcManager';
+import { AssetTransferAgent, ExecutionSystem, createRpcManagersForNetwork } from '@dotbot/core';
+import type { Network } from '@dotbot/core';
 
 // 1. Select network
 const network: Network = 'polkadot'; // or 'kusama', 'westend'
@@ -145,27 +143,19 @@ agent.initialize(
   assetHubManager
 );
 
-// 5. Initialize executioner manually
-const executioner = new Executioner();
-executioner.initialize(
-  relayApi,
-  accountInfo,
-  signer,
-  assetHubApi,
-  relayChainManager,
-  assetHubManager
-);
+// 5. Use ExecutionSystem for orchestration + execution (or use DotBot for turnkey)
+const executionSystem = new ExecutionSystem();
+// ... initialize executionSystem with api, account, signer, assetHubApi, managers
 
-// 6. Use agents directly
+// 6. Use agents directly (TransferParams uses address from BaseAgentParams)
 const result = await agent.transfer({
-  sender: accountInfo.address,
+  address: accountInfo.address,
   recipient: 'alice-address',
   amount: '5',
   chain: 'assetHub'
 });
 
-// 7. Execute manually
-const executionResult = await executioner.execute(result);
+// 7. Execute via ExecutionSystem / Executioner (see executionEngine exports)
 ```
 
 **When to use Low-Level API:**
@@ -173,7 +163,6 @@ const executionResult = await executioner.execute(result);
 - Need specific agent behavior
 - Bypassing natural language layer
 - Custom execution workflows
-```
 
 ### Network Configuration
 
@@ -1115,7 +1104,7 @@ function createWestendAssetHubManager(): RpcManager
 import {
   createWestendRelayChainManager,
   createWestendAssetHubManager
-} from './lib/rpcManager';
+} from '@dotbot/core';
 
 const relayManager = createWestendRelayChainManager();
 const assetHubManager = createWestendAssetHubManager();
@@ -1272,7 +1261,7 @@ function getKnowledgeBaseForNetwork(network: Network): PolkadotKnowledge
 function formatKnowledgeBaseForNetwork(network: Network): string
 ```
 
-**Full documentation:** See `frontend/src/lib/prompts/system/knowledge/networkUtils.ts`
+**Full documentation:** See `lib/dotbot-core/prompts/system/knowledge/networkUtils.ts`
 
 **Version Added:** v0.2.0 (January 2026)
 
@@ -1414,11 +1403,12 @@ interface ChatResult {
 
 **Behavior (v0.2.0):**
 1. Saves user message to chat history
-2. Gets LLM response with network-specific context
-3. Extracts ExecutionPlan if present
-4. If plan found: **Prepares** execution (orchestrates, adds to chat) - **does NOT auto-execute**
-5. Returns result with `executed: false` (user must approve via UI)
-6. User clicks "Accept & Start" → UI calls `dotbot.startExecution(executionId)`
+2. Gets LLM response with network-specific context (system prompt includes Output Mode Override and Final Check for JSON-only ExecutionPlan)
+3. **Format guardrail**: If the LLM returns prose instead of a JSON ExecutionPlan (e.g. "I've prepared a transaction flow..."), `getLLMResponse` detects it and retries once with a correction prompt asking for JSON only. If no plan is extracted after that, the frontend shows a clear "❌ LLM ERROR" message with a response preview so logs and users see accurate feedback.
+4. Extracts ExecutionPlan if present
+5. If plan found: **Prepares** execution (orchestrates, adds to chat) - **does NOT auto-execute**
+6. Returns result with `executed: false` (user must approve via UI)
+7. User clicks "Accept & Start" → UI calls `dotbot.startExecution(executionId)`
 
 **Example:**
 ```typescript
@@ -2477,12 +2467,12 @@ async transfer(params: TransferParams): Promise<AgentResult>
 **Parameters:**
 
 ```typescript
-interface TransferParams {
-  sender: string;           // Sender's Polkadot address
+interface TransferParams extends BaseAgentParams {
+  address: string;          // Sender's Polkadot address (from BaseAgentParams)
   recipient: string;        // Recipient's Polkadot address
   amount: string | number;  // Amount in DOT (e.g., "10.5" or 10.5)
-  chain: 'assetHub' | 'relay';  // Target chain (required!)
-  keepAlive?: boolean;      // Keep account above ED? (default: true)
+  chain?: 'assetHub' | 'relay';  // Target chain (default: 'assetHub')
+  keepAlive?: boolean;      // Keep account above ED? (default: false)
   validateBalance?: boolean; // Check sufficient balance? (default: true)
 }
 ```
@@ -2500,7 +2490,7 @@ interface TransferParams {
 **Example:**
 ```typescript
 const result = await agent.transfer({
-  sender: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
+  address: '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY',
   recipient: '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty',
   amount: '10.5',
   chain: 'assetHub',
@@ -2513,7 +2503,7 @@ const result = await agent.transfer({
 ```
 
 **Important Notes:**
-- `chain` parameter is **required** - never inferred from balance
+- `address` is the sender (from BaseAgentParams); `chain` is required for explicit chain selection - never inferred from balance
 - Amount can be string ("10.5") or number (10.5)
 - Address can be any SS58 format (automatically re-encoded for target chain)
 - If `keepAlive: true`, validates sender won't go below existential deposit
@@ -2532,13 +2522,13 @@ async batchTransfer(params: BatchTransferParams): Promise<AgentResult>
 **Parameters:**
 
 ```typescript
-interface BatchTransferParams {
-  sender: string;
+interface BatchTransferParams extends BaseAgentParams {
+  address: string;          // Sender's Polkadot address (from BaseAgentParams)
   transfers: Array<{
     recipient: string;
     amount: string | number;
   }>;
-  chain: 'assetHub' | 'relay';
+  chain?: 'assetHub' | 'relay';
   keepAlive?: boolean;
   validateBalance?: boolean;
 }
@@ -2549,7 +2539,7 @@ interface BatchTransferParams {
 **Example:**
 ```typescript
 const result = await agent.batchTransfer({
-  sender: senderAddress,
+  address: senderAddress,
   transfers: [
     { recipient: 'address1', amount: '5' },
     { recipient: 'address2', amount: '3.5' },
@@ -2921,7 +2911,7 @@ constructor(
 **Parameters:**
 - `endpoints` (string[]): Array of WebSocket RPC URLs
 - `options` (RpcManagerOptions, optional): Configuration options
-  - `healthCheckInterval` (number): Health check frequency in ms (default: 60000)
+  - `healthCheckInterval` (number): Health check frequency in ms (default: 1800000, i.e. 30 minutes)
   - `connectionTimeout` (number): Connection timeout in ms (default: 10000)
   - `maxRetries` (number): Maximum connection retries (default: 3)
 - `storageKey` (string, optional): localStorage key for health data. Default: 'dotbot_rpc_health'. *Added in v0.2.0*
@@ -2940,7 +2930,7 @@ const { relayChainManager, assetHubManager } = createRpcManagersForNetwork('west
 // ⚠️ MANUAL: Only if you need custom endpoints
 const customManager = new RpcManager(
   ['wss://custom-endpoint.com'],
-  { healthCheckInterval: 30000 },
+  { healthCheckInterval: 1800000 },  // 30 minutes (default)
   'dotbot_rpc_health_custom'  // Provide unique key
 );
 ```
@@ -2956,6 +2946,7 @@ Each network uses separate storage keys to prevent health data conflicts:
 - Westend Asset Hub: `dotbot_rpc_health_westend_assethub`
 
 **Version History:**
+- v0.2.x (January 2026): Default `healthCheckInterval` changed to 30 minutes (1800000 ms); cached read API cleared on disconnect/error for failover
 - v0.2.0 (January 2026): Added `storageKey` parameter for network isolation
 - v0.1.0: Initial implementation
 
@@ -2968,7 +2959,7 @@ const manager = new RpcManager(
     'wss://polkadot.api.onfinality.io/public-ws'
   ],
   {
-    healthCheckInterval: 60000,
+    healthCheckInterval: 1800000,  // 30 minutes (default)
     connectionTimeout: 10000,
     maxRetries: 3
   },
@@ -2978,7 +2969,7 @@ const manager = new RpcManager(
 
 #### `getReadApi()`
 
-Get API instance for read operations (uses best available endpoint).
+Get API instance for read operations (uses best available endpoint). Includes retry logic for transient failures. After disconnect or error, the cached read API is cleared so the next call triggers failover. A short stability delay (e.g. 150ms) is used before considering a connection stable.
 
 ```typescript
 async getReadApi(): Promise<ApiPromise>
@@ -3072,7 +3063,7 @@ interface TransferCapabilities {
 
 **Example:**
 ```typescript
-import { detectTransferCapabilities } from './lib/agents/asset-transfer/utils';
+import { detectTransferCapabilities } from '@dotbot/core';
 
 const capabilities = await detectTransferCapabilities(api);
 
@@ -3102,10 +3093,9 @@ function buildSafeTransferExtrinsic(
 **Parameters:**
 ```typescript
 interface SafeTransferParams {
-  sender: string;
   recipient: string;
   amount: string | number | BN;
-  keepAlive: boolean;
+  keepAlive?: boolean;
 }
 
 interface SafeExtrinsicResult {
@@ -3119,12 +3109,11 @@ interface SafeExtrinsicResult {
 
 **Example:**
 ```typescript
-import { buildSafeTransferExtrinsic } from './lib/agents/asset-transfer/utils';
+import { buildSafeTransferExtrinsic } from '@dotbot/core';
 
 const result = buildSafeTransferExtrinsic(
   api,
   {
-    sender: senderAddress,
     recipient: recipientAddress,
     amount: '10.5',
     keepAlive: true
@@ -3150,32 +3139,23 @@ function buildSafeBatchExtrinsic(
 ```
 
 **Parameters:**
-```typescript
-interface SafeBatchTransferParams {
-  sender: string;
-  transfers: Array<{
-    recipient: string;
-    amount: string | number | BN;
-  }>;
-  keepAlive: boolean;
-}
-```
+- `api`: Polkadot API instance
+- `transfers`: Array of `{ recipient: string; amount: string | number | BN }`
+- `capabilities`: TransferCapabilities from detectTransferCapabilities
+- `useAtomicBatch` (optional, default true): Use utility.batchAll
 
-**Returns:** Single `utility.batchAll` extrinsic containing all transfers
+**Returns:** SafeExtrinsicResult with single `utility.batchAll` extrinsic
 
 **Example:**
 ```typescript
 const result = buildSafeBatchExtrinsic(
   api,
-  {
-    sender: senderAddress,
-    transfers: [
-      { recipient: 'addr1', amount: '5' },
-      { recipient: 'addr2', amount: '3' }
-    ],
-    keepAlive: true
-  },
-  capabilities
+  [
+    { recipient: 'addr1', amount: '5' },
+    { recipient: 'addr2', amount: '3' }
+  ],
+  capabilities,
+  true
 );
 ```
 
@@ -3183,7 +3163,7 @@ const result = buildSafeBatchExtrinsic(
 
 ## ScenarioEngine API
 
-**NEW** in v0.2.0: Testing and evaluation framework for DotBot.
+**NEW** in v0.2.0: Testing and evaluation framework for DotBot. **Enhanced** with expression system and load-time validation.
 
 ### Overview
 
@@ -3192,7 +3172,11 @@ ScenarioEngine enables systematic testing of DotBot's LLM-driven behavior throug
 - **EntityCreator**: Creates deterministic test accounts
 - **StateAllocator**: Sets up initial state (balances, on-chain, local storage)
 - **ScenarioExecutor**: Executes scenarios through DotBot UI
-- **Evaluator**: Evaluates results and generates LLM-consumable logs
+- **Evaluator**: Evaluates results and generates LLM-consumable logs (uses ExpressionEvaluator for comparison/logical operators)
+- **ExpressionEvaluator**: Evaluates comparison operators in expectations (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `between`, `matches`, `in`, `notIn`)
+- **ExpressionValidator**: Validates expectations at scenario load time (circular references, nesting depth, invalid operators); integrated into `runScenario()` so invalid scenarios fail before execution
+
+**Expression System:** Expectations support comparison operators in `expectedParams` (e.g. `amount: { gte: '0.1', lte: '10' }`) and logical operators (`all`, `any`, `not`, `when`/`then`/`else`). Existing scenarios remain valid (backward compatible). See `xx_scenario_engine/EXPRESSION_SYSTEM_EXAMPLES.md` and `QUICK_REFERENCE.md` for 20+ examples.
 
 **Execution Modes:**
 - `'synthetic'`: Fully mocked (fastest, for unit tests)
@@ -3244,6 +3228,8 @@ async runScenario(scenario: Scenario): Promise<ScenarioResult>
 **Returns:**
 - `ScenarioResult`: Result with evaluation, score, and recommendations
 
+**Validation:** Before execution, all scenario expectations are validated by ExpressionValidator (circular refs, max nesting depth, invalid comparison operators). Invalid scenarios throw with clear errors; warnings (e.g. type mismatches) are logged.
+
 **Example:**
 ```typescript
 const scenario: Scenario = {
@@ -3257,6 +3243,7 @@ const scenario: Scenario = {
   expectations: [
     { responseType: 'execution' },
     { shouldContain: ['transfer', 'Alice'] }
+    // Expression system: e.g. { expectedParams: { amount: { between: ['0.1', '10'] } } }
   ]
 };
 
@@ -3264,7 +3251,7 @@ const result = await engine.runScenario(scenario);
 console.log(`Score: ${result.evaluation.score}/100`);
 ```
 
-**Version Added:** v0.2.0 (January 2026)
+**Version Added:** v0.2.0 (January 2026). Expression system and ExpressionValidator: February 2026.
 
 ---
 
@@ -3716,11 +3703,11 @@ interface ScenarioExpectation {
 
 ```typescript
 import { ApiPromise } from '@polkadot/api';
-import { AssetTransferAgent } from './lib/agents/asset-transfer';
+import { AssetTransferAgent } from '@dotbot/core';
 import { Executioner } from './lib/executionEngine';
 import { ExecutionArray } from './lib/executionEngine/executionArray';
 import { BrowserWalletSigner } from './lib/executionEngine/signers';
-import { RpcManager } from './lib/rpcManager';
+import { RpcManager } from '@dotbot/core';
 
 async function transferDot() {
   // 1. Setup RPC managers
@@ -3743,7 +3730,7 @@ async function transferDot() {
   
   // 4. Create transfer
   const result = await agent.transfer({
-    sender: userAddress,
+    address: userAddress,
     recipient: recipientAddress,
     amount: '10',
     chain: 'assetHub',
@@ -3796,7 +3783,7 @@ async function batchTransfer() {
   // ...
   
   const result = await agent.batchTransfer({
-    sender: userAddress,
+    address: userAddress,
     transfers: [
       { recipient: 'addr1', amount: '5' },
       { recipient: 'addr2', amount: '3' },
@@ -3819,8 +3806,9 @@ async function batchTransfer() {
 ### Custom Agent Example
 
 ```typescript
-import { BaseAgent } from './lib/agents/baseAgent';
-import { AgentResult, AgentError } from './lib/agents/types';
+import { BaseAgent } from '@dotbot/core';
+import type { AgentResult } from '@dotbot/core';
+// For AgentError when building agents inside the repo: import { AgentError } from './agents/types';
 
 export class CustomAgent extends BaseAgent {
   getAgentName(): string {
@@ -3834,10 +3822,7 @@ export class CustomAgent extends BaseAgent {
       // 1. Validate
       const validation = this.validateAddress(params.address);
       if (!validation.valid) {
-        throw new AgentError(
-          validation.errors.join(', '),
-          'INVALID_ADDRESS'
-        );
+        throw new Error(validation.errors.join(', '));
       }
       
       // 2. Get API
@@ -3854,10 +3839,7 @@ export class CustomAgent extends BaseAgent {
       );
       
       if (!dryRunResult.success) {
-        throw new AgentError(
-          dryRunResult.error!,
-          'DRY_RUN_FAILED'
-        );
+        throw new Error(dryRunResult.error ?? 'Dry run failed');
       }
       
       // 5. Return result
@@ -3870,13 +3852,8 @@ export class CustomAgent extends BaseAgent {
         }
       );
     } catch (error) {
-      if (error instanceof AgentError) {
-        throw error;
-      }
-      throw new AgentError(
-        error instanceof Error ? error.message : 'Unknown error',
-        'CUSTOM_OPERATION_FAILED'
-      );
+      if (error instanceof Error) throw error;
+      throw new Error(error instanceof Error ? error.message : 'Unknown error');
     }
   }
 }
@@ -4131,7 +4108,7 @@ const result = await agent.transfer(params);
 ```typescript
 // ✅ Good - Explicit chain
 await agent.transfer({
-  sender,
+  address,  // sender (from BaseAgentParams)
   recipient,
   amount: '10',
   chain: 'assetHub'  // Clear intent

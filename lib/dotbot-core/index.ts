@@ -5,6 +5,9 @@
  * This library provides agents, system prompts, and execution capabilities.
  */
 
+// Run before any code that loads @polkadot/api so API-WS disconnect logs are suppressed
+import './polkadotConsolePatch';
+
 // ============================================================================
 // OUT OF THE BOX INTERFACE - Start here!
 // ============================================================================
@@ -17,6 +20,10 @@ export type {
   DotBotEvent,
   DotBotEventListener,
 } from './dotbot';
+export { CHAT_HISTORY_MESSAGE_LIMIT } from './dotbot/constants';
+
+// Error hierarchy (for consumers that need to catch specific errors)
+export { DotBotError, ExecutionPreparationError } from './errors';
 
 // RPC Manager - For advanced endpoint management
 export { 
@@ -140,6 +147,8 @@ export {
   mapPromptStatusToRuntimeStatus,
   mapRuntimeStatusToPromptStatus,
   createExecutionItemFromAgentResult,
+  isStepFinalized,
+  isExecutionArrayStateTerminal,
 } from './executionEngine/utils';
 export type {
   ExecutionItem,
@@ -163,9 +172,9 @@ export type {
 // ============================================================================
 // Chat Instance System (Environment-bound conversations)
 // ============================================================================
-export { ChatInstance } from './chatInstance';
-export { ChatInstanceManager } from './chatInstanceManager';
-export type { ChatInstanceManagerConfig } from './chatInstanceManager';
+export { ChatInstance } from './chat';
+export { ChatInstanceManager } from './chat';
+export type { ChatInstanceManagerConfig } from './chat';
 
 export type {
   Environment,
@@ -183,7 +192,8 @@ export type {
   ChatInstanceFilter,
   ValidationResult,
   ParsedKnowledgeQuery,
-} from './types/chatInstance';
+  ChatInstanceData,      // Chat instance data structure
+} from './chat/types';
 export {
   ENVIRONMENT_NETWORKS,
   toConversationMessage,
@@ -192,7 +202,7 @@ export {
   parseKnowledgeQuery,
   validateKnowledgeQuery,
   detectKnowledgeRequest,
-} from './types/chatInstance';
+} from './chat/types';
 
 // Chat Storage Abstraction (for backend integration)
 export type { IChatStorage } from './storage/chatStorage';

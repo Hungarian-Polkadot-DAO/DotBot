@@ -5,7 +5,7 @@
  * Prevents render loops by batching updates and providing single source of truth.
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useRef, useEffect, useState, startTransition } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useRef, useEffect, useLayoutEffect, useState, startTransition } from 'react';
 import type { ReportMessageData } from '../components/ReportMessage';
 
 interface ExecutionPhase {
@@ -186,8 +186,7 @@ export function ScenarioEngineProvider({ children }: { children: React.ReactNode
   const [state, dispatch] = useReducer(scenarioEngineReducer, initialState);
   
   // Explicit readiness state - gates all message processing
-  // No timers, no guessing - deterministic initialization
-  const [isReady, setIsReady] = useState(false);
+  const [isReady, setIsReady] = useState(true);
   
   // Component lifecycle tracking - prevents state updates after unmount
   const isMountedRef = useRef(true);
@@ -239,19 +238,23 @@ export function ScenarioEngineProvider({ children }: { children: React.ReactNode
   // Uses one RAF, one state machine - no overlapping schedulers
   // All async operations are tracked and cleaned up on unmount
   const processMessageBatch = useCallback(() => {
-    // Guard: Don't process if unmounted or not ready
-    if (!isMountedRef.current || !isReady || messageBatchRef.current.length === 0) {
+    if (!isMountedRef.current || !isReady) {
       isScheduledRef.current = false;
+      return;
+    }
+    
+    // Clear scheduler flag first to prevent deadlock
+    isScheduledRef.current = false;
+    
+    // Check if there are messages to process
+    if (messageBatchRef.current.length === 0) {
+      console.log('[ScenarioEngineContext] processMessageBatch: queue empty, nothing to do');
       return;
     }
     
     const batch = [...messageBatchRef.current];
     messageBatchRef.current = [];
-    
-    if (batch.length === 0) {
-      isScheduledRef.current = false;
-      return;
-    }
+    console.log('[ScenarioEngineContext] Processing batch of', batch.length, 'messages');
     
     // Process messages in chunks of 20 to prevent UI freeze
     const CHUNK_SIZE = 20;
@@ -288,72 +291,112 @@ export function ScenarioEngineProvider({ children }: { children: React.ReactNode
             dispatch({ type: 'ADD_MESSAGES_BATCH', messages: chunks[i] });
           }
         });
+        
+        // After last chunk, check if more messages arrived and reschedule if needed
+        if (i === chunks.length - 1) {
+          scheduleProcessing();
+        }
       }, 30 * i);
       
       // Track timeout ID for cleanup
       chunkTimeoutIdsRef.current.add(timeoutId);
     }
     
-    isScheduledRef.current = false;
+    // If only one chunk, check for more messages immediately
+    if (chunks.length === 1) {
+      scheduleProcessing();
+    }
   }, [isReady]);
   
+  // Helper function to schedule message processing
+  // Extracted to enable reuse and idempotent scheduling
+  const scheduleProcessing = useCallback(() => {
+    if (!isMountedRef.current || !isReady) {
+      return;
+    }
+    
+    if (messageBatchRef.current.length === 0) {
+      return;
+    }
+    
+    // Only schedule if not already scheduled (idempotent)
+    if (!isScheduledRef.current) {
+      isScheduledRef.current = true;
+      schedulerRafRef.current = requestAnimationFrame(() => {
+        if (isMountedRef.current) {
+          processMessageBatch();
+        } else {
+          isScheduledRef.current = false;
+        }
+        schedulerRafRef.current = null;
+      });
+    }
+  }, [isReady, processMessageBatch]);
+  
   // Batched addMessage - gates all message producers
-  // If not ready, queue message and return (no processing)
   const addMessageBatched = useCallback((message: ReportMessageData) => {
-    // Guard: Don't queue if unmounted
     if (!isMountedRef.current) {
       return;
     }
     
-    // Always queue the message (preserve content)
     messageBatchRef.current.push(message);
     
-    // Gate: Don't process if not ready
     if (!isReady) {
       return;
     }
     
-    // Single scheduler - only schedule if not already scheduled
-    if (!isScheduledRef.current) {
-      isScheduledRef.current = true;
-      schedulerRafRef.current = requestAnimationFrame(() => {
-        // Guard: Check mounted before processing
-        if (isMountedRef.current) {
-          processMessageBatch();
-        } else {
-          isScheduledRef.current = false;
-        }
-        schedulerRafRef.current = null;
-      });
-    }
-  }, [isReady, processMessageBatch]);
+    scheduleProcessing();
+  }, [isReady, scheduleProcessing]);
   
-  // Explicit initialization - no timers, deterministic
-  useEffect(() => {
+  // Component lifecycle management
+  useLayoutEffect(() => {
     isMountedRef.current = true;
     setIsReady(true);
     
     return () => {
-      // Mark as unmounted immediately to prevent any new operations
       isMountedRef.current = false;
+      // Reset scheduler flag before remount to prevent stale state
+      isScheduledRef.current = false;
     };
   }, []);
   
   // Process any messages queued before ready state
+  // Also acts as recovery mechanism if scheduler gets stuck
   useEffect(() => {
-    if (isMountedRef.current && isReady && messageBatchRef.current.length > 0 && !isScheduledRef.current) {
-      isScheduledRef.current = true;
-      schedulerRafRef.current = requestAnimationFrame(() => {
-        // Guard: Check mounted before processing
-        if (isMountedRef.current) {
-          processMessageBatch();
-        } else {
-          isScheduledRef.current = false;
-        }
-        schedulerRafRef.current = null;
-      });
+    if (isReady) {
+      // Use scheduleProcessing which is idempotent and has all safety checks
+      scheduleProcessing();
     }
-  }, [isReady, processMessageBatch]);
+  }, [isReady, scheduleProcessing]);
+  
+  // Watchdog: Detect and recover from stuck scheduler
+  // If messages are queued but scheduler isn't running, force recovery
+  useEffect(() => {
+    if (!isReady) return;
+    
+    const watchdogInterval = setInterval(() => {
+      if (!isMountedRef.current || !isReady) return;
+      
+      const hasQueuedMessages = messageBatchRef.current.length > 0;
+      const schedulerRunning = isScheduledRef.current;
+      
+      // Stuck state: messages queued but scheduler not running
+      if (hasQueuedMessages && !schedulerRunning) {
+        console.warn('[ScenarioEngineContext] Watchdog: Stuck scheduler detected, forcing recovery (queue:', messageBatchRef.current.length, ')');
+        isScheduledRef.current = false;
+        scheduleProcessing();
+      }
+      
+      // Orphaned state: scheduler flag true but RAF is null
+      if (schedulerRunning && schedulerRafRef.current === null && hasQueuedMessages) {
+        console.warn('[ScenarioEngineContext] Watchdog: Orphaned scheduler detected, forcing recovery (queue:', messageBatchRef.current.length, ')');
+        isScheduledRef.current = false;
+        scheduleProcessing();
+      }
+    }, 2000); // Check every 2 seconds
+    
+    return () => clearInterval(watchdogInterval);
+  }, [isReady, scheduleProcessing]);
   
   // Cleanup on unmount - cancel all pending operations
   // This is the critical cleanup that prevents memory leaks
@@ -379,8 +422,9 @@ export function ScenarioEngineProvider({ children }: { children: React.ReactNode
       });
       chunkTimeoutIdsRef.current.clear();
       
-      // Reset scheduler state
+      // Reset scheduler state and clear queue for clean remount
       isScheduledRef.current = false;
+      messageBatchRef.current = [];
     };
   }, []);
   

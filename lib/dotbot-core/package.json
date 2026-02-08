@@ -1,11 +1,11 @@
 {
   "name": "@dotbot/core",
-  "version": "0.7.2",
+  "version": "0.8.2",
   "description": "DotBot core library for Polkadot operations through natural language",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
-  "author": "",
+  "author": "Zelma Corp",
   "license": "GNU General Public License v3.0",
   "scripts": {
     "build": "tsc -p tsconfig.json",

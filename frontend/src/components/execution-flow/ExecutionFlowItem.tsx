@@ -13,19 +13,19 @@ export interface ExecutionFlowItemProps {
   index: number;
   isExpanded: boolean;
   onToggleExpand: (itemId: string) => void;
+  /** When true (frozen/historical flow), no spinning, muted styling. */
+  isFrozen?: boolean;
 }
 
 const ExecutionFlowItem: React.FC<ExecutionFlowItemProps> = ({
   item,
   index,
   isExpanded,
-  onToggleExpand
+  onToggleExpand,
+  isFrozen = false
 }) => {
   const hasSimulationStatus = !!item.simulationStatus;
-  
-  // Determine simulation status for data attribute
-  const simulationStatusAttr = 
-    item.status === 'pending' && hasSimulationStatus ? 'simulating' :
+  const simulationStatusAttr = item.status === 'pending' && hasSimulationStatus ? 'simulating' :
     item.status === 'pending' && !hasSimulationStatus ? 'waiting' :
     item.status === 'ready' ? 'success' :
     item.status === 'failed' ? 'failed' : 'none';
@@ -40,6 +40,7 @@ const ExecutionFlowItem: React.FC<ExecutionFlowItemProps> = ({
         index={index}
         isExpanded={isExpanded}
         onToggleExpand={() => onToggleExpand(item.id)}
+        isFrozen={isFrozen}
       />
       {isExpanded && <ItemDetails item={item} />}
     </div>

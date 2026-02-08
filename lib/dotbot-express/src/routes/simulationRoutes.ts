@@ -1,16 +1,12 @@
 /**
- * Simulation Routes
- * 
- * Express routes for Chopsticks transaction simulation.
- * This handles simulation requests from clients (frontend or backend).
- * 
- * NOTE: This module only runs in Node.js/backend environment.
- * Frontend should use the client (chopsticksClient.ts) to connect to these routes.
+ * Simulation routes: Chopsticks transaction simulation (Node.js/backend only).
+ * Frontend uses chopsticksClient to call these endpoints.
  */
 
 import type { ApiPromise } from '@polkadot/api';
 import type { HexString } from '@polkadot/util/types';
 import { BN } from '@polkadot/util';
+import { hexToU8a } from '@polkadot/util';
 import { ApiPromise as ApiPromiseClass, WsProvider } from '@polkadot/api';
 import { createChopsticksDatabase, type Database } from '@dotbot/core/services/simulation/database';
 import { classifyChopsticksError } from '@dotbot/core/services/simulation/chopsticksIgnorePolicy';
@@ -20,6 +16,14 @@ import { Router, Request, Response } from 'express';
 
 const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
 const router = Router();
+
+const TOKEN_DECIMALS = 12;
+
+function formatBalanceForLog(planck: string | undefined): string {
+  if (!planck) return 'unknown';
+  const n = parseInt(planck, 10);
+  return Number.isNaN(n) ? 'unknown' : (n / Math.pow(10, TOKEN_DECIMALS)).toFixed(6);
+}
 
 export interface SimulationRequest {
   rpcEndpoints: string[];
@@ -102,48 +106,28 @@ async function simulateTransactionInternal(
       db: storage,
     });
 
-    // Get block hash from chain
     const chainHead = await chain.head;
     const blockHashHex = toHexString(chainHead);
 
-    // Decode extrinsic from hex
-    // NOTE: The extrinsic hex should be the method call hex, not the full extrinsic
-    // If it's a full extrinsic, we need to extract the method
     let callHex: string;
     let extrinsicForFee: any = null;
     try {
-      // Try to decode as full extrinsic first
       const extrinsic = api.createType('Extrinsic', request.extrinsicHex);
       callHex = extrinsic.method.toHex();
-      extrinsicForFee = extrinsic; // Save for fee calculation
+      extrinsicForFee = extrinsic;
     } catch {
-      // If that fails, assume it's already the method call hex
       callHex = request.extrinsicHex;
-      
-      // Reconstruct extrinsic from method call hex for fee calculation
       try {
-        // Decode the call hex as a Call type
         const call = api.createType('Call', callHex);
-        // Extract method details from the call
         const callMethod = call as any;
         if (callMethod.section && callMethod.method) {
-          // Reconstruct using api.tx[section][method](...args)
           const txMethod = (api.tx as any)[callMethod.section]?.[callMethod.method];
           if (txMethod) {
-            // Get the args from the call - decode them properly
-            const args: any[] = [];
-            if (callMethod.args && callMethod.args.length > 0) {
-              for (let i = 0; i < callMethod.args.length; i++) {
-                const arg = callMethod.args[i];
-                // Convert the arg to its native type (not hex)
-                args.push(arg);
-              }
-            }
+            const args: any[] = callMethod.args?.length ? [...callMethod.args] : [];
             extrinsicForFee = txMethod(...args);
           }
         }
       } catch (reconstructError) {
-        // If reconstruction fails, we'll skip fee calculation
         simulationLogger.debug({ 
           error: reconstructError instanceof Error ? reconstructError.message : String(reconstructError)
         }, 'Could not reconstruct extrinsic for fee calculation, will skip');
@@ -159,11 +143,9 @@ async function simulateTransactionInternal(
       blockHashHex
     );
 
-    // Parse outcome
     const chainName = (await api.rpc.system.chain()).toString();
     const { succeeded, failureReason } = parseOutcome(api, outcome, chainName);
 
-    // Calculate balance changes
     const balanceDeltas = await computeBalanceDeltas(
       api,
       request.senderAddress,
@@ -182,7 +164,6 @@ async function simulateTransactionInternal(
         const feeInfo = await extrinsicForFee.paymentInfo(encodedSenderAddress);
         fee = feeInfo.partialFee.toString();
       } catch (feeError) {
-        // Fee calculation can fail, but simulation already succeeded
         const errorMessage = feeError instanceof Error ? feeError.message : String(feeError);
         const errorClassification = classifyChopsticksError(errorMessage, 'paymentInfo', chainName);
         
@@ -198,7 +179,6 @@ async function simulateTransactionInternal(
       }
     }
 
-    // Cleanup
     await storage.deleteBlock(blockHashHex);
     await storage.close();
     await chain.close();
@@ -216,8 +196,6 @@ async function simulateTransactionInternal(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     simulationLogger.error({ error: errorMessage }, 'Simulation failed');
-    
-    // Cleanup on error
     try {
       if (storage) await storage.close();
       if (chain) await chain.close();
@@ -235,6 +213,33 @@ async function simulateTransactionInternal(
   }
 }
 
+async function buildMockSignedExtrinsicHex(
+  callHex: string,
+  senderAddress: string,
+  head: { hash: string; meta: Promise<any>; registry: Promise<any>; runtimeVersion: Promise<any>; read: (type: string, query: (...args: any[]) => any, ...args: any[]) => Promise<any> },
+  genesisHash: string
+): Promise<string> {
+  const registry = await head.registry;
+  const meta = await head.meta;
+  const account = await head.read('AccountInfo', meta.query.system.account, senderAddress);
+  if (!account) {
+    throw new Error(`Account ${senderAddress} not found on fork`);
+  }
+  const call = registry.createType('Call', hexToU8a(callHex));
+  const generic = registry.createType('GenericExtrinsic', call);
+  generic.signFake(senderAddress, {
+    blockHash: head.hash,
+    genesisHash,
+    runtimeVersion: await head.runtimeVersion,
+    nonce: account.nonce,
+  });
+  const mockSig = new Uint8Array(64);
+  mockSig.fill(0xcd);
+  mockSig.set([0xde, 0xad, 0xbe, 0xef]);
+  generic.signature.set(mockSig);
+  return generic.toHex();
+}
+
 /**
  * Simulate sequential transactions
  */
@@ -247,20 +252,15 @@ async function simulateSequentialTransactionsInternal(
   let startBlockHash: string | null = null;
 
   try {
-    // Validate endpoints
-    const endpoints = request.rpcEndpoints.filter(e => 
+    const endpoints = request.rpcEndpoints.filter(e =>
       typeof e === 'string' && (e.startsWith('wss://') || e.startsWith('ws://'))
     );
-    
     if (endpoints.length === 0) {
       throw new Error('No valid WebSocket endpoints provided');
     }
-
-    // Create database
     const dbName = `dotbot-sequential-sim:${api.genesisHash.toHex()}`;
     storage = createChopsticksDatabase(dbName);
 
-    // Setup chain fork (use Instant mode for sequential)
     const buildBlockMode = request.buildBlockMode === 'Batch' 
       ? BuildBlockMode.Batch 
       : BuildBlockMode.Instant;
@@ -277,80 +277,61 @@ async function simulateSequentialTransactionsInternal(
     startBlockHash = toHexString(chainHead);
 
     const results: Array<{ index: number; description: string; result: SimulationResponse }> = [];
-    const currentBlockHash = startBlockHash;
     let totalFee = new BN(0);
+    const chainName = (await api.rpc.system.chain()).toString();
 
     for (let i = 0; i < request.items.length; i++) {
       const item = request.items[i];
-      
-      // Decode extrinsic and get full extrinsic hex for chain.newBlock
-      // NOTE: The client sends method call hex, but chain.newBlock needs full extrinsic
+      const currentHead = await chain.head;
+
       let extrinsicHex: string;
       let extrinsicForFee: any = null;
+      let callHex: string = item.extrinsicHex;
       try {
-        // Try to decode as full extrinsic first
         const extrinsic = api.createType('Extrinsic', item.extrinsicHex);
         extrinsicHex = extrinsic.toHex();
-        extrinsicForFee = extrinsic; // Save for fee calculation
+        callHex = extrinsic.method.toHex();
+        extrinsicForFee = extrinsic;
       } catch {
-        // If that fails, assume it's a method call hex
-        // Reconstruct full extrinsic from method call hex
         try {
           const call = api.createType('Call', item.extrinsicHex);
           const callMethod = call as any;
           if (callMethod.section && callMethod.method) {
             const txMethod = (api.tx as any)[callMethod.section]?.[callMethod.method];
             if (txMethod) {
-              const args: any[] = [];
-              if (callMethod.args && callMethod.args.length > 0) {
-                for (let j = 0; j < callMethod.args.length; j++) {
-                  args.push(callMethod.args[j]);
-                }
-              }
+              const args: any[] = callMethod.args?.length ? [...callMethod.args] : [];
               extrinsicForFee = txMethod(...args);
               extrinsicHex = extrinsicForFee.toHex();
             } else {
-              // If we can't reconstruct, use the call hex directly (may fail)
               extrinsicHex = item.extrinsicHex;
             }
           } else {
             extrinsicHex = item.extrinsicHex;
           }
         } catch (reconstructError) {
-          // If reconstruction fails, use the hex as-is (may cause errors)
-          simulationLogger.warn({ 
+          simulationLogger.warn({
             error: reconstructError instanceof Error ? reconstructError.message : String(reconstructError)
           }, 'Could not reconstruct extrinsic from method call hex, using as-is');
           extrinsicHex = item.extrinsicHex;
         }
       }
 
-      // Build block with this extrinsic
-      const block = await chain.newBlock({
-        extrinsics: [extrinsicHex],
-      });
-
-      const newHead = await chain.head;
-      const newBlockHash = toHexString(newHead);
-
-      // Parse outcome
-      const { succeeded, error } = extractBlockOutcome(api, block);
-
-      // Calculate fee
-      let fee = '0';
-      if (extrinsicForFee) {
-        try {
-          const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
-          const publicKey = decodeAddress(item.senderAddress);
-          const ss58Format = api.registry.chainSS58 || 0;
-          const encodedSender = encodeAddress(publicKey, ss58Format);
-          
-          const feeInfo = await extrinsicForFee.paymentInfo(encodedSender);
-          fee = feeInfo.partialFee.toString();
-        } catch {
-          // Fee calculation can fail
-        }
+      try {
+        const meta = await currentHead.meta;
+        const accountBefore = await currentHead.read('AccountInfo', meta.query.system.account, item.senderAddress);
+        const freeBefore = accountBefore?.data?.free?.toString();
+        simulationLogger.debug({ itemIndex: i, balanceBefore: freeBefore ?? 'unknown', balanceInTokens: formatBalanceForLog(freeBefore) }, 'Balance before step');
+      } catch {
+        // ignore
       }
+
+      simulationLogger.debug({ itemIndex: i, callHex, sender: item.senderAddress, headHash: currentHead.hash }, 'Running dryRunExtrinsic');
+      const dryRun = await chain.dryRunExtrinsic(
+        { call: callHex, address: item.senderAddress },
+        currentHead.hash
+      );
+      simulationLogger.debug({ itemIndex: i, outcome: dryRun.outcome }, 'dryRunExtrinsic completed');
+      const { succeeded, failureReason } = parseOutcome(api, dryRun.outcome, chainName);
 
       if (!succeeded) {
         results.push({
@@ -358,33 +339,68 @@ async function simulateSequentialTransactionsInternal(
           description: item.description,
           result: {
             success: false,
-            error,
-            estimatedFee: fee,
+            error: failureReason,
+            estimatedFee: '0',
             balanceChanges: [],
             events: [],
           },
         });
-        
-        // Cleanup
-        if (startBlockHash && storage) {
-          await storage.deleteBlock(startBlockHash as `0x${string}`);
-        }
+        if (startBlockHash && storage) await storage.deleteBlock(startBlockHash as `0x${string}`);
         if (storage) await storage.close();
         if (chain) await chain.close();
-
         return {
           success: false,
-          error: `Transaction ${i + 1} (${item.description}) failed: ${error || 'Unknown error'}`,
+          error: `Transaction ${i + 1} (${item.description}) failed: ${failureReason || 'Unknown error'}`,
           results,
           totalEstimatedFee: totalFee.toString(),
           finalBalanceChanges: [],
         };
       }
 
-      const _currentBlockHash = newBlockHash;
+      let extrinsicToApply: string;
+      try {
+        extrinsicToApply = await buildMockSignedExtrinsicHex(callHex, item.senderAddress, currentHead, api.genesisHash.toHex());
+        simulationLogger.debug({ itemIndex: i, hexLength: extrinsicToApply.length }, 'Built mock-signed extrinsic');
+      } catch (buildError) {
+        const msg = buildError instanceof Error ? buildError.message : String(buildError);
+        simulationLogger.error({ itemIndex: i, error: msg }, 'Failed to build mock-signed extrinsic');
+        throw new Error(`Failed to build mock-signed extrinsic for item ${i}: ${msg}`);
+      }
+
+      await chain.newBlock({ transactions: [extrinsicToApply] });
+      const newHead = await chain.head;
+      const newHeadExtrinsics = await newHead.extrinsics;
+      const includedCount = newHeadExtrinsics?.length ?? 0;
+
+      try {
+        const meta = await newHead.meta;
+        const accountAfter = await newHead.read('AccountInfo', meta.query.system.account, item.senderAddress);
+        const freeAfter = accountAfter?.data?.free?.toString();
+        simulationLogger.debug({ itemIndex: i, balanceAfter: freeAfter ?? 'unknown', balanceInTokens: formatBalanceForLog(freeAfter) }, 'Balance after step');
+      } catch {
+        // ignore
+      }
+
+      simulationLogger.debug({ itemIndex: i, newHeadHash: newHead.hash, includedExtrinsicsCount: includedCount }, 'newBlock completed');
+      if (includedCount === 0) {
+        simulationLogger.error({ itemIndex: i, extrinsicPrefix: extrinsicToApply.substring(0, 40) }, 'Block built with zero extrinsics');
+      }
+
+      let fee = '0';
+      if (extrinsicForFee) {
+        try {
+          const { encodeAddress, decodeAddress } = await import('@polkadot/util-crypto');
+          const publicKey = decodeAddress(item.senderAddress);
+          const ss58Format = api.registry.chainSS58 || 0;
+          const encodedSender = encodeAddress(publicKey, ss58Format);
+          const feeInfo = await extrinsicForFee.paymentInfo(encodedSender);
+          fee = feeInfo.partialFee.toString();
+          simulationLogger.debug({ itemIndex: i, fee, cumulativeFee: totalFee.add(new BN(fee)).toString() }, 'Fee for step');
+        } catch (feeError) {
+          simulationLogger.warn({ itemIndex: i, error: feeError instanceof Error ? feeError.message : String(feeError) }, 'Fee calculation failed');
+        }
+      }
       totalFee = totalFee.add(new BN(fee));
-      
-      // Calculate balance changes (simplified - would need full implementation)
       results.push({
         index: i,
         description: item.description,
@@ -398,12 +414,13 @@ async function simulateSequentialTransactionsInternal(
       });
     }
 
-    // Cleanup
     if (startBlockHash && storage) {
       await storage.deleteBlock(startBlockHash as `0x${string}`);
     }
     if (storage) await storage.close();
     if (chain) await chain.close();
+
+    simulationLogger.info({ totalSteps: results.length, totalFee: totalFee.toString() }, 'Sequential simulation completed');
 
     return {
       success: true,
@@ -414,9 +431,8 @@ async function simulateSequentialTransactionsInternal(
     };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    simulationLogger.error({ error: errorMessage }, 'Sequential simulation failed');
-
-    // Cleanup on error
+    const errorStack = err instanceof Error ? err.stack : undefined;
+    simulationLogger.error({ error: errorMessage, stack: errorStack }, 'Sequential simulation failed');
     try {
       if (startBlockHash && storage) {
         await storage.deleteBlock(startBlockHash as `0x${string}`);
@@ -437,7 +453,6 @@ async function simulateSequentialTransactionsInternal(
   }
 }
 
-// Helper functions (similar to chopsticks.ts)
 function toHexString(blockHash: any): `0x${string}` {
   if (!blockHash) {
     throw new Error('Block hash is null or undefined');
@@ -502,39 +517,63 @@ async function computeBalanceDeltas(
   return deltas;
 }
 
+function formatDispatchError(innerErr: any): string {
+  if (innerErr && typeof innerErr === 'object') {
+    if (innerErr.token === 'NoFunds') return 'Insufficient balance (NoFunds)';
+    if (innerErr.token) return `TokenError: ${innerErr.token}`;
+    if (innerErr.module) return `${innerErr.module.section}.${innerErr.module.name}`;
+  }
+  return typeof innerErr === 'object' ? JSON.stringify(innerErr) : String(innerErr);
+}
+
 function parseOutcome(
   api: ApiPromise,
   outcome: any,
   chainName: string
 ): { succeeded: boolean; failureReason: string | null } {
+  const ok = outcome?.Ok ?? outcome?.ok;
+  const err = outcome?.Err ?? outcome?.err;
+  if (ok !== undefined || err !== undefined) {
+    if (err !== undefined) {
+      const errStr = typeof err === 'object' ? JSON.stringify(err) : String(err);
+      return { succeeded: false, failureReason: errStr };
+    }
+    const innerErr = ok?.Err ?? ok?.err;
+    if (innerErr !== undefined) {
+      const errStr = formatDispatchError(innerErr);
+      return { succeeded: false, failureReason: errStr };
+    }
+    return { succeeded: true, failureReason: null };
+  }
+
   if (outcome.isOk) {
     const result = outcome.asOk;
-    
+
     if (result.isOk) {
       return { succeeded: true, failureReason: null };
     } else {
       const err = result.asErr;
-      
+
       if (err.isModule) {
         const meta = api.registry.findMetaError(err.asModule);
         const msg = `${meta.section}.${meta.name}: ${meta.docs.join(', ')}`;
         return { succeeded: false, failureReason: msg };
       } else if (err.isToken) {
-        return { 
-          succeeded: false, 
-          failureReason: `TokenError: ${err.asToken.type}` 
+        return {
+          succeeded: false,
+          failureReason: `TokenError: ${err.asToken.type}`
         };
       } else {
-        return { 
-          succeeded: false, 
-          failureReason: `DispatchError: ${err.type}` 
+        return {
+          succeeded: false,
+          failureReason: `DispatchError: ${err.type}`
         };
       }
     }
   } else {
     const invalid = outcome.asErr;
-    const invalidType = invalid.type || 'Unknown';
-    const invalidDetails = invalid.toString ? invalid.toString() : JSON.stringify(invalid);
+    const invalidType = invalid?.type || 'Unknown';
+    const invalidDetails = invalid?.toString ? invalid.toString() : JSON.stringify(invalid);
     const errorMessage = `InvalidTransaction: ${invalidType} (${invalidDetails})`;
 
     const errorClassification = classifyChopsticksError(errorMessage, 'dryRun', chainName);
@@ -553,41 +592,16 @@ function parseOutcome(
   }
 }
 
-function extractBlockOutcome(api: ApiPromise, block: any): { succeeded: boolean; error: string | null } {
-  try {
-    if (block?.extrinsics?.[0]?.result) {
-      const chainName = 'unknown'; // Would need to get from API
-      const result = parseOutcome(api, block.extrinsics[0].result, chainName);
-      return { succeeded: result.succeeded, error: result.failureReason };
-    }
-    if (block?.result) {
-      const chainName = 'unknown';
-      const result = parseOutcome(api, block.result, chainName);
-      return { succeeded: result.succeeded, error: result.failureReason };
-    }
-    return { succeeded: true, error: null };
-  } catch (error) {
-    simulationLogger.warn({ 
-      error: error instanceof Error ? error.message : String(error)
-    }, 'Could not parse block outcome, assuming success');
-    return { succeeded: true, error: null };
-  }
-}
-
-// Health check
 router.get('/health', (_req: Request, res: Response) => {
   console.log('[SimulationRoutes] Health check endpoint called');
   res.json({ status: 'ok', service: 'simulation-server' });
 });
 
-// Single transaction simulation
 router.post('/simulate', async (req: Request, res: Response) => {
     let api: ApiPromise | null = null;
     
     try {
       const request: SimulationRequest = req.body;
-      
-      // Validate request
       if (!request.rpcEndpoints || !Array.isArray(request.rpcEndpoints)) {
         return res.status(400).json({ error: 'rpcEndpoints must be an array' });
       }
@@ -597,8 +611,6 @@ router.post('/simulate', async (req: Request, res: Response) => {
       if (!request.senderAddress || typeof request.senderAddress !== 'string') {
         return res.status(400).json({ error: 'senderAddress is required' });
       }
-
-      // Filter to WebSocket endpoints
       const endpoints = request.rpcEndpoints.filter(e => 
         typeof e === 'string' && (e.startsWith('wss://') || e.startsWith('ws://'))
       );
@@ -613,19 +625,13 @@ router.post('/simulate', async (req: Request, res: Response) => {
       const provider = new WsProvider(endpoints[0]);
       api = await ApiPromiseClass.create({ provider });
       await api.isReady;
-
-      // Simulate transaction
       const result = await simulateTransactionInternal(api, request);
-      
-      // Cleanup API
       await api.disconnect();
       
       return res.json(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       simulationLogger.error({ error: errorMessage }, 'Simulation request failed');
-      
-      // Cleanup API on error
       if (api) {
         try {
           await api.disconnect();
@@ -638,7 +644,6 @@ router.post('/simulate', async (req: Request, res: Response) => {
     }
   });
 
-// Sequential transaction simulation
 router.post('/simulate-sequential', async (req: Request, res: Response) => {
     let api: ApiPromise | null = null;
     
@@ -652,8 +657,6 @@ router.post('/simulate-sequential', async (req: Request, res: Response) => {
       if (!request.items || !Array.isArray(request.items)) {
         return res.status(400).json({ error: 'items must be an array' });
       }
-
-      // Filter to WebSocket endpoints
       const endpoints = request.rpcEndpoints.filter(e => 
         typeof e === 'string' && (e.startsWith('wss://') || e.startsWith('ws://'))
       );
@@ -661,24 +664,18 @@ router.post('/simulate-sequential', async (req: Request, res: Response) => {
       if (endpoints.length === 0) {
         return res.status(400).json({ error: 'No valid WebSocket endpoints provided' });
       }
-
-      // Create API instance from first endpoint
       const provider = new WsProvider(endpoints[0]);
       api = await ApiPromiseClass.create({ provider });
       await api.isReady;
 
       // Simulate sequential transactions
       const result = await simulateSequentialTransactionsInternal(api, request);
-      
-      // Cleanup API
       await api.disconnect();
       
       return res.json(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       simulationLogger.error({ error: errorMessage }, 'Sequential simulation request failed');
-      
-      // Cleanup API on error
       if (api) {
         try {
           await api.disconnect();

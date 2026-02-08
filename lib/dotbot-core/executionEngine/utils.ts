@@ -5,9 +5,29 @@
  */
 
 import { ExecutionStep as _ExecutionStep, ExecutionPlan as _ExecutionPlan } from '../prompts/system/execution/types';
-import { ExecutionItem, ExecutionStatus } from './types';
+import { ExecutionItem, ExecutionStatus, ExecutionArrayState } from './types';
 import { AgentResult } from '../agents/types';
 import { isSimulationEnabled } from './simulation/simulationConfig';
+
+/** Terminal statuses: step is done (no further execution, no animation). */
+const TERMINAL_STATUSES: ExecutionStatus[] = ['completed', 'failed', 'finalized', 'cancelled'];
+
+/**
+ * True if this step will not change anymore (completed, failed, finalized, cancelled).
+ * Use to avoid showing spinning/in-progress UI for finalized steps.
+ */
+export function isStepFinalized(status: ExecutionStatus): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
+/**
+ * True if the flow is fully terminal (all items finalized).
+ * Used to skip restoring ExecutionArrays for historical completed/failed flows.
+ */
+export function isExecutionArrayStateTerminal(state: ExecutionArrayState): boolean {
+  if (!state.items.length) return false;
+  return state.items.every((item) => isStepFinalized(item.status));
+}
 
 /**
  * Get initial execution status based on simulation setting

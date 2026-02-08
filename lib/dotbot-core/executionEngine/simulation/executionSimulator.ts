@@ -112,7 +112,7 @@ export async function runSimulation(
       // Fallback: Only use paymentInfo if Chopsticks is completely unavailable
       // This should be rare - only in environments where @acala-network/chopsticks-core can't be imported
       simulationLogger.warn({}, 'Chopsticks unavailable - using paymentInfo fallback (limited validation)');
-      await runPaymentInfoValidation(extrinsic, itemContext);
+      await runPaymentInfoValidation(extrinsic, itemContext, executionArray, item);
     }
 
     // Mark simulation as complete
@@ -153,7 +153,6 @@ async function runChopsticksSimulation(
     hasSessionEndpoint: !!context.sessionEndpoint
   });
   
-  // CRITICAL: Validate API is available and connected
   if (!context.api) {
     console.error('[SIMULATION] runChopsticksSimulation: API not available');
     const errorMsg = 'API instance is not available. This may happen after switching networks. Please try again.';
@@ -283,7 +282,9 @@ async function runChopsticksSimulation(
  */
 async function runPaymentInfoValidation(
   extrinsic: SubmittableExtrinsic<'promise'>,
-  context: SimulationContext
+  context: SimulationContext,
+  executionArray: ExecutionArray,
+  item: ExecutionItem
 ): Promise<void> {
   const simulationLogger = createSubsystemLogger(Subsystem.SIMULATION);
   simulationLogger.warn({}, 'Using paymentInfo fallback - this only validates structure, not runtime behavior');
@@ -292,12 +293,37 @@ async function runPaymentInfoValidation(
     const senderSS58Format = context.api.registry.chainSS58 || 0;
     const encodedSenderAddress = encodeAddress(senderPublicKey, senderSS58Format);
 
-    // This only checks if the extrinsic can be decoded and fee can be estimated
-    // It does NOT validate that the transaction will succeed on-chain
-    await extrinsic.paymentInfo(encodedSenderAddress);
+    // Get fee from paymentInfo (more accurate than hardcoded agent estimates)
+    const paymentInfo = await extrinsic.paymentInfo(encodedSenderAddress);
+    const realFee = paymentInfo.partialFee.toString();
+    
+    // Update simulation status with paymentInfo result
+    executionArray.updateSimulationStatus(item.id, {
+      phase: 'complete',
+      message: '⚠️ Using basic validation (Chopsticks unavailable)',
+      progress: 100,
+      details: 'Runtime execution not validated - paymentInfo only checks structure',
+      result: {
+        success: true,
+        estimatedFee: realFee,
+        validationMethod: 'paymentInfo',
+        wouldSucceed: true,
+        runtimeInfo: {
+          weight: paymentInfo.weight.toString(),
+          class: paymentInfo.class.toString(),
+          validated: false,
+          warning: 'Runtime execution not validated - paymentInfo only checks structure',
+        },
+      },
+    });
+    
+    // Update item.estimatedFee with the REAL fee from paymentInfo (replaces guessed fee from agent)
+    executionArray.updateEstimatedFee(item.id, realFee);
+    
   } catch {
     // paymentInfo can fail with wasm trap - continue without validation
     // This is expected in some cases and doesn't mean the transaction is invalid
+    // Don't update fee if paymentInfo fails
   }
 }
 

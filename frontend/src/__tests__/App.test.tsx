@@ -382,7 +382,8 @@ describe('App', () => {
       const addBotMessageCalls = mockChat.addBotMessage.mock.calls;
       expect(addBotMessageCalls.length).toBeGreaterThan(0);
       const lastCall = addBotMessageCalls[addBotMessageCalls.length - 1];
-      expect(lastCall[0]).toContain('Sorry, I encountered an error');
+      expect(lastCall[0]).toContain('BACKEND ERROR');
+      expect(lastCall[0]).toContain('executionId');
       
       // addExecutionMessage should NOT be called when executionId is missing
       expect(mockChat.addExecutionMessage).not.toHaveBeenCalled();

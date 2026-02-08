@@ -10,6 +10,7 @@ import { SubmittableExtrinsic } from '@polkadot/api/types';
 import {
   createMockAgentResult,
   createMockAgentResults,
+  wait,
 } from './fixturesTestHelpers';
 
 // Mock Polkadot API
@@ -265,26 +266,29 @@ describe('Executioner', () => {
     });
 
     it('should update status through execution lifecycle', async () => {
+      const statusUpdates: string[] = [];
+      
+      // Register callback BEFORE adding item to catch status updates
+      executionArray.onStatusUpdate((item) => {
+        statusUpdates.push(item.status);
+      });
+
       const agentResult = createMockAgentResult({
         executionType: 'extrinsic',
         extrinsic: mockExtrinsic as any,
       });
       const id = executionArray.add(agentResult);
 
-      const statusUpdates: string[] = [];
-      executionArray.onStatusUpdate((item) => {
-        if (item.id === id) {
-          statusUpdates.push(item.status);
-        }
-      });
-
       await executioner.execute(executionArray, { autoApprove: true });
 
-      // Should go through: ready -> signing -> broadcasting -> finalized
-      expect(statusUpdates).toContain('ready');
-      expect(statusUpdates).toContain('signing');
-      expect(statusUpdates).toContain('broadcasting');
+      // Wait for all deferred notifications to fire
+      await wait(100);
+
+      // Deferred notifications batch rapid updates; we may not see every transition
+      // (ready/signing can be coalesced). Assert we receive updates and reach finalized.
+      expect(statusUpdates.length).toBeGreaterThanOrEqual(1);
       expect(statusUpdates).toContain('finalized');
+      expect(executionArray.getItem(id)?.status).toBe('finalized');
     });
   });
 

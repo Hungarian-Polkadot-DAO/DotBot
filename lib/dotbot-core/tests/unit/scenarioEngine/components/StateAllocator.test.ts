@@ -49,7 +49,7 @@ jest.mock('../../../../services/simulation/database', () => ({
   })),
 }));
 
-jest.mock('../../../../chatInstanceManager', () => ({
+jest.mock('../../../../chat/chatInstanceManager', () => ({
   ChatInstanceManager: jest.fn(),
 }));
 
@@ -69,7 +69,7 @@ import type { TestEntity, ScenarioMode, ScenarioChain } from '../../../../scenar
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { setup, BuildBlockMode } from '@acala-network/chopsticks-core';
 import { ChopsticksDatabase } from '../../../../services/simulation/database';
-import { ChatInstanceManager } from '../../../../chatInstanceManager';
+import { ChatInstanceManager } from '../../../../chat/chatInstanceManager';
 
 describe('StateAllocator', () => {
   let mockEntityResolver: (name: string) => TestEntity | undefined;

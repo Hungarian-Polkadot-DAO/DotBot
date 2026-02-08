@@ -50,6 +50,7 @@ export function createMockDotBot(overrides?: Partial<DotBot>): jest.Mocked<DotBo
     startExecution: jest.fn().mockResolvedValue(undefined),
     addEventListener: jest.fn(),
     removeEventListener: jest.fn(),
+    emit: jest.fn(),
     ...overrides,
   } as any;
 }

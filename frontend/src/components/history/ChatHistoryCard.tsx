@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import type { ChatInstanceData } from '@dotbot/core/types/chatInstance';
+import type { ChatInstanceData } from '@dotbot/core';
 import type { DotBot } from '@dotbot/core';
 import EnvironmentBadge from '../wallet/EnvironmentBadge';
 import ConfirmationModal from '../common/ConfirmationModal';

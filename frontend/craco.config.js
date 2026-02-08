@@ -54,6 +54,26 @@ module.exports = {
         zlib: false,
       };
       
+      // Ignore missing source maps from node_modules
+      // This prevents warnings about missing .ts files from @dotbot/core package
+      webpackConfig.module.rules = webpackConfig.module.rules.map(rule => {
+        if (rule.oneOf) {
+          return {
+            ...rule,
+            oneOf: rule.oneOf.map(subRule => {
+              if (subRule.loader && subRule.loader.includes('source-map-loader')) {
+                return {
+                  ...subRule,
+                  exclude: /node_modules/,
+                };
+              }
+              return subRule;
+            }),
+          };
+        }
+        return rule;
+      });
+      
       return webpackConfig;
     },
   },

@@ -24,31 +24,31 @@ DotBot is a distributed system with frontend and backend components, designed fo
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         FRONTEND                            │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  React Application                                  │    │
-│  │  - UI Components                                    │    │
-│  │  - Wallet Integration                               │    │
-│  │  - dotbot-core (client-side operations)  │    │
-│  └────────────────────────────────────────────────────┘    │
+│  ┌────────────────────────────────────────────────────┐     │
+│  │  React Application                                 │     │
+│  │  - UI Components                                   │     │
+│  │  - Wallet Integration                              │     │
+│  │  - @dotbot/core (client-side operations)           │     │
+│  └────────────────────────────────────────────────────┘     │
 │                          ↓ HTTP API                         │
 └─────────────────────────────────────────────────────────────┘
                            ↓
 ┌─────────────────────────────────────────────────────────────┐
 │                         BACKEND                             │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  Express.js Server (TypeScript)                     │    │
-│  │  - @dotbot/express (routes & middleware)            │    │
-│  │  - @dotbot/core (server-side operations)            │    │
-│  │  - Secure API key management                        │    │
-│  │  - OpenAPI specification (base truth)               │    │
-│  │  - Prism mock server for testing                    │    │
-│  └────────────────────────────────────────────────────┘    │
+│  ┌────────────────────────────────────────────────────┐     │
+│  │  Express.js Server (TypeScript)                    │     │
+│  │  - @dotbot/express (routes & middleware)           │     │
+│  │  - @dotbot/core (server-side operations)           │     │
+│  │  - Secure API key management                       │     │
+│  │  - OpenAPI specification (base truth)              │     │
+│  │  - Prism mock server for testing                   │     │
+│  └────────────────────────────────────────────────────┘     │
 │                          ↓                                  │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  AI Providers                                       │    │
-│  │  - ASI-One (Fetch.ai)                              │    │
-│  │  - Claude (Anthropic)                              │    │
-│  └────────────────────────────────────────────────────┘    │
+│  ┌────────────────────────────────────────────────────┐     │
+│  │  AI Providers                                      │     │
+│  │  - ASI-One (Fetch.ai)                              │     │
+│  │  - Claude (Anthropic)                              │     │
+│  └────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -59,11 +59,25 @@ DotBot/                      # Monorepo root
 ├── package.json             # Workspace configuration (4 workspaces)
 │
 ├── lib/                     # Shared libraries (both frontend & backend)
-│   ├── dotbot-core/         # @dotbot/core - Core blockchain logic
+│   ├── dotbot-core/         # @dotbot/core - Core logic
+│   │   ├── dotbot.ts        # DotBot class (~500 lines, turnkey API)
+│   │   ├── dotbot/          # DotBot logic modules (create, chat, execution, RPC, LLM)
+│   │   │   ├── create.ts    # Factory args for DotBot.create()
+│   │   │   ├── chatHandlers.ts
+│   │   │   ├── chatLifecycle.ts
+│   │   │   ├── executionPreparation.ts
+│   │   │   ├── executionRunner.ts
+│   │   │   ├── llm.ts       # getLLMResponse, buildContextualSystemPrompt
+│   │   │   ├── rpcLifecycle.ts  # ensureRpcConnectionsReady (lazy loading)
+│   │   │   ├── balanceChain.ts  # getBalance, getChainInfo
+│   │   │   └── types.ts    # DotBotConfig, ChatResult, etc.
 │   │   ├── agents/          # Blockchain operation agents
 │   │   ├── executionEngine/ # Transaction execution system
-│   │   ├── services/        # AI services, RPC management, logging
-│   │   ├── prompts/         # LLM system prompts
+│   │   ├── chat/            # ChatInstance, ChatInstanceManager
+│   │   ├── rpcManager/      # RpcManager, health, factories
+│   │   ├── prompts/        # LLM system prompts
+│   │   ├── services/       # AI, logger, simulation
+│   │   ├── storage/        # chatStorage, fileStorage
 │   │   ├── scenarioEngine/  # Testing framework
 │   │   └── env.ts           # Environment abstraction (browser/Node.js)
 │   │
@@ -142,14 +156,14 @@ export function getEnv(key: string): string | undefined {
 
 **Usage in both environments:**
 ```typescript
-// In frontend/src/App.tsx
-import { DotBot } from '@dotbot/core';
-import { AssetTransferAgent } from '@dotbot/core/agents/asset-transfer';
+// In frontend (or any consumer)
+import { DotBot, createRpcManagersForNetwork } from '@dotbot/core';
+import { AssetTransferAgent } from '@dotbot/core';  // or agents/asset-transfer
 
-// In backend/src/index.ts
-import { AIService } from '@dotbot/core/services/ai/aiService';
+// In backend
+import { AIService } from '@dotbot/core';
 
-// Both resolve to: ../lib/dotbot-core (same files!)
+// Monorepo: both resolve to lib/dotbot-core (same files). Future: npm install @dotbot/core.
 ```
 
 ### API Flow: Chat Example
@@ -302,13 +316,32 @@ const result = buildSafeTransferExtrinsic(api, params, capabilities);
 
 ## Module Structure
 
-### Agents (`frontend/src/lib/agents/`)
+### DotBot and dotbot/ Modules (`lib/dotbot-core/dotbot.ts` and `lib/dotbot-core/dotbot/`)
+
+**Purpose:** Turnkey DotBot class and extracted logic modules.
+
+- **dotbot.ts**: Single class `DotBot` (~500 lines). Public API: `create()`, `chat()`, `getBalance()`, `getChainInfo()`, `prepareExecution()` (internal), `startExecution()`, chat lifecycle, events. RPC and execution system are **lazy-loaded** on first use (e.g. first `chat()` or `getBalance()`).
+- **dotbot/create.ts**: `getCreateArgs(config)` — builds RPC managers, ExecutionSystem, config, network, chat manager for constructor.
+- **dotbot/chatHandlers.ts**: `handleConversationResponse`, `handleExecutionResponse` (route LLM response to text vs execution flow).
+- **dotbot/chatLifecycle.ts**: `initializeChatInstance`, `clearHistory`, `switchEnvironment`, `loadChatInstance`.
+- **dotbot/executionPreparation.ts**: `prepareExecution`, `prepareExecutionStateless` (orchestrate plan, add ExecutionMessage to chat).
+- **dotbot/executionRunner.ts**: `startExecution`, `startExecutionStateless`, `cleanupExecutionSessions`, `cleanupExpiredExecutions`.
+- **dotbot/llm.ts**: `getLLMResponse`, `buildContextualSystemPrompt` (wallet/network/balance context for system prompt). Chat history length is centralized via `CHAT_HISTORY_MESSAGE_LIMIT` (e.g. 8); balance info is injected next to history messages via `formatBalanceTurnContext` so the LLM always has up-to-date balance context. Includes a **format-retry guardrail**: when the LLM returns prose instead of a JSON ExecutionPlan (e.g. "I've prepared a transaction flow..."), the response is detected and the LLM is called once more with a correction prompt asking for JSON only.
+- **dotbot/rpcLifecycle.ts**: `ensureRpcConnectionsReady` (connect relay + optional Asset Hub, init ExecutionSystem and signer).
+- **dotbot/balanceChain.ts**: `getBalance`, `getChainInfo`.
+- **dotbot/types.ts**: `DotBotConfig`, `ChatResult`, `ChatOptions`, `DotBotEvent`, etc.
+
+**Design:** DotBot methods are thin wrappers that call these modules with `this`; state lives on the DotBot instance.
+
+---
+
+### Agents (`lib/dotbot-core/agents/`)
 
 **Purpose**: Create production-safe extrinsics for specific operations.
 
 **Structure:**
 ```
-agents/
+lib/dotbot-core/agents/
 ├── baseAgent.ts              # Base class with common utilities
 ├── types.ts                  # Shared agent interfaces
 └── asset-transfer/           # Asset transfer agent
@@ -338,13 +371,13 @@ agents/
 
 ---
 
-### Execution Engine (`frontend/src/lib/executionEngine/`)
+### Execution Engine (`lib/dotbot-core/executionEngine/`)
 
 **Purpose**: Execute extrinsics created by agents.
 
 **Structure:**
 ```
-executionEngine/
+lib/dotbot-core/executionEngine/
 ├── executioner.ts           # Main execution coordinator
 ├── executionArray.ts        # Transaction queue management
 ├── orchestrator.ts          # Execution plan orchestration
@@ -385,12 +418,12 @@ executionEngine/
 
 ---
 
-### Services (`frontend/src/lib/services/`)
+### Services (`lib/dotbot-core/services/`)
 
 **Purpose**: Core infrastructure services.
 
 **Key Services:**
-- **RpcManager**: Multi-endpoint management with health monitoring, failover, and **network-awareness**
+- **RpcManager**: Lives in `lib/dotbot-core/rpcManager/` (RpcManager.ts, healthTracker, factories). Multi-endpoint management with health monitoring, failover, and **network-awareness**. Periodic health checks run every 30 minutes by default (configurable). On API disconnect or error, the cached read API is cleared (`clearReadApiIf`) so the next `getReadApi()` triggers failover to a healthy endpoint. Uses `STABILITY_DELAY_MS` (150ms) before considering a connection stable; `getReadApi()` includes retry logic for transient failures.
 - **Chopsticks Client**: Client interface for runtime simulation (makes HTTP requests to backend server)
 - **SettingsManager**: Centralized settings management with persistence (simulation config, extensible for future settings)
 - **SequentialSimulation**: Multi-transaction simulation service (sequential execution on single fork for state tracking, client interface)
@@ -402,13 +435,13 @@ executionEngine/
 
 ---
 
-### Network System (`frontend/src/lib/prompts/system/knowledge/`)
+### Network System (`lib/dotbot-core/prompts/system/knowledge/`)
 
 **Purpose**: Provide network-aware configuration and LLM context for multi-network support.
 
 **Structure:**
 ```
-prompts/system/knowledge/
+lib/dotbot-core/prompts/system/knowledge/
 ├── types.ts                    # Network types and metadata
 ├── networkUtils.ts             # Network utility functions (20+)
 ├── index.ts                    # Centralized exports
@@ -447,17 +480,21 @@ prompts/system/knowledge/
 
 ---
 
-### Chat System (`frontend/src/lib/`)
+### Chat System (`lib/dotbot-core/chat/`)
 
 **Purpose**: Manage conversation instances with execution flow tracking and environment isolation.
 
 **Structure:**
 ```
-lib/
+lib/dotbot-core/chat/
 ├── chatInstance.ts              # ChatInstance class (conversation + execution state)
 ├── chatInstanceManager.ts       # Chat lifecycle management
-├── types/chatInstance.ts        # Chat-related types
-└── storage/chatStorage.ts       # Storage abstraction layer
+├── types.ts                     # Chat-related types (ConversationItem, etc.)
+├── executionState.ts            # Execution state handling
+└── sessionManager.ts            # Session helpers
+
+lib/dotbot-core/storage/
+└── chatStorage.ts               # Storage abstraction layer
 ```
 
 **Key Concepts:**
@@ -489,6 +526,7 @@ lib/
    - Each ExecutionArray has unique ID
    - Execution flows appear inline in conversation timeline
    - Can be interacted with independently
+   - **Historical flows**: When a chat is restored from storage, its execution flows are treated as historical (frozen). They are no longer restored/rebuilt from the ChatInstance constructor; the UI shows them as completed or interrupted and offers Rerun or Restore where applicable.
 
 **Responsibilities:**
 - Maintain conversation history with execution state
@@ -501,7 +539,7 @@ lib/
 
 ---
 
-### Frontend Components (`frontend/src/components/`)
+### Frontend Components (`frontend/src/components/` — in frontend repo)
 
 **Purpose**: React UI components for DotBot interface.
 
@@ -519,7 +557,8 @@ lib/
 
 3. **Execution Flow**
    - `ExecutionFlow` - Visual representation of ExecutionArray
-   - Shows transaction steps, status, and progress
+   - Shows transaction steps, status, and progress in real time (subscriptions fixed so simulation/broadcasting/finalized state updates render correctly; `useExecutionFlowState` no longer destroys subscriptions when `executionMessage` object reference changes)
+   - **Historical flows**: Execution flows from restored/saved chats are treated as historical (frozen by default). Completed historical flows can be **Rerun** (creates a new ExecutionFlow); interrupted ones can be **Restore** (resume without creating a new flow). Helpers: `isStepFinalized`, `isExecutionArrayStateTerminal`
    - "Accept & Start" button for user approval
    - Respects simulation setting (shows/hides simulation UI)
 
@@ -548,15 +587,15 @@ lib/
 
 ---
 
-### Data Management (`frontend/src/lib/`)
+### Data Management (`lib/dotbot-core/`)
 
 **Purpose**: GDPR-compliant data management and storage abstraction.
 
 **Structure:**
 ```
-lib/
+lib/dotbot-core/
 ├── dataManager.ts              # GDPR operations (export, delete, verify)
-└── storage/chatStorage.ts      # Storage abstraction
+└── storage/chatStorage.ts       # Storage abstraction
 ```
 
 **Key Components:**
@@ -592,24 +631,28 @@ lib/
 
 ---
 
-### ScenarioEngine (`frontend/src/lib/scenarioEngine/`)
+### ScenarioEngine (`lib/dotbot-core/scenarioEngine/`)
 
 **Purpose**: Testing and evaluation framework for DotBot. Enables systematic testing of prompt handling, security, and functionality through the actual UI.
 
 **Structure:**
 ```
-scenarioEngine/
-├── ScenarioEngine.ts          # Main orchestrator
-├── types.ts                   # Core types (Scenario, StepResult, etc.)
+lib/dotbot-core/scenarioEngine/
+├── ScenarioEngine.ts          # Main orchestrator (validates expectations at load via ExpressionValidator)
+├── types.ts                   # Core types (Scenario, StepResult, ComparisonOperator, LogicalExpectation, etc.)
 ├── index.ts                   # Public API exports
 ├── components/
 │   ├── EntityCreator.ts       # Creates test accounts (keypairs, multisigs, proxies)
 │   ├── StateAllocator.ts      # Sets up initial state (balances, on-chain, local)
 │   ├── ScenarioExecutor.ts    # Executes scenarios
-│   └── Evaluator.ts           # Evaluates results against expectations
+│   ├── Evaluator.ts           # Evaluates results against expectations (uses ExpressionEvaluator for comparison/logical ops)
+│   ├── ExpressionEvaluator.ts # Comparison operators (eq, ne, gt, gte, lt, lte, between, matches, in, notIn)
+│   └── ExpressionValidator.ts # Validates expectations at load (circular refs, nesting depth, invalid operators)
 └── scenarios/
-    └── testPrompts.ts         # Pre-built test scenarios
+    └── testPrompts.ts         # Pre-built test scenarios (20+ converted to expression system)
 ```
+
+**Expression System**: Expectations support comparison operators in `expectedParams` (e.g. `amount: { gte: '0.1', lte: '10' }`) and logical operators (`all`, `any`, `not`, `when`/`then`/`else`). Backward compatible: plain values and existing scenarios work unchanged. See `xx_scenario_engine/EXPRESSION_SYSTEM_EXAMPLES.md` (20+ examples) and `QUICK_REFERENCE.md`. ExpressionValidator runs at scenario load time (before execution) and fails fast on circular references, excessive nesting, or invalid operators.
 
 **Key Components:**
 
@@ -621,8 +664,8 @@ scenarioEngine/
 
 2. **StateAllocator**
    - Sets up initial state for scenario execution
-   - **Synthetic mode**: Tracks balances/assets in memory
-   - **Emulated mode**: Uses Chopsticks to set chain state (requires backend server, currently disabled)
+   - **Synthetic mode**: TODO (disabled) – would track balances/assets in memory
+   - **Emulated mode**: TODO (disabled) – would use Chopsticks to set chain state (requires backend server)
    - **Live mode**: Creates real transactions (with warnings)
    - Integrates with RpcManager for reliable connections
    - Restores chat history from snapshots
@@ -644,8 +687,8 @@ scenarioEngine/
 **Key Concepts:**
 
 1. **Execution Modes**
-   - **Synthetic**: Fully mocked, no chain interaction (fastest, for unit tests)
-   - **Emulated**: Uses Chopsticks for realistic simulation via backend server (balanced, requires backend)
+   - **Synthetic**: TODO (disabled) – would be fully mocked, no chain interaction
+   - **Emulated**: TODO (disabled) – would use Chopsticks via backend server
    - **Live**: Real chain interaction (most realistic, requires testnet)
 
 2. **Scenario Structure**
@@ -1013,8 +1056,9 @@ Use RpcManager with multiple endpoints, health monitoring, and automatic failove
 
 **Consequences:**
 - More complex connection logic
-- Health monitoring overhead (minimal)
+- Health monitoring overhead (minimal; periodic check every 30 minutes by default)
 - Significantly improved reliability
+- Disconnect/error handlers clear cached API so failover happens on next use
 
 **Implementation:**
 ```typescript
@@ -1025,9 +1069,12 @@ const manager = new RpcManager([
 ]);
 
 const api = await manager.getReadApi();  // Uses best available endpoint
+// On api disconnect/error, cached read API is cleared; next getReadApi() fails over
 ```
 
-(Updated: January 2026)
+**History:**
+- v0.2.x (January 2026): Health check interval default 30 minutes; clear cached read API on disconnect/error for failover
+- v0.2.0 (January 2026): Initial multi-endpoint decision
 
 ---
 
@@ -1297,12 +1344,12 @@ This architecture enables:
 **Kusama Status:** Infrastructure is complete (RPC endpoints, factory functions, types), but `kusamaKnowledge.ts` needs to be created. Currently falls back to Polkadot knowledge.
 
 **Implementation Files:**
-- `frontend/src/lib/prompts/system/knowledge/types.ts` - Type definitions
-- `frontend/src/lib/prompts/system/knowledge/networkUtils.ts` - Utilities (20+ functions)
-- `frontend/src/lib/prompts/system/knowledge/dotKnowledge.ts` - Polkadot knowledge
-- `frontend/src/lib/prompts/system/knowledge/westendKnowledge.ts` - Westend knowledge
-- `frontend/src/lib/rpcManager.ts` - Network-aware RPC management
-- `frontend/src/lib/dotbot.ts` - Network parameter integration
+- `lib/dotbot-core/prompts/system/knowledge/types.ts` - Type definitions
+- `lib/dotbot-core/prompts/system/knowledge/networkUtils.ts` - Utilities (20+ functions)
+- `lib/dotbot-core/prompts/system/knowledge/dotKnowledge.ts` - Polkadot knowledge
+- `lib/dotbot-core/prompts/system/knowledge/westendKnowledge.ts` - Westend knowledge
+- `lib/dotbot-core/rpcManager/` - Network-aware RPC management (RpcManager.ts, factories, healthTracker)
+- `lib/dotbot-core/dotbot.ts` - DotBot class; `lib/dotbot-core/dotbot/create.ts` - Network/config in create args
 
 **Jest Configuration:**
 - CRACO setup required for Polkadot.js v14 static class blocks
@@ -2387,6 +2434,41 @@ This architecture enables:
 
 ---
 
+### Decision 13: LLM Output Format Guardrail (ExecutionPlan Reliability)
+
+**Context:**
+- The LLM (e.g. ASI-One) sometimes returns prose (e.g. "I've prepared a transaction flow with 1 step...") instead of a JSON ExecutionPlan, so no ExecutionFlow is shown and the user gets incorrect feedback.
+- Instruction-tuned models have a strong reflex to explain in prose; prompt instructions alone do not guarantee JSON-only output on every call.
+
+**Decision:**
+Use a three-layer approach to maximize ExecutionPlan reliability:
+
+1. **Output Mode Override (prompt)**: At the start of the system prompt, state that when responding with an ExecutionPlan the model is in **JSON MODE** — it is a JSON generator, not an assistant; emitting any prose is a failure. This gives a mode identity and reduces assistant-style reflexes.
+
+2. **Final Line Hard Stop (prompt)**: At the end of the system prompt, add a **FINAL CHECK BEFORE RESPONDING**: "If you are about to generate an ExecutionPlan: STOP. DELETE any prose. OUTPUT ONLY the \`\`\`json block." Models tend to treat final checks seriously.
+
+3. **Code-level safety net (llm.ts)**: In `getLLMResponse()`, after receiving the LLM response, if the response does not start with \`\`\`json and either (a) contains a JSON block later, or (b) looks like command prose (e.g. "I've prepared", "transaction flow", "Review the details below"), retry **once** with an injected system message: "You violated the output format... Return ONLY the JSON ExecutionPlan. NO prose." The retry almost always returns valid JSON. Frontend logs and displays a clear **LLM ERROR** message when no plan is extracted (so users and logs see correct feedback instead of silent failure).
+
+**Rationale:**
+- **Prompt layers**: Mode identity and final check reduce format violations without changing APIs.
+- **Retry**: Industry-standard for tool-calling systems; handles residual variance when the model still returns prose.
+- **Clear errors**: When no plan is extracted, the frontend shows an explicit error (and optional response preview) instead of misleading success or generic failure.
+
+**Consequences:**
+- System prompt is slightly longer (mode override + final check); prompt was also cleaned up and trimmed elsewhere.
+- One extra LLM call in the retry path when format violation is detected (single retry only).
+- Logs include `shouldRetryFormat`, `looksLikeCommandProse` for debugging detection.
+
+**Implementation:**
+- `lib/dotbot-core/prompts/system/loader.ts`: Output Mode Override block, FINAL CHECK block, compact rules and examples.
+- `lib/dotbot-core/dotbot/llm.ts`: Format check after first response; retry with correction prompt when appropriate; logging of guardrail decision.
+- `frontend/src/App.tsx`: When `plan` is missing but response looks like transfer prose, show a clear **LLM ERROR** message (e.g. "Model returned prose instead of ExecutionPlan...") with optional preview so users and logs see accurate feedback instead of incorrect success/failure. If context (e.g. balance) could not be obtained, a clean error message is shown instead of generic failure.
+
+**History:**
+- v0.2.x (January 2026): Three-layer guardrail (prompt mode + final check + code retry); RpcManager health check 30 min, clear on disconnect, STABILITY_DELAY_MS and getReadApi retry; frontend LLM error messaging; balance context via CHAT_HISTORY_MESSAGE_LIMIT and formatBalanceTurnContext.
+
+---
+
 ## References
 
 - [Polkadot Documentation](https://wiki.polkadot.network/)
@@ -2396,7 +2478,9 @@ This architecture enables:
 
 ---
 
-**Last Updated**: January 2026
+**Last Updated**: February 2026
+
+**Recent changes (PRs #91–#96, ScenarioEngine):** ExecutionPlan reliability (system prompt + code retry + frontend LLM error messaging); RpcManager STABILITY_DELAY_MS and getReadApi retry; historical Execution Flows (frozen, Rerun/Restore); balance context in chat history (CHAT_HISTORY_MESSAGE_LIMIT, formatBalanceTurnContext); React render fix for execution flow state; ScenarioEngine expression system (comparison/logical operators, ExpressionValidator, 20+ examples, converted scenarios).
 
 **Maintainers**: This document is updated with every significant architectural change via PR review process.
 

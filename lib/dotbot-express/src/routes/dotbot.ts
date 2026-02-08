@@ -198,6 +198,8 @@ router.post('/chat', async (req: Request, res: Response) => {
         responseLength: result.response?.length || 0,
         hasPlan: !!result.plan,
         planSteps: result.plan?.steps?.length || 0,
+        executionId: result.executionId || null,
+        hasExecutionArrayState: !!result.executionArrayState,
         currentChatId: dotbot.currentChat?.id || null
       }, 'DotBot chat completed successfully');
     } catch (chatError: any) {

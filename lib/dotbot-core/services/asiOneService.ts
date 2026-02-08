@@ -62,7 +62,7 @@ export class ASIOneService {
       apiKey: apiKey || '',
       baseUrl: 'https://api.asi1.ai/v1', // Default
       model: 'asi1-mini', // Default
-      temperature: 0.3, // Lower temperature for accuracy in blockchain operations (0.0-1.0, lower = more deterministic)
+      temperature: 0.0,
       maxTokens: parseInt(getEnv('ASI_ONE_MAX_TOKENS') || '2048'), // Default
       // Override with env vars if set
       ...(getEnv('ASI_ONE_BASE_URL') && { baseUrl: getEnv('ASI_ONE_BASE_URL') }),
@@ -168,14 +168,10 @@ export class ASIOneService {
       content: systemPrompt
     });
 
-    // Add conversation history (from context/frontend)
+    // Add conversation history (from context/frontend). Already limited by core (CHAT_HISTORY_MESSAGE_LIMIT).
     // Filter out system messages to ensure our system prompt is the first (and only) system message
-    // System messages are informational context, not part of the conversation flow
     if (conversationHistory.length > 0) {
-      const MAX_HISTORY_MESSAGES = 20; // Limit to avoid token limits
-      const recentHistory = conversationHistory.slice(-MAX_HISTORY_MESSAGES);
-      
-      const conversationMessages = recentHistory.filter((msg: ASIOneMessage) => msg.role !== 'system');
+      const conversationMessages = conversationHistory.filter((msg: ASIOneMessage) => msg.role !== 'system');
       messages.push(...conversationMessages);
     }
 
@@ -184,6 +180,15 @@ export class ASIOneService {
       messages.push({
         role: 'user',
         content: currentUserMessage
+      });
+    }
+
+    // Append current-turn balance so the model uses it for balance questions (avoids stale balance from history)
+    const turnContext = context?.turnContext;
+    if (turnContext && turnContext.trim().length > 0) {
+      messages.push({
+        role: 'user',
+        content: turnContext
       });
     }
 

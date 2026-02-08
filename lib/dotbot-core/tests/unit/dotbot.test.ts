@@ -33,12 +33,14 @@ jest.mock('@polkadot/util-crypto', () => ({
   },
 }));
 
-import { DotBot, DotBotConfig, ConversationMessage } from '../../dotbot';
+import { DotBot, DotBotConfig, ConversationMessage, CHAT_HISTORY_MESSAGE_LIMIT } from '../../dotbot';
+import { extractExecutionPlan } from '../../prompts/system/utils';
 import { ApiPromise } from '@polkadot/api';
 import { WalletAccount } from '../../types/wallet';
 import { RpcManager } from '../../rpcManager';
 import { ExecutionSystem } from '../../executionEngine/system';
 import { BrowserWalletSigner } from '../../executionEngine/signers/browserSigner';
+import * as llmModule from '../../dotbot/llm';
 
 // Mock dependencies
 jest.mock('../../rpcManager');
@@ -46,7 +48,15 @@ jest.mock('../../executionEngine/system');
 jest.mock('../../executionEngine/signers/browserSigner');
 jest.mock('../../prompts/system/loader', () => ({
   buildSystemPrompt: jest.fn().mockResolvedValue('Default system prompt'),
+  formatBalanceTurnContext: jest.fn((_context: any) => ''),
 }));
+jest.mock('../../dotbot/llm', () => {
+  const actual = jest.requireActual('../../dotbot/llm');
+  return {
+    ...actual,
+    buildContextualSystemPrompt: jest.fn().mockResolvedValue({ systemPrompt: 'Mock system prompt', turnContext: undefined }),
+  };
+});
 jest.mock('../../prompts/system/knowledge', () => ({
   detectNetworkFromChainName: jest.fn((chainName: string) => {
     if (chainName.toLowerCase().includes('westend')) return 'westend';
@@ -176,7 +186,7 @@ describe('DotBot', () => {
       // Should use createRpcManagersForNetwork (not legacy factory functions)
       expect(createRpcManagersForNetwork).toHaveBeenCalled();
       expect(MockExecutionSystem).toHaveBeenCalled();
-      expect(MockBrowserWalletSigner).toHaveBeenCalled();
+      // Signer is created lazily in ensureRpcConnectionsReady (on first chat/getBalance), not during create()
     });
 
     it('should NOT connect to RPC endpoints during creation (lazy loading)', async () => {
@@ -239,9 +249,12 @@ describe('DotBot', () => {
 
       (MockBrowserWalletSigner as jest.MockedClass<typeof BrowserWalletSigner>).mockImplementation(() => mockSigner as any);
 
-      await DotBot.create(config);
+      const dotbot = await DotBot.create(config);
 
-      // Verify signer was created
+      // Signer is created lazily on first use (e.g. chat); trigger it
+      await dotbot.chat('hi', { llm: () => Promise.resolve('no plan') });
+
+      // Verify signer was created with correct config
       expect(MockBrowserWalletSigner).toHaveBeenCalledWith({
         autoApprove: false,
       });
@@ -257,9 +270,11 @@ describe('DotBot', () => {
         autoApprove: true,
       };
 
-      await DotBot.create(config);
+      const dotbot = await DotBot.create(config);
 
-      // Verify signer was created with autoApprove
+      // Signer is created lazily on first use; trigger it
+      await dotbot.chat('hi', { llm: () => Promise.resolve('no plan') });
+
       expect(MockBrowserWalletSigner).toHaveBeenCalledWith({
         autoApprove: true,
       });
@@ -448,9 +463,6 @@ describe('DotBot', () => {
 
       dotbot = await DotBot.create(config);
       mockCustomLLM = jest.fn();
-
-      // Mock buildContextualSystemPrompt
-      jest.spyOn(dotbot as any, 'buildContextualSystemPrompt').mockResolvedValue('Mock system prompt');
     });
 
     it('should return text response when no ExecutionPlan is found', async () => {
@@ -459,6 +471,7 @@ describe('DotBot', () => {
 
       const result = await dotbot.chat('What is staking?', {
         llm: mockCustomLLM,
+        systemPrompt: 'Mock system prompt', // skip buildContextualSystemPrompt (would need RPC/balance in test)
       });
 
       expect(result.executed).toBe(false);
@@ -469,7 +482,7 @@ describe('DotBot', () => {
       expect(result.failed).toBe(0);
       expect(mockCustomLLM).toHaveBeenCalledWith(
         'What is staking?',
-        'Mock system prompt',
+        expect.any(String),
         expect.objectContaining({
           conversationHistory: expect.arrayContaining([
             expect.objectContaining({
@@ -652,15 +665,75 @@ describe('DotBot', () => {
       await dotbot.chat('What did we talk about?', {
         llm: mockCustomLLM,
         conversationHistory,
+        systemPrompt: 'Mock system prompt', // skip buildContextualSystemPrompt (would need RPC/balance in test)
+      });
+
+      // System prompt is the one we passed (mock); LLM receives conversationHistory (unchanged when ≤ limit)
+      expect(mockCustomLLM).toHaveBeenCalledWith(
+        'What did we talk about?',
+        expect.any(String),
+        expect.objectContaining({
+          conversationHistory: expect.arrayContaining([
+            expect.objectContaining({ role: 'user', content: 'Hello' }),
+            expect.objectContaining({ role: 'assistant', content: 'Hi! How can I help?' }),
+          ]),
+        })
+      );
+    });
+
+    it('should limit conversation history to CHAT_HISTORY_MESSAGE_LIMIT when not overridden', async () => {
+      const longHistory: ConversationMessage[] = Array.from({ length: 15 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: `Message ${i + 1}`,
+        timestamp: Date.now(),
+      }));
+
+      mockCustomLLM.mockResolvedValue('Response');
+
+      await dotbot.chat('Follow-up question?', {
+        llm: mockCustomLLM,
+        conversationHistory: longHistory,
+        systemPrompt: 'Mock system prompt',
       });
 
       expect(mockCustomLLM).toHaveBeenCalledWith(
-        'What did we talk about?',
-        'Mock system prompt',
+        'Follow-up question?',
+        expect.any(String),
         expect.objectContaining({
-          conversationHistory,
+          conversationHistory: expect.any(Array),
         })
       );
+      const callArgs = mockCustomLLM.mock.calls[0];
+      const passedHistory = callArgs[2]?.conversationHistory as ConversationMessage[];
+      expect(passedHistory).toHaveLength(CHAT_HISTORY_MESSAGE_LIMIT);
+      // Should be the last 8 messages (indices 7..14)
+      expect(passedHistory[0].content).toBe('Message 8');
+      expect(passedHistory[7].content).toBe('Message 15');
+    });
+
+    it('should respect options.historyLimit when provided', async () => {
+      const history: ConversationMessage[] = [
+        { role: 'user', content: 'A', timestamp: Date.now() },
+        { role: 'assistant', content: 'B', timestamp: Date.now() },
+        { role: 'user', content: 'C', timestamp: Date.now() },
+        { role: 'assistant', content: 'D', timestamp: Date.now() },
+        { role: 'user', content: 'E', timestamp: Date.now() },
+      ];
+
+      mockCustomLLM.mockResolvedValue('Response');
+
+      await dotbot.chat('Question?', {
+        llm: mockCustomLLM,
+        conversationHistory: history,
+        systemPrompt: 'Mock system prompt',
+        historyLimit: 3,
+      });
+
+      const callArgs = mockCustomLLM.mock.calls[0];
+      const passedHistory = callArgs[2]?.conversationHistory as ConversationMessage[];
+      expect(passedHistory).toHaveLength(3);
+      expect(passedHistory[0].content).toBe('C');
+      expect(passedHistory[2].content).toBe('E');
     });
 
     it('should use custom system prompt when provided', async () => {
@@ -677,7 +750,7 @@ describe('DotBot', () => {
         customPrompt,
         expect.any(Object)
       );
-      expect((dotbot as any).buildContextualSystemPrompt).not.toHaveBeenCalled();
+      expect(llmModule.buildContextualSystemPrompt).not.toHaveBeenCalled();
     });
 
     it('should extract ExecutionPlan from various JSON formats', async () => {
@@ -846,7 +919,8 @@ describe('DotBot', () => {
     });
 
     it('should return error result if no LLM is provided', async () => {
-      const result = await dotbot.chat('Test message');
+      // Pass systemPrompt so we skip buildContextualSystemPrompt and reach callLLM, which throws when no LLM
+      const result = await dotbot.chat('Test message', { systemPrompt: 'Mock system prompt' });
       expect(result.success).toBe(false);
       expect(result.executed).toBe(false);
       expect(result.response).toContain('No LLM configured');
@@ -1247,6 +1321,7 @@ describe('DotBot', () => {
   });
 
   describe('buildContextualSystemPrompt()', () => {
+    const actualLlm = jest.requireActual('../../dotbot/llm') as { buildContextualSystemPrompt: (dotbot: any) => Promise<{ systemPrompt: string; turnContext?: string }> };
     let dotbot: DotBot;
 
     beforeEach(async () => {
@@ -1302,15 +1377,15 @@ describe('DotBot', () => {
       // Clear any previous calls from creation
       jest.clearAllMocks();
 
-      const prompt = await (dotbot as any).buildContextualSystemPrompt();
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       // LAZY LOADING: buildContextualSystemPrompt() should trigger RPC connections
       expect(mockRelayChainManager.getReadApi).toHaveBeenCalled();
       expect(mockExecutionSystem.initialize).toHaveBeenCalled();
 
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
+      expect(typeof result.systemPrompt).toBe('string');
+      expect(result.systemPrompt.length).toBeGreaterThan(0);
     });
 
     it('should include Asset Hub balance when available', async () => {
@@ -1338,7 +1413,7 @@ describe('DotBot', () => {
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
       (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt with Asset Hub');
 
-      await (dotbot as any).buildContextualSystemPrompt();
+      await actualLlm.buildContextualSystemPrompt(dotbot);
 
       // Verify balance was fetched (which includes Asset Hub)
       expect(dotbot.getBalance).toHaveBeenCalled();
@@ -1366,24 +1441,22 @@ describe('DotBot', () => {
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://kusama-rpc.polkadot.io');
       (buildSystemPrompt as jest.Mock).mockResolvedValue('Kusama system prompt');
 
-      const prompt = await (dotbot as any).buildContextualSystemPrompt();
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       expect(dotbot.getChainInfo).toHaveBeenCalled();
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
+      expect(typeof result.systemPrompt).toBe('string');
     });
 
-    it('should fallback to basic prompt if context fetch fails', async () => {
+    it('should throw when context fetch fails (no fallback)', async () => {
       // Make getBalance fail
       jest.spyOn(dotbot, 'getBalance').mockRejectedValue(new Error('Balance fetch failed'));
-      (buildSystemPrompt as jest.Mock).mockResolvedValue('Fallback system prompt');
 
-      const prompt = await (dotbot as any).buildContextualSystemPrompt();
-
-      // Should still return a prompt (fallback)
-      expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
+      await expect(actualLlm.buildContextualSystemPrompt(dotbot)).rejects.toThrow(
+        'Failed to build system prompt: Balance fetch failed'
+      );
+      // Should NOT call buildSystemPrompt (we throw instead of falling back)
+      expect(buildSystemPrompt).not.toHaveBeenCalled();
     });
 
     it('should handle missing Asset Hub balance gracefully', async () => {
@@ -1407,12 +1480,12 @@ describe('DotBot', () => {
       (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://rpc.polkadot.io');
       (buildSystemPrompt as jest.Mock).mockResolvedValue('System prompt without Asset Hub');
 
-      const prompt = await (dotbot as any).buildContextualSystemPrompt();
+      const result = await actualLlm.buildContextualSystemPrompt(dotbot);
 
       // Should still build prompt successfully
       expect(buildSystemPrompt).toHaveBeenCalled();
-      expect(typeof prompt).toBe('string');
-      expect(prompt.length).toBeGreaterThan(0);
+      expect(typeof result.systemPrompt).toBe('string');
+      expect(result.systemPrompt.length).toBeGreaterThan(0);
     });
 
     describe('Network-specific context', () => {
@@ -1450,7 +1523,7 @@ describe('DotBot', () => {
         (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://westend-rpc.polkadot.io');
         (buildSystemPrompt as jest.Mock).mockClear();
 
-        await (westendDotbot as any).buildContextualSystemPrompt();
+        await actualLlm.buildContextualSystemPrompt(westendDotbot);
 
         // Should be called with WND symbol
         expect(buildSystemPrompt).toHaveBeenCalledWith(
@@ -1499,7 +1572,7 @@ describe('DotBot', () => {
         (mockRelayChainManager.getCurrentEndpoint as jest.Mock).mockReturnValue('wss://kusama-rpc.polkadot.io');
         (buildSystemPrompt as jest.Mock).mockClear();
 
-        await (kusamaDotbot as any).buildContextualSystemPrompt();
+        await actualLlm.buildContextualSystemPrompt(kusamaDotbot);
 
         // Should be called with KSM symbol
         expect(buildSystemPrompt).toHaveBeenCalledWith(
@@ -1547,7 +1620,7 @@ describe('DotBot', () => {
         jest.spyOn(westendDotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
         (buildSystemPrompt as jest.Mock).mockClear();
 
-        await (westendDotbot as any).buildContextualSystemPrompt();
+        await actualLlm.buildContextualSystemPrompt(westendDotbot);
 
         // Should set isTestnet to true
         expect(buildSystemPrompt).toHaveBeenCalledWith(
@@ -1579,7 +1652,7 @@ describe('DotBot', () => {
         jest.spyOn(dotbot, 'getChainInfo').mockResolvedValue(mockChainInfo);
         (buildSystemPrompt as jest.Mock).mockClear();
 
-        await (dotbot as any).buildContextualSystemPrompt();
+        await actualLlm.buildContextualSystemPrompt(dotbot);
 
         // Should set isTestnet to false
         expect(buildSystemPrompt).toHaveBeenCalledWith(
@@ -1595,16 +1668,6 @@ describe('DotBot', () => {
   });
 
   describe('extractExecutionPlan()', () => {
-    let dotbot: DotBot;
-
-    beforeEach(async () => {
-      const config: DotBotConfig = {
-        wallet: mockWallet,
-      };
-
-      dotbot = await DotBot.create(config);
-    });
-
     it('should extract ExecutionPlan from JSON code block', () => {
       const plan = {
         id: 'test-plan',
@@ -1629,7 +1692,7 @@ describe('DotBot', () => {
       };
 
       const llmResponse = `\`\`\`json\n${JSON.stringify(plan)}\n\`\`\``;
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('test-plan');
@@ -1647,7 +1710,7 @@ describe('DotBot', () => {
       };
 
       const llmResponse = `\`\`\`\n${JSON.stringify(plan)}\n\`\`\``;
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('test-plan');
@@ -1664,7 +1727,7 @@ describe('DotBot', () => {
       };
 
       const llmResponse = JSON.stringify(plan);
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).not.toBeNull();
       expect(result?.id).toBe('test-plan');
@@ -1672,7 +1735,7 @@ describe('DotBot', () => {
 
     it('should return null for invalid JSON', () => {
       const llmResponse = 'This is not JSON at all';
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).toBeNull();
     });
@@ -1684,15 +1747,80 @@ describe('DotBot', () => {
       };
 
       const llmResponse = JSON.stringify(invalidPlan);
-      const result = (dotbot as any).extractExecutionPlan(llmResponse);
+      const result = extractExecutionPlan(llmResponse);
 
       expect(result).toBeNull();
     });
 
     it('should return null for empty or null input', () => {
-      expect((dotbot as any).extractExecutionPlan('')).toBeNull();
-      expect((dotbot as any).extractExecutionPlan(null as any)).toBeNull();
-      expect((dotbot as any).extractExecutionPlan(undefined as any)).toBeNull();
+      expect(extractExecutionPlan('')).toBeNull();
+      expect(extractExecutionPlan(null as any)).toBeNull();
+      expect(extractExecutionPlan(undefined as any)).toBeNull();
+    });
+
+    it('should extract ExecutionPlan from JSON with surrounding text', () => {
+      const plan = {
+        id: 'exec_1234567890',
+        originalRequest: 'Send 2 DOT to Alice',
+        steps: [
+          {
+            id: 'step_1',
+            stepNumber: 1,
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: { recipient: 'Alice', amount: '2' },
+            executionType: 'extrinsic',
+            status: 'pending',
+            description: 'Transfer 2 DOT to Alice',
+            requiresConfirmation: true,
+            createdAt: 1234567890,
+          },
+        ],
+        status: 'pending',
+        requiresApproval: true,
+        createdAt: 1234567890,
+      };
+
+      const llmResponse = `Some text before the JSON\n${JSON.stringify(plan)}\nSome text after`;
+      const result = extractExecutionPlan(llmResponse);
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('exec_1234567890');
+      expect(result?.steps).toHaveLength(1);
+    });
+
+    it('should fix trailing commas in JSON', () => {
+      const plan = {
+        id: 'exec_1234567890',
+        originalRequest: 'Test',
+        steps: [
+          {
+            id: 'step_1',
+            stepNumber: 1,
+            agentClassName: 'AssetTransferAgent',
+            functionName: 'transfer',
+            parameters: { amount: '2' },
+            executionType: 'extrinsic',
+            status: 'pending',
+            description: 'Test',
+            requiresConfirmation: true,
+            createdAt: 1234567890,
+          },
+        ],
+        status: 'pending',
+        requiresApproval: true,
+        createdAt: 1234567890,
+      };
+
+      // Create JSON with trailing comma
+      let jsonWithTrailingComma = JSON.stringify(plan, null, 2);
+      jsonWithTrailingComma = jsonWithTrailingComma.replace(/}$/, ',\n}');
+
+      const llmResponse = `\`\`\`json\n${jsonWithTrailingComma}\n\`\`\``;
+      const result = extractExecutionPlan(llmResponse);
+
+      expect(result).not.toBeNull();
+      expect(result?.id).toBe('exec_1234567890');
     });
   });
 

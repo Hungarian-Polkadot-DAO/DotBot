@@ -78,6 +78,8 @@ import {
   Evaluator,
   createEvaluator,
   ExecutorDependencies,
+  ExpressionValidator,
+  createExpressionValidator,
 } from './components';
 
 import type { ApiPromise } from '@polkadot/api';
@@ -110,6 +112,7 @@ export class ScenarioEngine {
   private stateAllocator: StateAllocator | null = null;
   private executor: ScenarioExecutor | null = null;
   private evaluator: Evaluator | null = null;
+  private expressionValidator: ExpressionValidator;
   
   // Dependencies for executor
   private executorDeps: ExecutorDependencies | null = null;
@@ -144,11 +147,19 @@ export class ScenarioEngine {
   private lastReportedStatus: Map<string, Map<string, string>> = new Map(); // executionId -> itemId -> status
   // Track which executions have had completion events emitted (to avoid duplicates)
   private lastExecutionCompleteState: Set<string> | null = null;
-  
+  // When CHAT_COMPLETE follows an execution flow, wait for execution to finish before notifying executor
+  private lastExecutionIdFromMessage: string | null = null;
+  private pendingNotify: { executionId: string; chatResult: ChatResult } | null = null;
+  private pendingNotifyTimeout: ReturnType<typeof setTimeout> | null = null;
+  private static readonly PENDING_NOTIFY_TIMEOUT_MS = 5 * 60 * 1000;
+
   // Event and error tracking for summary generation
   private capturedEvents: ScenarioEngineEvent[] = [];
   private capturedErrors: Array<{ step?: string; message: string; timestamp: number; stack?: string }> = [];
   private scenarioEndReason: ScenarioEndReason | null = null;
+  
+  // Store evaluation results for detailed reporting
+  private lastEvaluationResults: import('./components/Evaluator').ExpectationResult[] | null = null;
 
   constructor(config: ScenarioEngineConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -156,6 +167,7 @@ export class ScenarioEngine {
       status: 'idle',
       entities: new Map(),
     };
+    this.expressionValidator = createExpressionValidator();
   }
 
   // ===========================================================================
@@ -233,16 +245,19 @@ export class ScenarioEngine {
    * @param dotbot The DotBot instance to subscribe to
    */
   subscribeToDotBot(dotbot: DotBot): void {
-    // Unsubscribe from previous DotBot if any
+    // Skip if already subscribed to this DotBot instance
+    if (this.dotbot === dotbot && this.dotbotEventListener) {
+      return;
+    }
+    
     if (this.dotbot && this.dotbotEventListener) {
       this.dotbot.removeEventListener(this.dotbotEventListener);
+      this.dotbotEventListener = null;
     }
     
     this.dotbot = dotbot;
     
-    // Create event listener that automatically notifies executor AND builds report
-    // IMPORTANT: Only handle chat-complete - it contains everything we need
-    // bot-message-added and execution-message-added fire BEFORE chat-complete and are redundant
+    // Create event listener that automatically notifies executor and builds report
     this.dotbotEventListener = (event) => {
       // Log all DotBot events for debugging (use info level so we can see them)
       this.log('info', `[ScenarioEngine] DotBot event received: ${event.type}`);
@@ -268,50 +283,55 @@ export class ScenarioEngine {
           break;
           
         case DotBotEventType.CHAT_COMPLETE: {
-          // PRIMARY event - contains full ChatResult with response, plan, execution status
-          // This fires AFTER bot-message-added and execution-message-added
-          // It's the authoritative source - use this and ignore the others
           const chatResult = event.result;
-          
-          // Log that we received a response
+
           this.log('info', `[ScenarioEngine] DotBot chat-complete event received`);
           this.log('info', `DotBot response received: ${chatResult.response ? chatResult.response.substring(0, 100) + (chatResult.response.length > 100 ? '...' : '') : 'empty'}`);
-          
-          // Note: execution-message-added fires BEFORE chat-complete, so ExecutionFlow should already be logged
-          // But we log the final response here
           this.appendToReport(`\n[INFO] ✓ DotBot Response Complete\n`);
-          
-          // Capture event for summary
-          this.captureEvent({ 
-            type: 'dotbot-activity', 
+          this.captureEvent({
+            type: 'dotbot-activity',
             activity: 'Response received',
-            details: chatResult.response ? chatResult.response.substring(0, 200) : 'Empty response'
+            details: chatResult.response ? chatResult.response.substring(0, 200) : 'Empty response',
           });
-          
           this.lastDotBotResponse = chatResult;
-          
-          // CRITICAL: Notify executor that response was received (this resolves waitForResponseReceived promise)
-          if (this.executor) {
+          this.appendDotBotResponseToReport(chatResult);
+
+          const executionIdToWait =
+            (chatResult.plan && (chatResult.executionId ?? this.lastExecutionIdFromMessage)) || null;
+          this.lastExecutionIdFromMessage = null;
+
+          if (executionIdToWait) {
+            this.pendingNotify = { executionId: executionIdToWait, chatResult };
+            this.appendToReport(`\n[INFO] Waiting for user to accept and for all transactions to complete...\n`);
+            this.log('info', `[ScenarioEngine] Waiting for execution ${executionIdToWait} (accept + confirm) before step done`);
+            // If result already has terminal execution state (e.g. stateless path, simulation failed), finish immediately
+            const stateFromResult = chatResult.executionArrayState;
+            if (stateFromResult?.items?.length && stateFromResult.id === executionIdToWait) {
+              this.appendExecutionStatusToReport(stateFromResult);
+              this.tryNotifyExecutionComplete(executionIdToWait, stateFromResult);
+            }
+            if (this.pendingNotify && dotbot.currentChat) {
+              this.subscribeToExecutionUpdates(dotbot.currentChat, executionIdToWait);
+            }
+            if (this.pendingNotify) {
+              this.startPendingNotifyTimeout();
+            }
+          } else if (this.executor) {
             this.log('info', '[ScenarioEngine] Notifying executor of response');
             this.executor.notifyResponseReceived(chatResult);
           } else {
             this.log('warn', '[ScenarioEngine] Executor not available - cannot notify of response');
           }
-          
-          this.appendDotBotResponseToReport(chatResult);
           break;
         }
           
         case DotBotEventType.BOT_MESSAGE_ADDED:
-          // IGNORE - chat-complete will fire after this with the same data
-          // Only used for UI display, not for scenario execution
           break;
           
         case DotBotEventType.EXECUTION_MESSAGE_ADDED:
-          // Subscribe to execution updates to track progress in report
+          this.lastExecutionIdFromMessage = event.executionId;
           this.log('info', `[ScenarioEngine] ✓ EXECUTION FLOW DETECTED: ${event.executionId}`);
-          
-          // Log execution plan details if available
+
           if (event.plan) {
             const stepCount = event.plan.steps?.length || 0;
             this.appendToReport(`\n[INFO] ✓ Execution Flow Appeared\n`);
@@ -471,12 +491,63 @@ export class ScenarioEngine {
       existingUnsubscribe();
     }
     
-    // Subscribe to execution updates
     const unsubscribe = chatInstance.onExecutionUpdate(executionId, (state: any) => {
       this.appendExecutionStatusToReport(state);
+      this.tryNotifyExecutionComplete(executionId, state);
     });
-    
     this.executionSubscriptions.set(executionId, unsubscribe);
+    
+    // If execution is already in chat and terminal (e.g. simulation failed before we subscribed), finish immediately
+    const executionArray = chatInstance.getExecutionArray?.(executionId);
+    if (executionArray?.getState) {
+      const state = executionArray.getState();
+      this.appendExecutionStatusToReport(state);
+      this.tryNotifyExecutionComplete(executionId, state);
+    }
+  }
+
+  private tryNotifyExecutionComplete(executionId: string, state: any): void {
+    if (!state?.items?.length || !this.pendingNotify || this.pendingNotify.executionId !== executionId) return;
+    if (state.id && state.id !== executionId) return;
+    const terminal = (item: any) =>
+      item.status === 'completed' || item.status === 'finalized' || item.status === 'failed' || item.status === 'cancelled';
+    const settled = (item: any) =>
+      ['ready', 'completed', 'finalized', 'failed', 'cancelled'].includes(item.status);
+    const allTerminal = state.items.every(terminal);
+    const terminalCount = state.items.filter(terminal).length;
+    const allSettled = state.items.every(settled);
+    const isComplete =
+      allTerminal ||
+      (terminalCount === state.items.length && terminalCount > 0) ||
+      (state.failedItems > 0 && (state.completedItems ?? 0) + (state.failedItems ?? 0) >= (state.totalItems ?? state.items.length)) ||
+      (state.failedItems > 0 && allSettled);
+    if (!isComplete) return;
+    this.clearPendingNotifyTimeout();
+    if (this.executor) {
+      this.log('info', `[ScenarioEngine] Execution ${executionId} complete (all terminal); notifying executor`);
+      this.executor.notifyResponseReceived(this.pendingNotify.chatResult);
+    }
+    this.emit({ type: 'execution-complete', executionId, state });
+    this.pendingNotify = null;
+  }
+
+  private startPendingNotifyTimeout(): void {
+    this.clearPendingNotifyTimeout();
+    this.pendingNotifyTimeout = setTimeout(() => {
+      this.pendingNotifyTimeout = null;
+      if (this.pendingNotify && this.executor) {
+        this.log('warn', '[ScenarioEngine] Execution wait timed out; notifying executor with current result');
+        this.executor.notifyResponseReceived(this.pendingNotify.chatResult);
+        this.pendingNotify = null;
+      }
+    }, ScenarioEngine.PENDING_NOTIFY_TIMEOUT_MS);
+  }
+
+  private clearPendingNotifyTimeout(): void {
+    if (this.pendingNotifyTimeout) {
+      clearTimeout(this.pendingNotifyTimeout);
+      this.pendingNotifyTimeout = null;
+    }
   }
   
   /**
@@ -525,6 +596,23 @@ export class ScenarioEngine {
       this.lastExecutionCompleteState.add(executionId);
     }
     
+    // Report simulation phase changes (so "not enough balance" etc. is visible)
+    state.items.forEach((item: any, index: number) => {
+      const sim = item.simulationStatus;
+      if (!sim?.phase) return;
+      const simKey = `sim_${item.id}`;
+      const lastSim = statusMap.get(simKey);
+      if (lastSim === sim.phase) return;
+      statusMap.set(simKey, sim.phase);
+      if (sim.phase === 'simulating' || sim.phase === 'validating') {
+        this.appendToReport(`  → Step ${index + 1}: ${item.description} - Simulating...\n`);
+      } else if (sim.phase === 'error') {
+        const msg = sim.message || item.error || 'Unknown error';
+        const label = msg.toLowerCase().startsWith('simulation failed') ? msg : `Simulation failed: ${msg}`;
+        this.appendToReport(`  ✗ Step ${index + 1}: ${item.description} - ${label}\n`);
+      }
+    });
+
     // Find items with status changes (only report if status changed)
     state.items.forEach((item: any, index: number) => {
       const lastStatus = statusMap.get(item.id);
@@ -546,6 +634,9 @@ export class ScenarioEngine {
         this.appendToReport(`  ✗ Step ${index + 1}: ${item.description} - ${statusLabel}\n`);
         if (item.error) {
           this.appendToReport(`    Error: ${item.error}\n`);
+        }
+        if (item.simulationStatus?.phase === 'error') {
+          this.appendToReport(`    (failed at simulation)\n`);
         }
       } else if (item.status === 'signing' || item.status === 'broadcasting' || item.status === 'executing') {
         this.appendToReport(`  → Step ${index + 1}: ${item.description} - ${statusLabel}...\n`);
@@ -667,10 +758,36 @@ export class ScenarioEngine {
       lines.push(`Executions: ${totalExecuted} completed${totalFailed > 0 ? `, ${totalFailed} failed` : ''}`);
     }
     
-    // Expectations summary
-    const metExpectations = evaluation.expectations.filter(e => e.met).length;
-    const totalExpectations = evaluation.expectations.length;
-    lines.push(`Expectations: ${metExpectations}/${totalExpectations} met`);
+    // Get detailed evaluation results from evaluator
+    const detailedResults = this.evaluator?.getLastExpectationResults();
+    
+    if (detailedResults && detailedResults.length > 0) {
+      // Count scoreable checks across all expectations
+      const allChecks = detailedResults.flatMap(r => r.checks || []);
+      const passedChecks = allChecks.filter(c => c.passed).length;
+      const totalChecks = allChecks.length;
+      
+      // Show check-level summary (more granular and accurate than expectation-level)
+      lines.push(`Checks: ${passedChecks}/${totalChecks} passed`);
+      
+      if (totalChecks > 0) {
+        lines.push('');
+        lines.push('Check Details:');
+        
+        detailedResults.forEach((result) => {
+          result.checks?.forEach(check => {
+            const icon = check.passed ? '✓' : '✗';
+            lines.push(`  ${icon} ${check.name}: ${check.message}`);
+          });
+        });
+      }
+    } else {
+      // Fallback to expectation-level summary if no detailed checks available
+      const metExpectations = evaluation.expectations.filter(e => e.met).length;
+      const totalExpectations = evaluation.expectations.length;
+      lines.push(`Expectations: ${metExpectations}/${totalExpectations} met`);
+    }
+    
     lines.push('');
     
     // Errors summary
@@ -707,8 +824,6 @@ export class ScenarioEngine {
     
     lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     lines.push(''); // Empty line for separation
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     lines.push(''); // Empty line for separation
     
     return lines.join('\n');
@@ -880,6 +995,9 @@ export class ScenarioEngine {
     }
     this.executionSubscriptions.clear();
     this.lastReportedStatus.clear();
+    this.lastExecutionIdFromMessage = null;
+    this.pendingNotify = null;
+    this.clearPendingNotifyTimeout();
   }
   
   /**
@@ -958,7 +1076,7 @@ export class ScenarioEngine {
    * Run a complete scenario
    */
   async runScenario(scenario: Scenario): Promise<ScenarioResult> {
-    // GUARD: Prevent concurrent scenario execution
+    // Prevent concurrent scenario execution
     if (this.runningScenario !== null) {
       const errorMsg = 'Cannot run scenario: another scenario is already running. Call endScenarioEarly() or wait for completion.';
       this.log('error', errorMsg);
@@ -968,25 +1086,21 @@ export class ScenarioEngine {
     this.log('info', `Running scenario: ${scenario.name}`);
     const startTime = Date.now();
     
-    // Store scenario reference for early ending
     this.runningScenario = scenario;
     this.scenarioStartTime = startTime;
-
     try {
-      // CRITICAL: Defer ALL synchronous work to prevent UI freeze
-      // This includes validation, setup, state updates, and initial event emissions
-      // All of these operations can block the UI thread if done synchronously
-      await new Promise<void>((resolve) => {
+      // Defer synchronous work to prevent UI freeze
+      await new Promise<void>((resolve, reject) => {
         queueMicrotask(() => {
-          // Validate (synchronous but lightweight - still defer to be safe)
-          this.validateScenario(scenario);
-          this.ensureDependencies();
-          
-          // This prevents missing events that fire early (e.g., execution-message-added)
-          if (this.dotbot && !this.dotbotEventListener) {
-            this.log('info', 'DotBot subscription not active, subscribing now before scenario execution');
-            this.subscribeToDotBot(this.dotbot);
-          }
+          try {
+            // Validate scenario
+            this.validateScenario(scenario);
+            this.ensureDependencies();
+            
+            // Ensure DotBot subscription is active for event capture
+            if (this.dotbot && !this.dotbotEventListener) {
+              this.subscribeToDotBot(this.dotbot);
+            }
 
           // Ensure executor has wallet address resolver and Asset Hub API
           // Priority: walletAccount > dotbot wallet > undefined (will throw helpful error)
@@ -1032,7 +1146,6 @@ export class ScenarioEngine {
           // This avoids unnecessary "empty state" render cycle
           this.clearReport(true); // silent = true
           
-          // Phase 1: BEGINNING - Setup
           this.emit({ type: 'phase-start', phase: 'beginning', details: 'Setting up scenario environment' });
           
           // Batch initial report updates to prevent multiple rapid events
@@ -1046,6 +1159,10 @@ export class ScenarioEngine {
           this.emit({ type: 'report-update', content: initialReportContent });
           
           resolve();
+          } catch (error) {
+            this.log('error', `Setup microtask failed: ${error}`);
+            reject(error);
+          }
         });
       });
       
@@ -1059,7 +1176,6 @@ export class ScenarioEngine {
       this.emit({ type: 'phase-update', phase: 'beginning', message: 'Setup complete' });
       this.appendToReport('  → Setup complete\n');
 
-      // Phase 2: CYCLE - Execute steps (unknown number of rounds)
       this.emit({ type: 'phase-start', phase: 'cycle', details: 'Executing scenario steps' });
       
       // Batch report updates to prevent multiple rapid events
@@ -1076,9 +1192,6 @@ export class ScenarioEngine {
       // Log that execution phase completed
       this.log('info', `Execution phase completed with ${stepResults.length} step result(s)`);
 
-      // Phase 3: FINAL REPORT - Evaluate
-      // CRITICAL: Defer evaluation and summary generation to prevent UI freeze
-      // evaluator.evaluate() and generateSummary() do heavy synchronous work
       const evaluation = await new Promise<EvaluationResult>((resolve) => {
         queueMicrotask(() => {
           this.emit({ type: 'phase-start', phase: 'final-report', details: 'Evaluating results' });
@@ -1092,10 +1205,7 @@ export class ScenarioEngine {
           this.reportContent += finalReportContent;
           this.emit({ type: 'report-update', content: finalReportContent });
           
-          this.emit({ type: 'phase-update', phase: 'final-report', message: 'Analyzing scenario results...' });
-          this.appendToReport('  → Analyzing scenario results...\n');
-          
-          // This is heavy synchronous work - now deferred
+          // Evaluate scenario results
           const evalResult = this.evaluator!.evaluate(scenario, stepResults);
           resolve(evalResult);
         });
@@ -1130,7 +1240,18 @@ export class ScenarioEngine {
           
           // Add final result to report
           this.appendToReport(`\n[COMPLETE] ${evaluation.passed ? '✅ PASSED' : '❌ FAILED'}\n`);
-          this.appendToReport(`[SCORE] ${evaluation.score}/100\n`);
+          
+          // Only show overall score if there are enough scoreable elements (3+)
+          const detailedResults = this.evaluator?.getLastExpectationResults();
+          const scoreableChecks = detailedResults?.flatMap(r => r.checks || []).length || 0;
+          
+          if (scoreableChecks >= 3) {
+            this.appendToReport(`[SCORE] ${evaluation.score}/100 (${scoreableChecks} checks)\n`);
+          } else {
+            // Not enough elements to score meaningfully - just show pass/fail
+            this.appendToReport(`[RESULT] ${evaluation.passed ? 'All checks passed' : 'Some checks failed'}\n`);
+          }
+          
           this.appendToReport(`[DURATION] ${endTime - startTime}ms\n`);
 
           this.updateState({ status: 'completed' });
@@ -1263,12 +1384,10 @@ export class ScenarioEngine {
       this.executor.stop();
     }
     
-    // Get current step results (may include partial/interrupted results now)
+    // Get current step results
     let stepResults = this.executor?.getContext()?.results || [];
     
     // If executor has a current step in progress, create a partial result for it
-    // NOTE: This is a fallback - the step's catch block should have already created a partial result
-    // But we check here in case the step hasn't reached the catch block yet
     const executorContext = this.executor?.getContext();
     if (executorContext && executorContext.currentPrompt) {
       // Check if we already have a result for the current step
@@ -1352,9 +1471,6 @@ export class ScenarioEngine {
     this.appendToReport('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     this.appendToReport('Evaluating results\n\n');
     
-    this.emit({ type: 'phase-update', phase: 'final-report', message: 'Analyzing scenario results...' });
-    this.appendToReport('  → Analyzing scenario results...\n');
-    
     // Evaluate with current results (now with refreshed execution state)
     const evaluation = this.evaluator!.evaluate(scenario, stepResults);
     
@@ -1384,7 +1500,21 @@ export class ScenarioEngine {
     
     // Add final result to report
     this.appendToReport(`\n[COMPLETE] ${evaluation.passed ? '✅ PASSED' : '❌ FAILED'} (Ended Early)\n`);
+    
+    // Only show overall score if there are enough scoreable elements (3+)
+    const detailedResults = this.evaluator?.getLastExpectationResults();
+    const scoreableChecks = detailedResults?.flatMap(r => r.checks || []).length || 0;
+    
+    if (scoreableChecks >= 3) {
+      this.appendToReport(`[SCORE] ${evaluation.score}/100 (${scoreableChecks} checks)\n`);
+    } else {
+      // Not enough elements to score meaningfully - just show pass/fail
+      this.appendToReport(`[RESULT] ${evaluation.passed ? 'All checks passed' : 'Some checks failed'}\n`);
+    }
+    
     this.appendToReport(`[DURATION] ${endTime - startTime}ms\n`);
+    this.appendToReport(`\n`);
+    this.appendToReport(`\n`)
     
     this.updateState({ status: 'completed' });
     this.emit({ type: 'scenario-complete', result });
@@ -1645,6 +1775,11 @@ export class ScenarioEngine {
    */
   addEventListener(listener: ScenarioEngineEventListener): void {
     this.eventListeners.add(listener);
+    
+    // Guard: Warn if too many listeners (indicates accumulation bug)
+    if (this.eventListeners.size > 2) {
+      console.warn(`[ScenarioEngine] Warning: ${this.eventListeners.size} event listeners registered (expected 1-2). This may indicate listener accumulation.`);
+    }
   }
 
   /**
@@ -1668,19 +1803,33 @@ export class ScenarioEngine {
       });
     }
     
-    // Debug logging
+    // Debug logging (avoid recursion by not using this.log for emit itself)
     if (event.type === 'report-update' || event.type === 'inject-prompt' || event.type === 'phase-start') {
-      this.log('info', `[emit] ${event.type}, listeners: ${this.eventListeners.size}`);
+      console.info(`[ScenarioEngine] [INFO] [emit] ${event.type}, listeners: ${this.eventListeners.size}`);
     }
     
-    for (const listener of this.eventListeners) {
-      try {
-        listener(event);
-      } catch (error) {
-        console.error('Event listener error:', error);
-        this.log('error', `Event listener threw error: ${error}`);
+    // Defer listener calls to prevent blocking the main thread
+    queueMicrotask(() => {
+      let listenerIndex = 0;
+      for (const listener of this.eventListeners) {
+        listenerIndex++;
+        try {
+          if (event.type === 'phase-start') {
+            console.info(`[ScenarioEngine] [INFO] [emit] Calling listener ${listenerIndex}/${this.eventListeners.size} for phase-start`);
+          }
+          listener(event);
+          if (event.type === 'phase-start') {
+            console.info(`[ScenarioEngine] [INFO] [emit] Listener ${listenerIndex} completed for phase-start`);
+          }
+        } catch (error) {
+          console.error('[ScenarioEngine] Event listener error:', error);
+        }
       }
-    }
+      
+      if (event.type === 'phase-start') {
+        console.info(`[ScenarioEngine] [INFO] [emit] All listeners completed for phase-start`);
+      }
+    });
   }
 
   private updateState(updates: Partial<ScenarioEngineState>): void {
@@ -1744,6 +1893,24 @@ export class ScenarioEngine {
     }
     if (!scenario.expectations || scenario.expectations.length === 0) {
       throw new Error('Scenario must have at least one expectation');
+    }
+
+    // Validate expectations using ExpressionValidator
+    for (let i = 0; i < scenario.expectations.length; i++) {
+      const expectation = scenario.expectations[i];
+      const result = this.expressionValidator.validate(expectation);
+
+      // Log warnings (non-blocking)
+      if (result.warnings.length > 0) {
+        this.log('warn', `Expectation #${i + 1} in scenario "${scenario.name}" has warnings:\n${result.warnings.join('\n')}`);
+      }
+
+      // Throw on errors (blocking)
+      if (!result.valid) {
+        throw new Error(
+          `Invalid expectation #${i + 1} in scenario "${scenario.name}":\n${result.errors.join('\n')}`
+        );
+      }
     }
   }
 

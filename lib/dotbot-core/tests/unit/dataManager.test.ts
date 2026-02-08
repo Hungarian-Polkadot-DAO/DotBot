@@ -30,7 +30,7 @@ const mockLocalStorage = {
 (global as any).localStorage = mockLocalStorage;
 
 import { DataManager, STORAGE_KEYS, nukeAllData, getStorageInfo } from '../../dataManager';
-import { ChatInstanceManager } from '../../chatInstanceManager';
+import { ChatInstanceManager } from '../../chat/chatInstanceManager';
 import { setStorage } from '../../env';
 
 describe('DataManager', () => {

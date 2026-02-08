@@ -26,7 +26,7 @@
     "ai",
     "backend"
   ],
-  "author": "",
+  "author": "Zelma Corp",
   "license": "GNU General Public License v3.0",
   "dependencies": {
     "@dotbot/core": "file:../lib/dotbot-core",

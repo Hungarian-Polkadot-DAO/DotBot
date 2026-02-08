@@ -31,13 +31,13 @@ const mockLocalStorage = {
 
 (global as any).localStorage = mockLocalStorage;
 
-import { ChatInstanceManager } from '../../chatInstanceManager';
+import { ChatInstanceManager } from '../../chat/chatInstanceManager';
 import type {
   ChatInstanceData,
   Environment,
   ConversationItem,
   ExecutionMessage
-} from '../../types/chatInstance';
+} from '../../chat/types';
 import type { ExecutionArrayState } from '../../executionEngine/types';
 
 describe('ChatInstanceManager', () => {

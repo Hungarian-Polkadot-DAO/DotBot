@@ -37,48 +37,38 @@ async function queryBalance(
 }
 
 /**
- * Calculate amount that would cause insufficient balance error after first transfer
- * 
- * Args: [reserveAmount, estimatedFee]
- * - reserveAmount: Amount to reserve for first transfer (default: 0.5) - must match safeTransferAmount
- * - estimatedFee: Estimated fee for each transfer (default: 0.01)
- * 
- * This function:
- * 1. Calculates the first transfer amount using the same logic as safeTransferAmount
- * 2. Calculates remaining balance after first transfer
- * 3. Returns an amount that exceeds remaining balance (will fail after first transfer)
- * 
- * This ensures the first transfer would succeed individually, but the second fails.
+ * Calculate amount that would cause insufficient balance after a first transfer.
+ * Returns (remaining after first - fee) + 0.2 so the second amount is a normal transfer size
+ * but clearly over remaining; the second transfer is valid in itself and only fails because
+ * balance after the first is not enough.
+ *
+ * Args: [firstTransferAmount, estimatedFee]
+ * - firstTransferAmount: Amount of the first transfer (must match the amount in the prompt)
+ * - estimatedFee: Estimated fee per transfer (default: 0.01)
  */
 export async function calculateInsufficientBalance(
   args: string[],
   context: CalculationContext
 ): Promise<string> {
-  const reserveAmount = parseFloat(args[0] || '0.5');
+  const firstAmount = parseFloat(args[0] || '0.5');
   const estimatedFee = parseFloat(args[1] || '0.01');
-  
+
   const userAddress = await context.getUserAddress();
   const { balance: freeBalance } = await queryBalance(context.api, userAddress);
-  
-  // Calculate first transfer amount using same logic as safeTransferAmount
-  // This ensures consistency with the first transfer in the prompt
-  const firstTransferAmount = Math.max(0.01, freeBalance - reserveAmount - estimatedFee - 0.01);
-  
-  // Calculate remaining balance after first transfer
-  const remainingAfterFirstTx = freeBalance - firstTransferAmount - estimatedFee;
-  
-  // If remaining <= 0, first transfer would already fail, so use 0.01
-  const insufficientAmount = remainingAfterFirstTx > 0 
-    ? remainingAfterFirstTx + 0.01  // Normal case: add buffer to remaining
-    : 0.01;  // Edge case: first transfer would fail, use small amount
-  
+
+  const remainingAfterFirst = freeBalance - firstAmount - estimatedFee;
+  const excess = 0.2; // Clearly over remaining, but normal-sized so "second transfer" is valid in itself
+  const insufficientAmount = remainingAfterFirst > 0
+    ? remainingAfterFirst + excess
+    : excess;
+
   const chainName = context.api.runtimeChain?.toString() || 'unknown';
   context.emit?.({
     type: 'log',
     level: 'info',
-    message: `[${chainName}] Balance: ${freeBalance.toFixed(4)}, First: ${firstTransferAmount.toFixed(2)}, After 1st tx: ${remainingAfterFirstTx.toFixed(4)}, Insufficient: ${insufficientAmount.toFixed(2)}`
+    message: `[${chainName}] Balance: ${freeBalance.toFixed(4)}, First: ${firstAmount.toFixed(2)}, After 1st: ${remainingAfterFirst.toFixed(4)}, Insufficient (2nd): ${insufficientAmount.toFixed(2)}`
   });
-  
+
   return insufficientAmount.toFixed(2);
 }
 

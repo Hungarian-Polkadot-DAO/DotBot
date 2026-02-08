@@ -6,7 +6,15 @@
  */
 
 export { buildSystemPrompt, buildSystemPromptSync, getDefaultSystemPrompt, buildVersionedSystemPrompt } from './loader';
-export { logSystemPrompt, logSystemPromptAsync, getSystemPromptString, logSystemPromptWithMockContext } from './utils';
+export {
+  logSystemPrompt,
+  logSystemPromptAsync,
+  getSystemPromptString,
+  logSystemPromptWithMockContext,
+  extractExecutionPlan,
+  tryFixJson,
+  isValidExecutionPlan,
+} from './utils';
 export { BASE_SYSTEM_PROMPT } from './base';
 export { EXECUTION_ARRAY_INSTRUCTIONS } from './execution/instructions';
 export {

@@ -1,0 +1,33 @@
+fix(scenarioEngine): resolve RAF scheduler freeze and event listener accumulation on reload
+
+Two separate bugs caused ScenarioEngine UI to freeze after page reloads:
+
+1. RAF Scheduler Flag Persistence (StrictMode)
+   - isScheduledRef.current persisted across unmount/remount while RAF was cancelled
+   - Messages arrived on remount and saw stale 'true' flag, skipping new RAF
+   - Fixed by resetting flag in useLayoutEffect cleanup (runs BEFORE remount)
+
+2. Event Listener Accumulation
+   - New event listeners added on each reload, causing CPU spike by 3rd reload
+   - Fixed by making DotBot subscription idempotent
+   - Removed DotBot unsubscribe from hook cleanup (App component manages lifecycle)
+
+Changes:
+- ScenarioEngineContext: Reset scheduler flag in useLayoutEffect cleanup
+- ScenarioEngine: Made subscribeToDotBot idempotent, added listener count warning
+- useScenarioEngine: Removed DotBot unsubscribe from cleanup
+- Removed excessive debug logging throughout
+
+Tested in Chromium with 5+ reloads - scenarios run smoothly every time.
+Note: Firefox still has issues (different underlying cause, marked as low-impact).
+
+Files changed:
+- frontend/src/components/scenarioEngine/context/ScenarioEngineContext.tsx
+- lib/dotbot-core/scenarioEngine/ScenarioEngine.ts
+- frontend/src/components/scenarioEngine/hooks/useScenarioEngine.ts
+
+Known remaining issues:
+- Firefox-specific freeze (requires separate investigation)
+- ScenarioEngine only works in already-started conversations
+
+See xx_raf_issue/COMMIT_SUMMARY.md for detailed analysis.

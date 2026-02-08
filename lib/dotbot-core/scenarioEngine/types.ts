@@ -401,8 +401,54 @@ export interface ScenarioAssertion {
 // EXPECTATION TYPES
 // =============================================================================
 
-/** Expected outcome of a scenario */
-export interface ScenarioExpectation {
+/**
+ * Comparison operators for parameter validation
+ * 
+ * Allows flexible matching beyond exact equality.
+ * 
+ * @example
+ * ```typescript
+ * expectedParams: {
+ *   amount: { gte: '0.01', lte: '10' }  // Between 0.01 and 10
+ * }
+ * ```
+ */
+export type ComparisonOperator<T = string | number> = {
+  /** Equals (exact match) */
+  eq?: T;
+  /** Not equals */
+  ne?: T;
+  /** Greater than */
+  gt?: T;
+  /** Greater than or equal */
+  gte?: T;
+  /** Less than */
+  lt?: T;
+  /** Less than or equal */
+  lte?: T;
+  /** Inclusive range [min, max] */
+  between?: [T, T];
+  /** Regex pattern match (string values only) */
+  matches?: RegExp | string;
+  /** Value must be in this list */
+  in?: T[];
+  /** Value must NOT be in this list */
+  notIn?: T[];
+};
+
+/**
+ * A parameter value can be:
+ * - A simple value (string/number/boolean) for exact match (backward compatible)
+ * - A comparison operator for flexible matching (new feature)
+ */
+export type ParamValue = string | number | boolean | ComparisonOperator;
+
+/**
+ * Base expectation interface (without logical operators)
+ * 
+ * This is the traditional flat format that all existing scenarios use.
+ */
+export interface BaseExpectation {
   /** What type of response is expected */
   responseType?: 'text' | 'json' | 'execution' | 'error' | 'clarification';
   
@@ -412,8 +458,24 @@ export interface ScenarioExpectation {
   /** Expected function on the agent */
   expectedFunction?: string;
   
-  /** Expected parameters (partial match) */
-  expectedParams?: Record<string, unknown>;
+  /** 
+   * Expected parameters (partial match)
+   * 
+   * Can use simple values (exact match) or comparison operators (flexible match)
+   * 
+   * @example
+   * ```typescript
+   * // Simple (backward compatible)
+   * expectedParams: { amount: '0.1', recipient: 'Alice' }
+   * 
+   * // With comparisons (new)
+   * expectedParams: { 
+   *   amount: { gte: '0.1', lte: '10' },
+   *   recipient: 'Alice'
+   * }
+   * ```
+   */
+  expectedParams?: Record<string, ParamValue>;
   
   /** Response should contain these strings */
   shouldContain?: string[];
@@ -439,6 +501,65 @@ export interface ScenarioExpectation {
   /** Custom validation function (serialized) */
   customValidator?: string;
 }
+
+/**
+ * Logical expectation with AND/OR/NOT/IF-THEN-ELSE operators
+ * 
+ * Allows composing complex expectations from simpler ones.
+ * 
+ * @example
+ * ```typescript
+ * // AND: All must pass
+ * { all: [
+ *   { responseType: 'execution' },
+ *   { expectedFunction: 'transfer' }
+ * ]}
+ * 
+ * // OR: At least one must pass
+ * { any: [
+ *   { shouldContain: ['insufficient'] },
+ *   { shouldContain: ['not enough'] }
+ * ]}
+ * 
+ * // NOT: Must not pass
+ * { not: { shouldContain: ['error'] } }
+ * 
+ * // IF-THEN-ELSE: Conditional
+ * {
+ *   when: { contextBalance: { gt: '10' } },
+ *   then: { responseType: 'execution' },
+ *   else: { shouldWarn: ['insufficient balance'] }
+ * }
+ * ```
+ */
+export interface LogicalExpectation extends BaseExpectation {
+  /** AND operator: All sub-expectations must pass */
+  all?: ScenarioExpectation[];
+  
+  /** OR operator: At least one sub-expectation must pass */
+  any?: ScenarioExpectation[];
+  
+  /** NOT operator: Sub-expectation must NOT pass */
+  not?: ScenarioExpectation;
+  
+  /** IF condition (when/then/else) */
+  when?: ScenarioExpectation;
+  
+  /** THEN branch (if 'when' passes) */
+  then?: ScenarioExpectation;
+  
+  /** ELSE branch (if 'when' fails) */
+  else?: ScenarioExpectation;
+}
+
+/**
+ * Scenario expectation - can be either flat (BaseExpectation) or logical (LogicalExpectation)
+ * 
+ * The system automatically detects which format is used via type guards.
+ * 
+ * Backward Compatible: All existing flat expectations continue working unchanged.
+ */
+export type ScenarioExpectation = BaseExpectation | LogicalExpectation;
 
 // =============================================================================
 // RESULT TYPES
@@ -602,6 +723,47 @@ export interface ScenarioEngineState {
   error?: string;
 }
 
+// =============================================================================
+// TYPE GUARDS
+// =============================================================================
+
+/**
+ * Check if an expectation uses logical operators (all/any/not/when)
+ * 
+ * @param expectation - The expectation to check
+ * @returns true if it uses logical operators, false if it's a flat expectation
+ */
+export function isLogicalExpectation(expectation: ScenarioExpectation): expectation is LogicalExpectation {
+  const logical = expectation as LogicalExpectation;
+  return !!(
+    logical.all ||
+    logical.any ||
+    logical.not ||
+    logical.when ||
+    logical.then ||
+    logical.else
+  );
+}
+
+/**
+ * Check if a parameter value uses comparison operators
+ * 
+ * @param value - The parameter value to check
+ * @returns true if it's a comparison operator object, false if it's a simple value
+ */
+export function isComparisonOperator(value: ParamValue): value is ComparisonOperator {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  
+  const operators = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'between', 'matches', 'in', 'notIn'];
+  return operators.some(op => op in value);
+}
+
+// =============================================================================
+// ENGINE EVENT TYPES
+// =============================================================================
+
 /**
  * Event types emitted by the engine
  * 
@@ -621,6 +783,7 @@ export type ScenarioEngineEvent =
   | { type: 'step-start'; step: ScenarioStep; index: number }
   | { type: 'step-input-updated'; stepId: string; originalInput: string; modifiedInput: string }  // Step input was modified (e.g., entity names replaced with addresses)
   | { type: 'step-complete'; step: ScenarioStep; result: StepResult }
+  | { type: 'execution-complete'; executionId: string; state: any }
   | { type: 'scenario-complete'; result: ScenarioResult }
   | { type: 'error'; error: string; step?: ScenarioStep }
   | { type: 'log'; level: 'debug' | 'info' | 'warn' | 'error'; message: string }

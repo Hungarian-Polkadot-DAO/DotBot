@@ -9,7 +9,7 @@
  * - Hybrid (local cache + backend sync)
  */
 
-import type { ChatInstanceData } from '../types/chatInstance';
+import type { ChatInstanceData } from '../chat/types';
 
 /**
  * Storage interface that all implementations must follow

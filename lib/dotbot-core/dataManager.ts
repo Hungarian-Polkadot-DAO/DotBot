@@ -11,8 +11,8 @@
  * Uses storage abstraction (getStorage) to work in both browser and Node.js.
  */
 
-import { ChatInstanceManager } from './chatInstanceManager';
-import type { ChatInstanceData } from './types/chatInstance';
+import { ChatInstanceManager } from './chat/chatInstanceManager';
+import type { ChatInstanceData } from './chat/types';
 import { getStorage } from './env';
 
 /**

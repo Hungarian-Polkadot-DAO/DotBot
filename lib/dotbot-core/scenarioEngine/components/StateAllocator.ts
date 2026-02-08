@@ -78,12 +78,12 @@ import type { ApiPromise } from '@polkadot/api';
 import { ApiPromise as ApiPromiseClass, WsProvider } from '@polkadot/api';
 import { BN } from '@polkadot/util';
 import { decodeAddress } from '@polkadot/util-crypto';
-import { ChatInstanceManager } from '../../chatInstanceManager';
+import { ChatInstanceManager } from '../../chat/chatInstanceManager';
 // NOTE: Chopsticks imports removed - emulated mode not currently supported
 // Emulated mode would require server-side Chopsticks setup
 import type { Network, RpcManager } from '../../rpcManager';
 import { getEndpointsForNetwork } from '../../rpcManager';
-import type { ConversationItem, TextMessage, SystemMessage } from '../../types/chatInstance';
+import type { ConversationItem, TextMessage, SystemMessage } from '../../chat/types';
 
 // =============================================================================
 // TYPES

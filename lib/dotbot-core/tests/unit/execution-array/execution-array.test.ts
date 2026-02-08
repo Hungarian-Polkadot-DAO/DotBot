@@ -261,12 +261,15 @@ describe('ExecutionArray', () => {
   });
 
   describe('Callbacks', () => {
-    it('should fire status callback on status update', () => {
+    it('should fire status callback on status update', async () => {
       const callback = jest.fn();
       executionArray.onStatusUpdate(callback);
 
       const id = executionArray.add(createMockAgentResult());
       executionArray.updateStatus(id, 'executing');
+
+      // Wait for deferred callback (updateStatus uses deferred notifications)
+      await wait(50);
 
       expect(callback).toHaveBeenCalled();
       expect(callback.mock.calls[0][0].id).toBe(id);
@@ -303,7 +306,7 @@ describe('ExecutionArray', () => {
       expect(errorCallback.mock.calls[0][1].message).toBe('Test error');
     });
 
-    it('should allow multiple subscribers', () => {
+    it('should allow multiple subscribers', async () => {
       const callback1 = jest.fn();
       const callback2 = jest.fn();
 
@@ -312,6 +315,9 @@ describe('ExecutionArray', () => {
 
       const id = executionArray.add(createMockAgentResult());
       executionArray.updateStatus(id, 'executing');
+
+      // Wait for deferred callback (updateStatus uses deferred notifications)
+      await wait(50);
 
       expect(callback1).toHaveBeenCalled();
       expect(callback2).toHaveBeenCalled();

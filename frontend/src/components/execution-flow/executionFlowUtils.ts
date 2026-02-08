@@ -10,10 +10,10 @@
  * - Polling uses idle timeout (stops if no changes for 2 minutes)
  */
 
+import { startTransition } from 'react';
 import { ExecutionArrayState } from '@dotbot/core/executionEngine/types';
 import { ExecutionMessage, DotBot } from '@dotbot/core';
 import { getExecutionState } from '../../services/dotbotApi';
-import { hasStateChanged, updateStateDeferred } from './stateUtils';
 
 /**
  * Setup WebSocket subscription for execution updates
@@ -26,8 +26,6 @@ function setupWebSocketSubscription(
 ): (() => void) {
   console.log('[ExecutionFlow] Using WebSocket for execution updates');
   
-  let lastState: ExecutionArrayState | null = null;
-  
   return wsSubscribe(executionId, (state) => {
     // Log all updates to debug simulation progress
     console.log('[ExecutionFlow] WebSocket update received:', {
@@ -37,19 +35,15 @@ function setupWebSocketSubscription(
       simulationPhases: state.items.map(item => item.simulationStatus?.phase).filter(Boolean),
     });
     
-    // Only update state if it actually changed (prevents unnecessary re-renders)
-    if (hasStateChanged(state, lastState)) {
-      lastState = state;
-      updateStateDeferred(() => setLiveExecutionState(state));
-      executionMessage.executionArray = state;
-      
-      // Log completion (subscription continues until cleanup)
-      // Use helper function to handle empty arrays correctly
-      if (isFlowComplete(state)) {
-        console.log('[ExecutionFlow] Execution completed via WebSocket');
-      }
-    } else {
-      console.log('[ExecutionFlow] WebSocket update ignored (state unchanged)');
+    // Update state immediately - React 18 will automatically batch rapid updates
+    startTransition(() => {
+      setLiveExecutionState(state);
+    });
+    executionMessage.executionArray = state;
+    
+    // Log completion (subscription continues until cleanup)
+    if (isFlowComplete(state)) {
+      console.log('[ExecutionFlow] Execution completed via WebSocket');
     }
   });
 }
@@ -74,7 +68,6 @@ function setupPollingFallback(
   const POLL_INTERVAL_EXECUTION_MS = 1000; // 1 second during execution
   let pollInterval: NodeJS.Timeout | null = null;
   let isPolling = true;
-  let lastState: ExecutionArrayState | null = null;
   let pollCount = 0;
   
   const pollExecutionState = async () => {
@@ -86,12 +79,11 @@ function setupPollingFallback(
       if (response.success && response.state) {
         const newState = response.state as ExecutionArrayState;
         
-        // Only update state if it actually changed (prevents unnecessary re-renders)
-        if (hasStateChanged(newState, lastState)) {
-          lastState = newState;
-          updateStateDeferred(() => setLiveExecutionState(newState));
-          executionMessage.executionArray = newState;
-        }
+        // Update state immediately - React 18 will automatically batch rapid updates
+        startTransition(() => {
+          setLiveExecutionState(newState);
+        });
+        executionMessage.executionArray = newState;
         
         // Check if execution is complete (use helper function to handle empty arrays correctly)
         if (isFlowComplete(newState)) {
@@ -218,15 +210,11 @@ export function setupExecutionSubscription(
     }
   } else if (dotbot.currentChat) {
     // Stateful mode: subscribe to local ExecutionArray updates
-    // Use deferred updates to prevent UI blocking
-    let lastLocalState: ExecutionArrayState | null = null;
-    
+    // React 18 will automatically batch rapid updates
     unsubscribe = dotbot.currentChat.onExecutionUpdate(executionId, (state) => {
-      // Only update if state actually changed
-      if (hasStateChanged(state, lastLocalState)) {
-        lastLocalState = state;
-        updateStateDeferred(() => setLiveExecutionState(state));
-      }
+      startTransition(() => {
+        setLiveExecutionState(state);
+      });
     });
   }
 
@@ -295,9 +283,20 @@ export function isFlowSuccessful(executionState: ExecutionArrayState): boolean {
  */
 export function isFlowFailed(executionState: ExecutionArrayState): boolean {
   if (!isFlowComplete(executionState)) return false;
-  // Empty array cannot have failed items
   if (executionState.items.length === 0) return false;
-  
   return executionState.items.some(item => item.status === 'failed');
+}
+
+/** Terminal statuses: step will not change. */
+const TERMINAL_STATUSES = ['completed', 'failed', 'finalized', 'cancelled'] as const;
+
+/**
+ * True if the flow has any non-terminal step (interrupted or not yet run).
+ */
+export function isFlowInterrupted(executionState: ExecutionArrayState): boolean {
+  if (executionState.items.length === 0) return false;
+  return executionState.items.some(
+    item => !TERMINAL_STATUSES.includes(item.status as typeof TERMINAL_STATUSES[number])
+  );
 }
 
